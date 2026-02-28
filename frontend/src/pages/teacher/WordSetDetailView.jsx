@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useUser } from '../../context/UserContext.jsx';
 import apiClient from '../../api/axiosConfig.js';
 
 export default function WordSetDetailView() {
   const { setId } = useParams();
   const navigate = useNavigate();
+  const { user } = useUser();
   const [wordSet, setWordSet] = useState(null);
   const [allWords, setAllWords] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -187,7 +189,15 @@ export default function WordSetDetailView() {
 
   return (
     <div>
-      <button onClick={() => navigate('/teacher/word-sets')} style={{ float: 'right' }}>Back to All Sets</button>
+      <div style={{ float: 'right', display: 'flex', gap: '0.5rem' }}>
+        {user?.role === 'ADMIN' && (
+          <button onClick={() => navigate(`/teacher/generate/${setId}`)}
+            style={{ background: '#7c3aed', color: '#fff' }}>
+            Generate Full Pipeline
+          </button>
+        )}
+        <button onClick={() => navigate('/teacher/word-sets')}>Back to All Sets</button>
+      </div>
       <h2>Manage Words in "{wordSet.title}"</h2>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginTop: '20px' }}>

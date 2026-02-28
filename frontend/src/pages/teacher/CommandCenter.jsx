@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useUser } from '../../context/UserContext.jsx';
 import apiClient from '../../api/axiosConfig.js';
 import StudentFormModal from '../../components/StudentFormModal.jsx';
 import BulkStudentFormModal from '../../components/BulkStudentFormModal.jsx';
 
 export default function CommandCenter() {
   const navigate = useNavigate();
+  const { user } = useUser();
   const [dashboardData, setDashboardData] = useState({ groups: [], roster: [] });
   const [selectedGroupId, setSelectedGroupId] = useState('all');
   const [selectedStudentId, setSelectedStudentId] = useState(null);
@@ -109,6 +111,9 @@ export default function CommandCenter() {
             <li><button onClick={() => navigate('/teacher/word-sets')}>Manage Word Sets</button></li>
             <li><button onClick={() => navigate('/teacher/groups')}>Manage Student Groups</button></li>
             <li><button className="active">View Class Roster &amp; Progress</button></li>
+            {user?.role === 'ADMIN' && (
+              <li><button onClick={() => navigate('/teacher/word-sets')} style={{ color: '#7c3aed' }}>Generate Content</button></li>
+            )}
           </ul>
         </aside>
 

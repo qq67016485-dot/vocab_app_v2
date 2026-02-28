@@ -16,6 +16,8 @@ import WordSetListView from './pages/teacher/WordSetListView.jsx';
 import WordSetDetailView from './pages/teacher/WordSetDetailView.jsx';
 import GroupManagementView from './pages/teacher/GroupManagementView.jsx';
 import StudentProgressDashboard from './pages/teacher/StudentProgressDashboard.jsx';
+import GenerationWizard from './pages/admin/GenerationWizard.jsx';
+import GenerationReview from './pages/admin/GenerationReview.jsx';
 
 import './styles/main.css';
 import './styles/students.css';
@@ -65,6 +67,8 @@ function App() {
           <Route path="groups" element={<GroupManagementView />} />
           <Route path="students/:studentId/progress" element={<StudentProgressDashboard />} />
           <Route path="students/:studentId/patterns" element={<LearningPatternsView />} />
+          <Route path="generate/:setId" element={<GenerationWizard />} />
+          <Route path="generation-jobs/:jobId" element={<GenerationReview />} />
         </Route>
 
         {/* Root — redirect by role */}
