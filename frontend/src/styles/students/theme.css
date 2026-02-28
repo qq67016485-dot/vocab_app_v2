@@ -1,0 +1,53 @@
+/* Navbar uses the theme gradient */
+[data-app="student"] .navbar {
+  background: linear-gradient(135deg, var(--brand-1), var(--brand-2) 65%);
+}
+
+/* Selected states + outlined actions use --primary */
+[data-app="student"] .mc-option-button.selected { background: color-mix(in oklab, var(--primary) 14%, #fff); border-color: var(--primary); }
+[data-app="student"] .end-session,
+[data-app="student"] .callout-cta,
+[data-app="student"] .show-zh-btn { color: var(--primary); border: 1px solid var(--primary); }
+[data-app="student"] .end-session:hover,
+[data-app="student"] .callout-cta:hover { background: color-mix(in oklab, var(--primary) 10%, #fff); }
+
+/* Filled CTAs follow the theme color */
+[data-app="student"] .primary,
+[data-app="student"] .back-home,
+[data-app="student"] .next-question,
+[data-app="student"] form button[type="submit"],
+[data-app="student"] .mission-card .primary,
+[data-app="student"] .btn-primary {
+  background: var(--primary);
+  color: var(--primary-contrast);
+  border: 1px solid var(--primary);
+  box-shadow: var(--shadow-1);
+  transition: background var(--dur-fast) var(--ease-std), transform var(--dur-fast) var(--ease-std), box-shadow var(--dur-fast) var(--ease-std);
+}
+[data-app="student"] .primary:hover,
+[data-app="student"] .back-home:hover,
+[data-app="student"] .next-question:hover,
+[data-app="student"] form button[type="submit"]:hover,
+[data-app="student"] .mission-card .primary:hover,
+[data-app="student"] .btn-primary:hover { background: color-mix(in oklab, var(--primary) 88%, #fff); box-shadow: var(--shadow-2); transform: translateY(-1px); }
+[data-app="student"] .primary:active,
+[data-app="student"] .back-home:active,
+[data-app="student"] .next-question:active,
+[data-app="student"] form button[type="submit"]:active,
+[data-app="student"] .mission-card .primary:active,
+[data-app="student"] .btn-primary:active { transform: translateY(0); box-shadow: var(--shadow-1); }
+
+/* Theme switcher pills */
+[data-app="student"] .theme-switcher { display: flex; flex-wrap: wrap; gap: .5rem; margin: .5rem 0 var(--space-3); }
+[data-app="student"] .theme-pill { color: var(--text); background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: .35rem .75rem; font-weight: 700; font-size: .95rem; }
+[data-app="student"] .theme-pill:hover { background: #f6f8fa; }
+[data-app="student"] .theme-pill.active,
+[data-app="student"] .theme-pill[aria-selected="true"] { color: var(--primary); border-color: var(--primary); box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 30%, #fff) inset; }
+
+/* ----- Theme palettes ----- */
+/* sky-lavender (default) */
+[data-app="student"][data-theme="sky-lavender"] { --brand-1:#6a74ff; --brand-2:#6ec5ff; --primary:#3b82f6; }
+[data-app="student"][data-theme="mint-meadow"]   { --brand-1:#0ea5a6; --brand-2:#34d399; --primary:#10b981; }
+[data-app="student"][data-theme="sunny-peach"]   { --brand-1:#f59e0b; --brand-2:#f97316; --primary:#f97316; }
+[data-app="student"][data-theme="grape-soda"]    { --brand-1:#7c3aed; --brand-2:#a78bfa; --primary:#7c3aed; }
+[data-app="student"][data-theme="seafoam-breeze"]{ --brand-1:#14b8a6; --brand-2:#22d3ee; --primary:#14b8a6; }

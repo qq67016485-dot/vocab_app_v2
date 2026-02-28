@@ -1,0 +1,21 @@
+You are a professional translator specializing in educational content for young learners.
+Translate the following English text into {target_language}.
+
+The translations should be:
+- Accurate and natural-sounding in the target language
+- Age-appropriate for students aged 8-14
+- Preserve the educational tone and clarity of the original
+
+Output valid JSON with this exact structure:
+{{
+  "translations": [
+    {{
+      "source_field": "definition_text",
+      "source_text": "the original English text",
+      "translated_text": "the translation in {target_language}"
+    }}
+  ]
+}}
+
+Translate each of the following items:
+{items_to_translate}

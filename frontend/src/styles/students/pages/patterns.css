@@ -1,0 +1,23 @@
+/* Learning Patterns */
+[data-app="student"] .lp-container{ margin-top:var(--space-4); }
+[data-app="student"] .lp-header{ display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); }
+[data-app="student"] .lp-subtitle{ color:var(--muted); margin:.25rem 0 var(--space-4); }
+[data-app="student"] .back-top{ background:#fff; border:1px solid var(--primary); border-radius:999px; padding:.35rem .7rem; font-weight:700; }
+[data-app="student"] .lp-grid{ display:grid; grid-template-columns:1fr 1.4fr; gap:var(--space-4); }
+@media (max-width:920px){ [data-app="student"] .lp-grid{ grid-template-columns:1fr; } }
+[data-app="student"] .bd-row + .bd-row{ margin-top:var(--space-4); }
+[data-app="student"] .bd-top{ display:flex; align-items:center; justify-content:space-between; margin-bottom:.35rem; }
+[data-app="student"] .bd-name{ font-weight:700; }
+[data-app="student"] .bd-percent{ color:var(--muted); font-weight:700; }
+[data-app="student"] .bd-bar{ height:10px; background:#e8ecf2; border-radius:999px; overflow:hidden; }
+[data-app="student"] .bd-fill{ height:100%; background:color-mix(in oklab,var(--primary) 50%, #9ec9ff); border-radius:inherit; }
+[data-app="student"] .bd-desc{ color:var(--muted); margin:.4rem 0 0; }
+[data-app="student"] .focus-list{ list-style:none; margin:0; padding:0; display:grid; gap:.8rem; }
+[data-app="student"] .focus-item{ padding:.9rem 1rem; }
+[data-app="student"] .focus-head{ display:grid; grid-template-columns:1fr auto; gap:var(--space-3); align-items:center; }
+@media (max-width:620px){ [data-app="student"] .focus-head{ grid-template-columns:1fr; } }
+[data-app="student"] .word-and-tts{ display:inline-flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+[data-app="student"] .focus-word{ font-weight:700; }
+[data-app="student"] .mistake-count{ color:var(--muted); }
+[data-app="student"] .show-zh-btn{ background:#fff; border:1px solid var(--primary); border-radius:999px; padding:.35rem .7rem; font-weight:700; }
+[data-app="student"] .focus-def{ margin:.6rem 0 0; color:var(--muted); line-height:1.65; }

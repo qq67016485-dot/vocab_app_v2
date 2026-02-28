@@ -1,0 +1,23 @@
+/* Chips row reverted to old style */
+[data-app="student"] .feedback-header{ display:flex; align-items:center; gap:.5rem; margin-bottom:var(--space-3); padding:0; background:transparent; border:0; box-shadow:none; border-radius:0; }
+[data-app="student"] .feedback-chip.incorrect,
+[data-app="student"] .feedback-chip.correct{ background:none !important; border:0 !important; padding:0 !important; border-radius:0 !important; font-weight:700; line-height:1; margin-right:.5rem; font-size:1.05rem; }
+[data-app="student"] .feedback-chip.incorrect{ color:var(--danger); }
+[data-app="student"] .feedback-chip.correct{ color:var(--success); }
+[data-app="student"] .feedback-chip.tag{ display:inline-block; border-radius:999px; padding:.18rem .55rem; font-weight:600; line-height:1; background:transparent !important; border:1px solid currentColor; font-size:.9rem; }
+[data-app="student"] .feedback-header .feedback-chip.incorrect ~ .feedback-chip.tag{ color:var(--danger); }
+[data-app="student"] .feedback-header .feedback-chip.correct ~ .feedback-chip.tag{ display:none; }
+
+/* Word line + inline translation */
+[data-app="student"] .feedback-wordline{ display:block; margin: var(--space-3) 0 var(--space-2); }
+[data-app="student"] .feedback-word-main{ display:inline-flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+[data-app="student"] .feedback-word-main .label{ color:var(--muted); font-weight:600; }
+[data-app="student"] .feedback-translation{ margin-left:.25rem; color:var(--primary); font-weight:600; line-height:1.2; }
+
+/* Explanation / Example panels */
+[data-app="student"] .feedback-block{ border:1px solid var(--border); border-radius:16px; padding:.9rem 1rem; margin:var(--space-3) 0; background:#f2f4f7; }
+[data-app="student"] .feedback-block.explain{ background:#eef2f5; }
+[data-app="student"] .feedback-block.example{ background:#edf6ff; }
+[data-app="student"] .block-title{ display:inline-flex; align-items:center; gap:.45rem; font-weight:700; margin-bottom:.5rem; }
+[data-app="student"] .block-body{ margin:0; color:var; line-height:1.6; }
+[data-app="student"] .next-question{ margin-top:var(--space-4); border-radius:12px; padding:.75rem 1rem; font-weight:700; }

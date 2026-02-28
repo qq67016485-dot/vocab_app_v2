@@ -1,0 +1,83 @@
+/* Shared base polish */
+[data-app="student"] .page-title h1 {
+  margin: var(--space-6) 0 var(--space-4);
+  letter-spacing: .2px;
+}
+
+
+
+[data-app="student"] :focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+/* "panel" look shared by many blocks (now also sets comfortable padding) */
+[data-app="student"] .practice-card,
+[data-app="student"] .summary-section,
+[data-app="student"] .journey-section,
+[data-app="student"] .accordion-word-item,
+[data-app="student"] .lp-card,
+[data-app="student"] .focus-item,
+[data-app="student"] .weakness-row {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-1);
+  padding: 1rem 1.25rem;
+  /* moved from fixes.css: prevents content hugging edges */
+}
+
+/* TTS buttons are "plain" everywhere in the student app */
+[data-app="student"] .tts-button {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  min-width: auto;
+  min-height: auto;
+  line-height: 1;
+}
+
+[data-app="student"] .tts-button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Navbar XP bar + level badge (single definitive version) */
+[data-app="student"] .level-progress-container {
+  max-width: 520px;
+  gap: var(--space-3);
+}
+
+[data-app="student"] .progress-bar-wrapper {
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .25);
+  border: none;
+  overflow: hidden;
+}
+
+[data-app="student"] .progress-bar-fill {
+  background: #fff;
+  transition: width var(--dur-std) var(--ease-std);
+}
+
+[data-app="student"] .progress-bar-text {
+  display: flex;
+  font-size: 12px;
+  font-weight: 700;
+  color: #2c3e50;
+  text-shadow: 0 0 2px #fff;
+}
+
+[data-app="student"] .level-badge {
+  background: rgba(0, 0, 0, .25);
+  backdrop-filter: blur(2px);
+}
+
+@media (max-width: 420px) {
+  [data-app="student"] .progress-bar-text {
+    display: none;
+  }
+}

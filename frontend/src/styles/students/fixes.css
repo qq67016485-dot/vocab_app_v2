@@ -1,0 +1,330 @@
+/* ------------------------------------------------------------------
+   Student overrides + theme bindings (LOAD THIS FILE LAST)
+   All background/color/border-color rules live here.
+   ------------------------------------------------------------------ */
+
+/* ========== COMPONENT THEME BINDINGS (chips, buttons) ========== */
+
+/* Base chip look (summary & pattern chips use neutral base by default) */
+[data-app="student"] :is(.summary-chip, .pattern-chip) {
+  background: #fff !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+/* "Show 中文" — themed outline button (also reused elsewhere) */
+[data-app="student"] .show-zh-btn {
+  background: #fff !important;
+  color: var(--primary) !important;
+  border: 1px solid var(--primary) !important;
+}
+[data-app="student"] .show-zh-btn:hover {
+  background: color-mix(in oklab, var(--primary) 10%, #fff) !important;
+}
+
+/* Summary chip "soft" variant follows theme */
+[data-app="student"] .summary-chip.soft {
+  color: var(--primary) !important;
+  background: color-mix(in oklab, var(--primary) 8%, #fff) !important;
+  border-color: color-mix(in oklab, var(--primary) 22%, #fff) !important;
+}
+
+/* Optional palette chips (skill tags like "definition", etc.) */
+[data-app="student"] .pattern-chip.purple {
+  color: #6b21a8 !important;
+  background: color-mix(in oklab, #6b21a8 12%, #fff) !important;
+  border-color: color-mix(in oklab, #6b21a8 32%, #fff) !important;
+}
+[data-app="student"] .pattern-chip.orange {
+  color: #b45309 !important;
+  background: color-mix(in oklab, #b45309 12%, #fff) !important;
+  border-color: color-mix(in oklab, #b45309 32%, #fff) !important;
+}
+[data-app="student"] .pattern-chip.blue {
+  color: var(--primary) !important;
+  background: color-mix(in oklab, var(--primary) 12%, #fff) !important;
+  border-color: color-mix(in oklab, var(--primary) 32%, #fff) !important;
+}
+
+/* ========== DASHBOARD ========== */
+
+/* Start Practice Session → filled CTA */
+[data-app="student"] .mission-card :is(.primary, .btn-primary) {
+  background: var(--primary) !important;
+  border: 1px solid var(--primary) !important;
+  color: var(--primary-contrast) !important;
+  border-radius: 12px;
+  font-weight: 700;
+  box-shadow: var(--shadow-1);
+}
+[data-app="student"] .mission-card :is(.primary, .btn-primary):hover {
+  background: color-mix(in oklab, var(--primary) 88%, #fff) !important;
+  box-shadow: var(--shadow-2);
+}
+
+/* Patterns callout → themed outline */
+[data-app="student"] .patterns-callout :is(.callout-cta, .btn) {
+  background: #fff !important;
+  color: var(--primary) !important;
+  border: 1px solid var(--primary) !important;
+  border-radius: 999px;
+  font-weight: 700;
+}
+[data-app="student"] .patterns-callout :is(.callout-cta, .btn):hover {
+  background: color-mix(in oklab, var(--primary) 10%, #fff) !important;
+}
+
+/* ========== PRACTICE ========== */
+
+/* End Session (default header) → themed outline */
+[data-app="student"] :is(.practice-header .end-session, .end-session.btn, .btn.end-session) {
+  background: #fff !important;
+  color: var(--primary) !important;
+  border: 1px solid var(--primary) !important;
+  border-radius: 12px;
+  font-weight: 700;
+}
+
+/* MC/TF choices — neutral base + hover */
+[data-app="student"] :is(.mc-option-button, .mc-options-container .btn, .tf-options-container .btn, .mc-option-button.btn-outline-primary) {
+  background: #fff !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: none !important;
+}
+[data-app="student"] :is(.mc-option-button, .mc-options-container .btn, .tf-options-container .btn, .mc-option-button.btn-outline-primary):hover {
+  background: #f6f8fa !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+/* Selected choice — soft themed fill + border (incl. hover) */
+[data-app="student"] :is(.mc-option-button.selected, .tf-options-container .mc-option-button.selected) {
+  background: color-mix(in oklab, var(--primary) 14%, #fff) !important;
+  border-color: var(--primary) !important;
+  color: var(--text) !important;
+}
+[data-app="student"] :is(.mc-option-button.selected, .tf-options-container .mc-option-button.selected):hover {
+  background: color-mix(in oklab, var(--primary) 18%, #fff) !important;
+  border-color: var(--primary) !important;
+}
+
+/* Visible focus ring color for choices */
+[data-app="student"] .mc-option-button:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--primary) 35%, #fff) !important;
+}
+
+/* Submit button (practice) → filled CTA */
+[data-app="student"] .practice-card :is(button[type="submit"], .btn-primary, .submit, .btn.btn-primary) {
+  background: var(--primary) !important;
+  border: 1px solid var(--primary) !important;
+  color: var(--primary-contrast) !important;
+  border-radius: 12px;
+  font-weight: 700;
+}
+
+/* Question "note" above the title */
+[data-app="student"] .question-heading {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "note  note"
+    "title title";
+}
+[data-app="student"] .question-note {
+  grid-area: note;
+  text-align: left;
+  color: var(--muted);
+  font-style: italic;
+  margin-bottom: .35rem;
+}
+[data-app="student"] .question-title {
+  grid-area: title;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+/* Feedback chips */
+[data-app="student"] .feedback-header .feedback-chip.correct  { color: var(--success) !important; }
+[data-app="student"] .feedback-header .feedback-chip.incorrect{ color: var(--danger) !important; }
+
+/* Next Question CTA (feedback) → filled */
+[data-app="student"] :is(.next-question, .feedback-actions .btn-primary) {
+  background: var(--primary) !important;
+  border: 1px solid var(--primary) !important;
+  color: var(--primary-contrast) !important;
+  border-radius: 12px !important;
+  font-weight: 700 !important;
+}
+[data-app="student"] :is(.next-question, .feedback-actions .btn-primary):hover {
+  background: color-mix(in oklab, var(--primary) 88%, #fff) !important;
+}
+
+/* ========== SESSION SUMMARY ========== */
+
+[data-app="student"] .summary-hero {
+  background: color-mix(in oklab, var(--primary) 6%, #f7f9ff) !important;
+  border: 1px solid #e7eaf3 !important;
+  border-radius: 18px !important;
+  padding: 1.25rem 1.5rem !important;
+  box-shadow: var(--shadow-1);
+}
+
+[data-app="student"] .metrics-row {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: var(--space-4) !important;
+}
+
+[data-app="student"] .metric-card {
+  background: #fff !important;
+  border: 1px solid #e7eaf3 !important;
+  border-radius: 14px !important;
+  padding: 1rem 1.25rem !important;
+  box-shadow: var(--shadow-1);
+}
+[data-app="student"] .metric-value { font-size: 1.6rem !important; font-weight: 800 !important; letter-spacing: .2px; }
+[data-app="student"] .metric-label { color: var(--muted) !important; margin-top: .35rem !important; font-weight: 600 !important; }
+
+[data-app="student"] .chip-list { gap: .45rem !important; }
+
+[data-app="student"] .weakness-list { gap: .8rem !important; }
+[data-app="student"] .weakness-row {
+  background: #fff !important;
+  border: 1px solid #e7eaf3 !important;
+  border-radius: 12px !important;
+  padding: 1rem 1.25rem !important;
+  box-shadow: var(--shadow-1);
+}
+[data-app="student"] .weakness-left .word-and-tts { gap: .5rem !important; }
+[data-app="student"] .weakness-left .word-and-tts strong { font-weight: 700 !important; }
+
+/* Back to Home – themed full-width pill */
+[data-app="student"] :is(.back-home, .btn-primary.back-home) {
+  background: var(--primary) !important;
+  border: 1px solid var(--primary) !important;
+  color: var(--primary-contrast) !important;
+  border-radius: 999px !important;
+  padding: .85rem 1rem !important;
+  font-weight: 700 !important;
+  box-shadow: var(--shadow-1);
+}
+
+/* Inner spacing/gaps inside the summary container */
+[data-app="student"] .session-summary .summary-section { padding: 1rem 1.25rem !important; }
+[data-app="student"] .session-summary .summary-section.chips {
+  padding-block: .75rem !important;
+  padding-inline: 1.25rem !important;
+}
+[data-app="student"] .session-summary .weakness-list { padding-left: 0 !important; margin: 0 !important; gap: .8rem !important; }
+[data-app="student"] .session-summary .weakness-row { padding: 1rem 1.25rem !important; border-radius: 12px !important; }
+[data-app="student"] .session-summary .word-and-tts { gap: .6rem !important; }
+[data-app="student"] .session-summary .tts-button { margin-right: .05rem !important; }
+
+/* ========== LEARNING PATTERNS: skill tag on its own line ========== */
+
+[data-app="student"] .lp-card .focus-item .word-and-tts {
+  display: flex !important;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap !important;
+}
+/* force a break before the chip but keep the chip auto-width */
+[data-app="student"] .lp-card .focus-item .word-and-tts::after {
+  content: "" !important;
+  order: 9 !important;
+  flex-basis: 100% !important;
+}
+[data-app="student"] .lp-card .focus-item .word-and-tts .pattern-chip {
+  order: 10 !important;
+  flex: 0 0 auto !important;
+  width: auto !important;
+  max-width: max-content !important;
+  align-self: flex-start !important;
+  margin-top: .3rem !important;
+}
+
+/* ========== PRACTICE HEADER (COMPACT) – match "green" mock ========== */
+
+[data-app="student"] .practice-header.compact {
+  display: grid;
+  grid-template-columns: auto 1fr auto;  /* title | progress | button */
+  align-items: center;
+  gap: var(--space-4);
+  padding: .5rem .75rem;
+  background: #f7f9fc;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+[data-app="student"] .practice-header.compact h2 {
+  margin: 0;
+  white-space: nowrap;
+}
+/* count to the right of the bar */
+[data-app="student"] .practice-header.compact .session-progress-count {
+  font-size: .9rem;
+  color: var(--muted);
+}
+/* compact header uses a SMALL filled CTA for End Session */
+[data-app="student"] .practice-header.compact .end-session {
+  background: var(--primary) !important;
+  color: var(--primary-contrast) !important;
+  border: 1px solid var(--primary) !important;
+  border-radius: 8px;
+  padding: .4rem .65rem;
+  font-weight: 700;
+  line-height: 1;
+}
+/* bar look in compact header */
+[data-app="student"] .practice-header.compact .session-progress {
+  height: 10px;
+  border-radius: 999px;
+  background: #ddd;
+}
+
+/* Title row: keep heading and switcher on one line */
+[data-app="student"] .page-title.page-title--with-theme {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+}
+
+/* Compact button-style theme picker */
+[data-app="student"] .theme-button-wrap {
+  position: relative;
+  display: inline-block;
+}
+[data-app="student"] .theme-button-wrap.compact .theme-trigger {
+  padding: .35rem .7rem;
+  border: 1px solid var(--primary);
+  border-radius: 12px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--primary);
+  background: #fff;
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+}
+[data-app="student"] .theme-button-wrap.compact .theme-trigger:hover {
+  background: color-mix(in oklab, var(--primary) 10%, #fff);
+}
+
+/* Invisible native select overlay to open the system dropdown */
+[data-app="student"] .theme-select-native {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+/* Utility for hidden labels (kept here if you ever use the visible select fallback) */
+[data-app="student"] .sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

@@ -1,0 +1,22 @@
+/* End-of-session summary */
+[data-app="student"] .session-summary{ margin-top:var(--space-4); }
+/* hero */
+[data-app="student"] .summary-hero{ background:#f6f8ff; border:1px solid #e3e8ff; border-radius:18px; padding:var(--space-6); margin-bottom:var(--space-4); }
+[data-app="student"] .summary-hero h3{ margin:0 0 .25rem; }
+[data-app="student"] .summary-hero p{ margin:0 0 var(--space-4); color:var(--muted); }
+/* metrics */
+[data-app="student"] .metrics-row{ display:grid; grid-template-columns:repeat(3,1fr); gap:var(--space-4); }
+@media (max-width:720px){ [data-app="student"] .metrics-row{ grid-template-columns:1fr; } }
+[data-app="student"] .metric-card{ text-align:center; padding:1.1rem; }
+[data-app="student"] .metric-value{ font-weight:800; font-size:1.4rem; line-height:1; }
+[data-app="student"] .metric-label{ color:var(--muted); margin-top:.35rem; }
+/* sections */
+[data-app="student"] .summary-section h4{ margin:0 0 var(--space-3); }
+[data-app="student"] .chip-list{ display:flex; flex-wrap:wrap; gap:.5rem; }
+[data-app="student"] .weakness-list{ list-style:none; padding:0; margin:0; display:grid; gap:.6rem; }
+[data-app="student"] .weakness-row{ display:grid; grid-template-columns:1fr auto; align-items:center; gap:var(--space-3); padding:.75rem .9rem; }
+@media (max-width:640px){ [data-app="student"] .weakness-row{ grid-template-columns:1fr; } }
+[data-app="student"] .weakness-left .word-and-tts{ display:inline-flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+[data-app="student"] .weakness-right .show-zh-btn{ background:#fff; border-radius:999px; padding:.35rem .7rem; font-weight:700; }
+[data-app="student"] .translation-display{ color:var(--primary); font-weight:700; }
+[data-app="student"] .back-home{ margin-top:var(--space-6); width:100%; border-radius:999px; padding:.9rem 1rem; font-weight:700; }

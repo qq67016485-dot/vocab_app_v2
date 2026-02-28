@@ -1,0 +1,19 @@
+/* students.css (ENTRY) — student-only styles, layered & modular */
+@layer tokens, theme, base, components, pages;
+
+/* Tokens & theming */
+@import './students/tokens.css' layer(tokens);
+@import './students/theme.css' layer(theme);
+
+/* Global student base + shared components */
+@import './students/base.css' layer(base);
+@import './students/components.css' layer(components);
+
+/* Per‑page student styles */
+@import './students/pages/dashboard.css' layer(pages);
+@import './students/pages/practice.css' layer(pages);
+@import './students/pages/feedback.css' layer(pages);
+@import './students/pages/summary.css' layer(pages);
+@import './students/pages/patterns.css' layer(pages);
+@import './students/fixes.css' layer(pages);
+@import './instructional.css' layer(pages);

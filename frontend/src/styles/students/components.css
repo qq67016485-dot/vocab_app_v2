@@ -1,0 +1,319 @@
+/* ------------------------------------------------------------------
+   Student components (shared structure/spacing only; no theme colors)
+   ------------------------------------------------------------------ */
+
+/* Buttons: consistent rounding */
+[data-app="student"] .btn,
+[data-app="student"] button {
+  border-radius: var(--radius-m);
+}
+
+/* "Show 中文" button — structure only (colors in fixes.css) */
+[data-app="student"] .show-zh-btn {
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: .9rem;
+  padding: .28rem .6rem;
+}
+
+/* Summary chips (e.g., "erupt", "settler") — structure only */
+[data-app="student"] .summary-chip {
+  display: inline-block;
+  padding: .3rem .6rem;
+  border-radius: 999px;
+  font-weight: 700;
+  border-width: 1px;
+  border-style: solid;
+}
+
+/* Skill/tag chips (e.g., "definition") — structure only */
+[data-app="student"] .pattern-chip {
+  display: inline-block;
+  border-radius: 999px;
+  padding: .18rem .5rem;
+  font-size: .85rem;
+  font-weight: 600;
+  line-height: 1;
+  border-width: 1px;
+  border-style: solid;
+}
+
+/* Multiple-choice / True-False options — layout only */
+[data-app="student"] .mc-options-container,
+[data-app="student"] .tf-options-container {
+  display: grid;
+  gap: var(--space-3);
+}
+[data-app="student"] .tf-options-container {
+  grid-template-columns: 1fr 1fr;
+}
+@media (max-width: 560px) {
+  [data-app="student"] .tf-options-container { grid-template-columns: 1fr; }
+}
+
+[data-app="student"] .mc-option-button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: .6rem;
+  text-align: left;
+  line-height: 1.3;
+  padding: .9rem 1rem;
+  width: 100%;
+  border-radius: 999px;
+  transition:
+    transform var(--dur-fast) var(--ease-std),
+    background var(--dur-fast) var(--ease-std),
+    border-color var(--dur-fast) var(--ease-std);
+}
+
+/* Accessible focus ring (color provided by fixes.css) */
+[data-app="student"] .mc-option-button:focus-visible {
+  outline-offset: 2px;
+}
+
+/* Feedback header chips — structure only */
+[data-app="student"] .feedback-header .feedback-chip {
+  font-weight: 800;
+}
+
+/* TTS buttons are plain everywhere in student app */
+[data-app="student"] .tts-button {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  min-width: auto;
+  min-height: auto;
+  line-height: 1;
+}
+[data-app="student"] .tts-button:focus-visible {
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.journey-section {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-1);
+  padding: 1.25rem;
+  margin-bottom: 2rem;
+}
+
+.journey-section h3 {
+  margin-top: 0;
+  margin-bottom: 1rem;
+  font-size: 1.1rem;
+  color: var(--text);
+}
+
+.accordion-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.accordion-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: box-shadow 0.2s ease;
+}
+
+.accordion-item:hover {
+  box-shadow: var(--shadow-1);
+}
+
+.accordion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem;
+  cursor: pointer;
+  background: #f8fafc;
+}
+
+.accordion-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.count-badge {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.accordion-stats {
+  display: flex;
+  gap: 1.5rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-left: auto;
+  margin-right: 1.5rem;
+}
+
+.stat-change.positive { color: var(--success); }
+.stat-change.negative { color: var(--danger); }
+.stat-neutral { color: var(--text); opacity: 0.7; }
+
+.accordion-icon {
+  font-weight: bold;
+  color: var(--muted);
+}
+
+.accordion-content {
+  padding: 1rem;
+  border-top: 1px solid var(--border);
+  background: #fff;
+}
+
+.word-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.word-chip {
+  background: #f1f5f9;
+  padding: 0.25rem 0.75rem;
+  border-radius: 99px;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+/* Mobile responsive tweak */
+@media (max-width: 600px) {
+  .accordion-header {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .accordion-stats {
+    margin-left: 0;
+    width: 100%;
+    justify-content: space-between;
+    padding-top: 0.5rem;
+    border-top: 1px dashed var(--border);
+    margin-top: 0.5rem;
+  }
+}
+
+/* --- V2.8.3 Enhanced Feedback & Reflection Grid --- */
+
+/* Zone 2: Concept Anchor Tweaks */
+.feedback-wordline {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+/* Zone 3: Comparison Card */
+.feedback-context-card {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.feedback-question-text p {
+  color: var(--text);
+  font-size: 1rem;
+  margin: 0.25rem 0 0.75rem 0;
+  line-height: 1.4;
+}
+
+.answer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border-radius: 6px;
+  margin-bottom: 0.25rem;
+  font-size: 0.95rem;
+}
+
+.answer-row.user-error {
+  background-color: #FEF2F2;
+  color: #DC2626;
+  border: 1px solid #FECACA;
+}
+
+.answer-row.correct-target {
+  background-color: #F0FDF4;
+  color: #16A34A;
+  border: 1px solid #BBF7D0;
+  font-weight: 500;
+}
+
+.label-tiny {
+  font-size: 1rem;
+
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.6;
+  min-width: 60px;
+}
+
+/* Zone 5: Reflection Grid */
+.feedback-reflection-area {
+  margin-top: 2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+.reflection-prompt {
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.reflection-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.reflection-btn {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+  font-size: 0.9rem;
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: 0 2px 0 rgba(0,0,0,0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.reflection-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0,0,0,0.08);
+}
+
+.reflection-btn:active {
+  transform: translateY(0);
+}
+
+.reflection-btn.neutral {
+  background-color: #f8fafc;
+  color: var(--muted);
+}

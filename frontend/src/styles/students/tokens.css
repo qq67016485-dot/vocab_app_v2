@@ -1,0 +1,29 @@
+/* Design tokens (student scope) */
+[data-app="student"] {
+  /* spacing, radii, shadows, motion */
+  --space-1: .25rem; --space-2: .5rem; --space-3: .75rem; --space-4: 1rem; --space-6: 1.5rem; --space-8: 2rem;
+  --radius-s: .375rem; --radius-m: .5rem; --radius-l: .75rem; --radius-xl: 1rem;
+  --shadow-1: 0 1px 2px rgba(0,0,0,.06);
+  --shadow-2: 0 4px 12px rgba(0,0,0,.08);
+  --ease-std: cubic-bezier(.2,.8,.2,1);
+  --dur-fast: 120ms; --dur-std: 180ms;
+
+  /* base roles */
+  --bg: #ffffff;
+  --surface: #fdfdfd;
+  --text: #333333;
+  --muted: #7f8c8d;
+  --border: #e1e1e1;
+
+  /* primary is themed; provide a sensible default */
+  --primary: #3b82f6;
+  --primary-contrast: #ffffff;
+
+  /* navbar gradient stops (themed) */
+  --brand-1: #6a74ff;
+  --brand-2: #6ec5ff;
+
+  /* semantic colors */
+  --success: #16a34a; /* green 600 */
+  --danger:  #ef4444; /* red 500 */
+}
