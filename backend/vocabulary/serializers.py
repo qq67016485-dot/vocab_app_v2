@@ -165,6 +165,8 @@ class WordSetSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'unit_or_chapter', 'description',
             'curriculum', 'level', 'creator_username', 'is_public', 'word_count',
+            'target_lexile', 'generation_status', 'input_words',
+            'input_source_title', 'input_source_chapter',
         ]
 
     def get_word_count(self, obj):
@@ -192,7 +194,11 @@ class WordSetFormSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = WordSet
-        fields = ['title', 'unit_or_chapter', 'description', 'is_public', 'curriculum_id', 'level_id']
+        fields = [
+            'title', 'unit_or_chapter', 'description', 'is_public',
+            'curriculum_id', 'level_id', 'target_lexile',
+            'input_words', 'input_source_title', 'input_source_chapter',
+        ]
 
 
 # =============================================================================

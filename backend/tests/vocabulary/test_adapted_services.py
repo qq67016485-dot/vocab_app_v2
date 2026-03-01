@@ -31,14 +31,13 @@ from tests.factories import (
 
 
 def _seed_mastery_levels():
-    """Create 6 mastery levels for tests."""
+    """Create 5 mastery levels for tests."""
     levels = [
-        (1, 'Introduction', 0, 3),
-        (2, 'Recognition', 1, 4),
-        (3, 'Familiarity', 3, 5),
-        (4, 'Competence', 7, 6),
-        (5, 'Proficiency', 14, 8),
-        (6, 'Mastery', 30, 999),
+        (1, 'Novice', 0, 2),
+        (2, 'Familiar', 1, 4),
+        (3, 'Confident', 3, 7),
+        (4, 'Proficient', 7, 10),
+        (5, 'Mastered', 14, 999),
     ]
     for lid, name, interval, pts in levels:
         MasteryLevel.objects.get_or_create(
@@ -117,7 +116,7 @@ class TestPracticeServiceProcessAnswer:
             self.student, self.question.id, 'shining', 5, 0,
         )
         assert result['did_level_up_word'] is True
-        assert result['current_level_name'] == 'Recognition'
+        assert result['current_level_name'] == 'Familiar'
 
     def test_remediation_feedback_on_incorrect(self):
         # Create a translation for remediation

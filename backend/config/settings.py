@@ -113,8 +113,7 @@ TIER_CONFIG = {
     'SILVER':   {'min_level': 21, 'max_level': 40, 'xp_per_level': 300, 'color': '#C0C0C0'},
     'GOLD':     {'min_level': 41, 'max_level': 60, 'xp_per_level': 400, 'color': '#FFD700'},
     'PLATINUM': {'min_level': 61, 'max_level': 80, 'xp_per_level': 500, 'color': '#E5E4E2'},
-    'DIAMOND':  {'min_level': 81, 'max_level': 100, 'xp_per_level': 600, 'color': '#B9F2FF'},
-    'CHAMPION': {'min_level': 101, 'max_level': 999, 'xp_per_level': 700, 'color': '#D1B0F7'},
+    'DIAMOND':  {'min_level': 81, 'max_level': 999, 'xp_per_level': 600, 'color': '#B9F2FF'},
 }
 
 # =============================================================================
@@ -141,9 +140,11 @@ ANTHROPIC_BASE_URL = env('ANTHROPIC_BASE_URL', default='')
 GEMINI_API_KEY = env('GEMINI_API_KEY', default='')
 GEMINI_BASE_URL = env('GEMINI_BASE_URL', default='')
 
-# Qwen 2.5 Embedding API
+# Embedding API (SiliconFlow — Qwen3-Embedding-8B)
 QWEN_API_KEY = env('QWEN_API_KEY', default='')
-QWEN_BASE_URL = env('QWEN_BASE_URL', default='')
+QWEN_BASE_URL = env('QWEN_BASE_URL', default='https://api.siliconflow.cn/v1/embeddings')
+QWEN_EMBEDDING_MODEL = env('QWEN_EMBEDDING_MODEL', default='Qwen/Qwen3-Embedding-8B')
+QWEN_EMBEDDING_DIMENSIONS = env.int('QWEN_EMBEDDING_DIMENSIONS', default=1024)
 
 # =============================================================================
 # GENERATION PIPELINE CONFIG

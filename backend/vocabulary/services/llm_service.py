@@ -48,9 +48,10 @@ def call_anthropic(model, system_prompt, user_prompt):
     Call the Anthropic API and return parsed JSON from the response.
 
     Handles markdown code fences and embedded JSON extraction.
+    Supports both standard and thinking models (e.g., claude-opus-4-6-thinking).
 
     Args:
-        model: Model name (e.g., 'claude-sonnet-4-20250514')
+        model: Model name.
         system_prompt: System prompt string.
         user_prompt: User prompt string.
 
@@ -68,13 +69,36 @@ def call_anthropic(model, system_prompt, user_prompt):
     logger.info("Calling Anthropic model=%s", model)
     logger.debug("User prompt:\n%s", user_prompt)
 
-    message = client.messages.create(
-        model=model,
-        max_tokens=4096,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_prompt}],
-    )
-    raw = message.content[0].text
+    is_thinking_model = 'thinking' in model
+
+    create_kwargs = {
+        'model': model,
+        'max_tokens': 50000 if is_thinking_model else 16000,
+        'messages': [{"role": "user", "content": f"{system_prompt}\n\n{user_prompt}"}],
+    }
+
+    if is_thinking_model:
+        create_kwargs['thinking'] = {
+            'type': 'enabled',
+            'budget_tokens': 12000,
+        }
+    else:
+        create_kwargs['system'] = system_prompt
+        create_kwargs['messages'] = [{"role": "user", "content": user_prompt}]
+
+    # Use streaming to avoid timeout on long-running requests
+    raw = ''
+    with client.messages.stream(**create_kwargs) as stream:
+        for event in stream:
+            pass
+        message = stream.get_final_message()
+
+    # Extract text from response — thinking models return thinking + text blocks
+    for block in message.content:
+        if block.type == 'text':
+            raw = block.text
+            break
+
     logger.debug("Raw response (first 2000 chars):\n%s", raw[:2000])
 
     return _extract_json(raw)

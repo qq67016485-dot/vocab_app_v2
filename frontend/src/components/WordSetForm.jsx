@@ -5,6 +5,8 @@ export default function WordSetForm({ onSave, onCancel, setToEdit }) {
   const [formData, setFormData] = useState({
     title: '', unit_or_chapter: '', description: '',
     curriculum_id: '', level_id: '', is_public: false,
+    target_lexile: 650,
+    input_words_text: '', input_source_title: '', input_source_chapter: '',
   });
   const [categories, setCategories] = useState({ curriculums: [], levels: [] });
   const [isLoadingCategories, setIsLoadingCategories] = useState(true);
@@ -32,6 +34,9 @@ export default function WordSetForm({ onSave, onCancel, setToEdit }) {
 
   useEffect(() => {
     if (setToEdit) {
+      const wordsText = Array.isArray(setToEdit.input_words)
+        ? setToEdit.input_words.join('\n')
+        : '';
       setFormData({
         title: setToEdit.title || '',
         unit_or_chapter: setToEdit.unit_or_chapter || '',
@@ -39,6 +44,10 @@ export default function WordSetForm({ onSave, onCancel, setToEdit }) {
         curriculum_id: setToEdit.curriculum?.id || '',
         level_id: setToEdit.level?.id || '',
         is_public: setToEdit.is_public || false,
+        target_lexile: setToEdit.target_lexile || 650,
+        input_words_text: wordsText,
+        input_source_title: setToEdit.input_source_title || '',
+        input_source_chapter: setToEdit.input_source_chapter || '',
       });
     }
   }, [setToEdit]);
@@ -52,9 +61,24 @@ export default function WordSetForm({ onSave, onCancel, setToEdit }) {
     e.preventDefault();
     setIsSubmitting(true);
     setError('');
-    const payload = { ...formData };
-    if (!payload.curriculum_id) delete payload.curriculum_id;
-    if (!payload.level_id) delete payload.level_id;
+
+    const wordList = formData.input_words_text
+      .split(/[\n,]+/)
+      .map(w => w.trim())
+      .filter(Boolean);
+
+    const payload = {
+      title: formData.title,
+      unit_or_chapter: formData.unit_or_chapter,
+      description: formData.description,
+      is_public: formData.is_public,
+      target_lexile: parseInt(formData.target_lexile, 10) || 650,
+      input_words: wordList.length > 0 ? wordList : null,
+      input_source_title: formData.input_source_title,
+      input_source_chapter: formData.input_source_chapter,
+    };
+    if (formData.curriculum_id) payload.curriculum_id = formData.curriculum_id;
+    if (formData.level_id) payload.level_id = formData.level_id;
 
     try {
       const response = setToEdit
@@ -89,6 +113,18 @@ export default function WordSetForm({ onSave, onCancel, setToEdit }) {
           <option value="">-- Select --</option>
           {categories.levels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
         </select>
+        <label>Target Lexile*</label>
+        <input type="number" name="target_lexile" value={formData.target_lexile} onChange={handleChange} min="100" max="2000" required />
+
+        <hr style={{ margin: '20px 0', borderColor: '#eee' }} />
+        <h3 style={{ margin: '0 0 10px' }}>Word List &amp; Source</h3>
+        <label>Source Title</label>
+        <input name="input_source_title" value={formData.input_source_title} onChange={handleChange} placeholder="e.g., Charlotte's Web" />
+        <label>Source Chapter</label>
+        <input name="input_source_chapter" value={formData.input_source_chapter} onChange={handleChange} placeholder="e.g., Chapter 3" />
+        <label>Words (one per line or comma-separated)</label>
+        <textarea name="input_words_text" value={formData.input_words_text} onChange={handleChange} rows="6" placeholder="campaign&#10;philosophy&#10;dedicate" />
+
         <div style={{ margin: '20px 0', display: 'flex', alignItems: 'center' }}>
           <input type="checkbox" name="is_public" id="is_public" checked={formData.is_public} onChange={handleChange} style={{ width: 'auto', marginRight: '10px' }} />
           <label htmlFor="is_public" style={{ margin: 0 }}>Make this set public (share with other teachers)</label>

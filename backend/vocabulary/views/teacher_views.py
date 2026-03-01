@@ -33,6 +33,11 @@ from ..permissions import IsTeacherOrAdmin
 from ..services.assignment_service import AssignmentService
 
 
+def _can_edit_word_set(user, word_set):
+    """Return True if the user owns the word set or is an admin."""
+    return word_set.creator == user or user.role == CustomUser.Role.ADMIN
+
+
 class TeacherStudentViewSet(viewsets.ModelViewSet):
     serializer_class = StudentCreateUpdateSerializer
     permission_classes = [IsAuthenticated, IsTeacherOrAdmin]
@@ -98,22 +103,31 @@ class WordSetViewSet(viewsets.ModelViewSet):
         return WordSetSerializer
 
     def get_queryset(self):
+        user = self.request.user
+        if user.role == CustomUser.Role.ADMIN:
+            return WordSet.objects.all().order_by('-created_at')
         return WordSet.objects.filter(
-            Q(creator=self.request.user) | Q(is_public=True),
+            Q(creator=user) | Q(is_public=True),
         ).distinct().order_by('-created_at')
 
     def perform_create(self, serializer):
-        serializer.save(creator=self.request.user)
+        instance = serializer.save(creator=self.request.user)
+        if instance.input_words:
+            instance.generation_status = WordSet.GenerationStatus.TO_GENERATE
+            instance.save(update_fields=['generation_status'])
 
     def perform_update(self, serializer):
-        if serializer.instance.creator != self.request.user:
+        if not _can_edit_word_set(self.request.user, serializer.instance):
             raise serializers.ValidationError(
                 "You do not have permission to edit this Word Set.",
             )
-        serializer.save()
+        instance = serializer.save()
+        if instance.input_words and instance.generation_status == WordSet.GenerationStatus.DRAFT:
+            instance.generation_status = WordSet.GenerationStatus.TO_GENERATE
+            instance.save(update_fields=['generation_status'])
 
     def perform_destroy(self, instance):
-        if instance.creator != self.request.user:
+        if not _can_edit_word_set(self.request.user, instance):
             raise serializers.ValidationError(
                 "You do not have permission to delete this Word Set.",
             )
@@ -145,7 +159,7 @@ class WordSetViewSet(viewsets.ModelViewSet):
     def add_word(self, request, pk=None):
         word_set = self.get_object()
         word_id = request.data.get('word_id')
-        if word_set.creator != request.user:
+        if not _can_edit_word_set(request.user, word_set):
             return Response(
                 {'error': 'You do not have permission to edit this Word Set.'},
                 status=status.HTTP_403_FORBIDDEN,
@@ -166,7 +180,7 @@ class WordSetViewSet(viewsets.ModelViewSet):
     def remove_word(self, request, pk=None):
         word_set = self.get_object()
         word_id = request.data.get('word_id')
-        if word_set.creator != request.user:
+        if not _can_edit_word_set(request.user, word_set):
             return Response(
                 {'error': 'You do not have permission to edit this Word Set.'},
                 status=status.HTTP_403_FORBIDDEN,
@@ -188,7 +202,7 @@ class WordSetViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get', 'post'], url_path='packs')
     def packs(self, request, pk=None):
         word_set = self.get_object()
-        if word_set.creator != request.user:
+        if not _can_edit_word_set(request.user, word_set):
             return Response(
                 {'error': 'Permission denied.'},
                 status=status.HTTP_403_FORBIDDEN,
@@ -244,7 +258,7 @@ class WordSetViewSet(viewsets.ModelViewSet):
     )
     def pack_detail(self, request, pk=None, pack_id=None):
         word_set = self.get_object()
-        if word_set.creator != request.user:
+        if not _can_edit_word_set(request.user, word_set):
             return Response(
                 {'error': 'Permission denied.'},
                 status=status.HTTP_403_FORBIDDEN,
@@ -284,7 +298,7 @@ class WordSetViewSet(viewsets.ModelViewSet):
     )
     def pack_images(self, request, pk=None, pack_id=None):
         word_set = self.get_object()
-        if word_set.creator != request.user:
+        if not _can_edit_word_set(request.user, word_set):
             return Response(
                 {'error': 'Permission denied.'},
                 status=status.HTTP_403_FORBIDDEN,
@@ -307,7 +321,7 @@ class WordSetViewSet(viewsets.ModelViewSet):
                 'id': img.id,
                 'word_id': img.word_id,
                 'term': img.word.text,
-                'image_url': img.image_url,
+                'image_url': img.image.url if img.image else '',
                 'status': img.status,
                 'created_at': img.created_at.isoformat(),
             }

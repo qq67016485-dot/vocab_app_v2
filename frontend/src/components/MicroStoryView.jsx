@@ -60,9 +60,6 @@ export default function MicroStoryView({ story, primerCards, onDone }) {
                     {cardData.term_text}
                     <TextToSpeechButton textToSpeak={cardData.term_text} />
                   </div>
-                  {cardData.image_url && (
-                    <img src={cardData.image_url} alt={cardData.term_text} style={{ width: 60, borderRadius: 6, marginBottom: 4 }} />
-                  )}
                   <div className="story-tooltip-def">{cardData.kid_friendly_definition}</div>
                 </span>
               )}

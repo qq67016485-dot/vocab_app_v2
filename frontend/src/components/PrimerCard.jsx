@@ -40,10 +40,6 @@ export default function PrimerCard({ card, index, total, onNext }) {
 
       <TextToSpeechButton textToSpeak={card.term_text} />
 
-      {card.image_url && (
-        <img src={card.image_url} alt={card.term_text} className="primer-image" />
-      )}
-
       <div className="primer-definition">
         {card.kid_friendly_definition}
       </div>
@@ -60,6 +56,10 @@ export default function PrimerCard({ card, index, total, onNext }) {
             Show Translation
           </button>
         )
+      )}
+
+      {card.image_url && (
+        <img src={card.image_url} alt={card.term_text} className="primer-image" />
       )}
 
       <div className="primer-example">{card.example_sentence}</div>

@@ -199,7 +199,9 @@ export default function PracticeView() {
     answerSwitchCount.current = 0;
 
     try {
-      const response = await apiClient.get('/practice/next/');
+      const response = await apiClient.get('/practice/next/', {
+        params: { session_start: sessionStartTime.current },
+      });
       if (response.data.message) {
         setFinishMessage(response.data.message);
       } else {

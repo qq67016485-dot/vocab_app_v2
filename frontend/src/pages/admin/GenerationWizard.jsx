@@ -24,6 +24,7 @@ export default function GenerationWizard() {
 
   const [step, setStep] = useState(1);
   const [wordSet, setWordSet] = useState(null);
+  const [isAddWordsMode, setIsAddWordsMode] = useState(false);
   const [jobId, setJobId] = useState(null);
   const [reviewData, setReviewData] = useState(null);
   const [activeTab, setActiveTab] = useState('words');
@@ -35,7 +36,6 @@ export default function GenerationWizard() {
     source_title: '',
     source_chapter: '',
     source_text: '',
-    target_lexile: 650,
     target_language: 'zh-CN',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -46,12 +46,36 @@ export default function GenerationWizard() {
       try {
         const res = await apiClient.get(`/word-sets/${setId}/`);
         setWordSet(res.data);
+        const alreadyGenerated = res.data.generation_status === 'GENERATED';
+        setIsAddWordsMode(alreadyGenerated);
+        const prefilledWords = alreadyGenerated
+          ? ''
+          : Array.isArray(res.data.input_words)
+            ? res.data.input_words.join('\n')
+            : '';
         setFormData(prev => ({
           ...prev,
-          source_title: res.data.title || '',
-          source_chapter: res.data.unit_or_chapter || '',
+          words: prefilledWords,
+          source_title: res.data.input_source_title || res.data.title || '',
+          source_chapter: res.data.input_source_chapter || res.data.unit_or_chapter || '',
           source_text: res.data.source_text || '',
         }));
+
+        // If already generated, check for a completed job to resume review
+        if (alreadyGenerated) {
+          try {
+            const jobRes = await apiClient.get(`/word-sets/${setId}/latest-job/`);
+            const latestJob = jobRes.data;
+            if (latestJob.status === 'COMPLETED' || latestJob.status === 'PARTIALLY_COMPLETED') {
+              setJobId(latestJob.id);
+              const contentRes = await apiClient.get(`/word-sets/${setId}/content/`);
+              setReviewData(contentRes.data);
+              setStep(3);
+            }
+          } catch {
+            // No job found or fetch failed — stay on input step
+          }
+        }
       } catch (err) {
         setError('Could not load word set.');
       }
@@ -82,12 +106,15 @@ export default function GenerationWizard() {
     setIsSubmitting(true);
     setError('');
     try {
-      const res = await apiClient.post(`/word-sets/${setId}/generate/`, {
+      const endpoint = isAddWordsMode
+        ? `/word-sets/${setId}/add-words/`
+        : `/word-sets/${setId}/generate/`;
+      const res = await apiClient.post(endpoint, {
         words: wordList,
         source_title: formData.source_title,
         source_chapter: formData.source_chapter,
         source_text: formData.source_text,
-        target_lexile: parseInt(formData.target_lexile, 10) || 650,
+        target_lexile: wordSet?.target_lexile || 650,
         target_language: formData.target_language,
       });
       setJobId(res.data.job_id);
@@ -144,10 +171,23 @@ export default function GenerationWizard() {
 
   const renderInputStep = () => (
     <div>
+      {isAddWordsMode && (
+        <div style={{
+          padding: '0.75rem 1rem', marginBottom: '1rem',
+          background: '#eff6ff', borderRadius: '8px', fontSize: '0.9rem', color: '#1e40af',
+        }}>
+          This word set already has generated content. Enter only the new words you want to add.
+          {wordSet?.input_words?.length > 0 && (
+            <div style={{ marginTop: '0.5rem', color: '#6b7280', fontSize: '0.85rem' }}>
+              Existing words: {wordSet.input_words.join(', ')}
+            </div>
+          )}
+        </div>
+      )}
       <div className="form-group">
-        <label>Word List (one per line or comma-separated)</label>
+        <label>{isAddWordsMode ? 'New Words to Add' : 'Word List'} (one per line or comma-separated)</label>
         <textarea name="words" value={formData.words} onChange={handleChange}
-          rows="8" placeholder="abundant&#10;benevolent&#10;cascade&#10;diligent"
+          rows="8" placeholder={isAddWordsMode ? 'Enter new words only...' : 'abundant\nbenevolent\ncascade\ndiligent'}
           style={{ fontFamily: 'monospace' }} />
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -160,8 +200,9 @@ export default function GenerationWizard() {
           <input name="source_chapter" value={formData.source_chapter} onChange={handleChange} />
         </div>
         <div className="form-group">
-          <label>Target Lexile</label>
-          <input name="target_lexile" type="number" value={formData.target_lexile} onChange={handleChange} />
+          <label>Target Lexile (from word set)</label>
+          <input type="number" value={wordSet?.target_lexile || 650} disabled
+            style={{ background: '#f3f4f6', cursor: 'not-allowed' }} />
         </div>
         <div className="form-group">
           <label>Target Language</label>
@@ -178,7 +219,7 @@ export default function GenerationWizard() {
       {error && <p style={{ color: '#dc2626', marginBottom: '1rem' }}>{error}</p>}
       <button onClick={handleStartGeneration} disabled={isSubmitting}
         style={{ background: '#7c3aed', color: '#fff', padding: '0.75rem 2rem' }}>
-        {isSubmitting ? 'Starting...' : 'Start Generation'}
+        {isSubmitting ? 'Starting...' : isAddWordsMode ? 'Add Words & Generate' : 'Start Generation'}
       </button>
     </div>
   );
@@ -203,14 +244,14 @@ export default function GenerationWizard() {
       { key: 'words', label: `Words (${reviewData.words.length})` },
       { key: 'questions', label: `Questions (${reviewData.questions.length})` },
       { key: 'packs', label: `Packs (${reviewData.packs.length})` },
-      { key: 'images', label: `Images (${reviewData.images.length})` },
+      { key: 'images', label: `Images (${reviewData.images.length})`, hidden: true },
     ];
 
     return (
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            {tabs.map(t => (
+            {tabs.filter(t => !t.hidden).map(t => (
               <button key={t.key} onClick={() => setActiveTab(t.key)}
                 className={activeTab === t.key ? '' : 'secondary-button'}
                 style={activeTab === t.key ? { background: '#7c3aed', color: '#fff' } : {}}>
@@ -230,6 +271,9 @@ export default function GenerationWizard() {
             </button>
             <button onClick={() => navigate(`/teacher/word-sets/${setId}`)} className="secondary-button">
               Back to Word Set
+            </button>
+            <button onClick={() => { setStep(1); setReviewData(null); setIsAddWordsMode(true); }} className="secondary-button">
+              Add More Words
             </button>
           </div>
         </div>
@@ -373,7 +417,7 @@ export default function GenerationWizard() {
 
   return (
     <div style={{ padding: '1rem' }}>
-      <h2>Generate Content for "{wordSet?.title || '...'}"</h2>
+      <h2>{isAddWordsMode ? 'Add Words to' : 'Generate Content for'} "{wordSet?.title || '...'}"</h2>
       {renderStepIndicator()}
       {step === 1 && renderInputStep()}
       {step === 2 && renderProcessingStep()}

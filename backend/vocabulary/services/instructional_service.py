@@ -18,7 +18,7 @@ from django.db.models import Prefetch
 from vocabulary.models import (
     WordPack, WordPackItem, PrimerCardContent, MicroStory, ClozeItem,
     StudentPackCompletion, StudentWordSetAssignment, UserWordProgress,
-    Translation, WordDefinition,
+    Translation, WordDefinition, GeneratedImage,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,6 +68,17 @@ class InstructionalService:
         ).exists():
             raise PermissionError("You are not assigned to this word set.")
 
+        # Pre-fetch approved images for all words in this pack
+        word_ids = [item.word_id for item in pack.items.all()]
+        approved_images = {}
+        for img in GeneratedImage.objects.filter(
+            word_id__in=word_ids,
+            status=GeneratedImage.Status.APPROVED,
+        ).order_by('-created_at'):
+            # Keep only the most recent approved image per word
+            if img.word_id not in approved_images and img.image:
+                approved_images[img.word_id] = img.image.url
+
         # Build primer cards
         primer_cards = []
         for item in pack.items.all():
@@ -80,7 +91,7 @@ class InstructionalService:
                 'word_id': word.id,
                 'term_text': word.text,
                 'syllable_text': primer.syllable_text if primer else word.text,
-                'image_url': primer.image_url if primer else '',
+                'image_url': approved_images.get(word.id, ''),
                 'audio_url': primer.audio_url if primer else '',
                 'kid_friendly_definition': primer.kid_friendly_definition if primer else '',
                 'example_sentence': primer.example_sentence if primer else '',

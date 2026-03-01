@@ -8,6 +8,14 @@ import AssignSetForm from '../../components/AssignSetForm.jsx';
 export default function WordSetListView() {
   const { user } = useUser();
   const navigate = useNavigate();
+
+  const STATUS_BADGE = {
+    DRAFT: { label: 'Draft', color: '#95a5a6' },
+    TO_GENERATE: { label: 'To Generate', color: '#e67e22' },
+    GENERATING: { label: 'Generating...', color: '#3498db' },
+    GENERATED: { label: 'Generated', color: '#27ae60' },
+  };
+
   const [wordSets, setWordSets] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -117,7 +125,10 @@ export default function WordSetListView() {
           <ul style={{ padding: 0, listStyleType: 'none' }}>
             {filteredWordSets.map(set => (
               <li key={set.id} className="practice-card" style={{ marginBottom: '15px' }}>
-                <div style={{ fontWeight: 'bold', fontSize: '1.2rem' }}>{set.title}</div>
+                <div style={{ fontWeight: 'bold', fontSize: '1.2rem', cursor: 'pointer', color: '#3498db' }}
+                  onClick={() => navigate(`/teacher/word-sets/${set.id}`)}>
+                  {set.title}
+                </div>
                 {set.unit_or_chapter && <div style={{ fontStyle: 'italic', color: '#333' }}>{set.unit_or_chapter}</div>}
                 <div style={{ color: '#555', margin: '5px 0 10px' }}>
                   {set.curriculum?.name && <span>{set.curriculum.name}</span>}
@@ -125,9 +136,18 @@ export default function WordSetListView() {
                 </div>
                 <small>Created by: {set.creator_username}</small> | <small>{set.word_count} words</small>
                 {set.is_public && <small style={{ color: 'green', fontWeight: 'bold' }}> &bull; Public</small>}
+                {set.generation_status && STATUS_BADGE[set.generation_status] && (
+                  <small style={{
+                    marginLeft: '8px', padding: '2px 8px', borderRadius: '10px',
+                    backgroundColor: STATUS_BADGE[set.generation_status].color,
+                    color: '#fff', fontWeight: 'bold', fontSize: '0.75rem',
+                  }}>
+                    {STATUS_BADGE[set.generation_status].label}
+                  </small>
+                )}
                 <div style={{ marginTop: '15px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                   <button onClick={() => handleAssignClick(set)}>Assign</button>
-                  {set.creator_username === user.username && (
+                  {(set.creator_username === user.username || user.role === 'ADMIN') && (
                     <>
                       <button onClick={() => navigate(`/teacher/word-sets/${set.id}`)}>Manage Words</button>
                       <button onClick={() => handleEditClick(set)}>Edit Details</button>

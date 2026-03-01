@@ -54,12 +54,12 @@ class WordDefinition(models.Model):
 
 
 class DefinitionEmbedding(models.Model):
-    """Stores Qwen 2.5 vector embeddings for semantic deduplication."""
+    """Stores vector embeddings for semantic deduplication."""
     definition = models.OneToOneField(
         WordDefinition, on_delete=models.CASCADE, related_name='embedding',
     )
-    embedding = models.JSONField(help_text='Qwen 2.5 vector (list of floats)')
-    model_version = models.CharField(max_length=50, default='qwen2.5-embedding-v1')
+    embedding = models.JSONField(help_text='Vector embedding (list of floats)')
+    model_version = models.CharField(max_length=50, default='Qwen/Qwen3-Embedding-8B')
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -172,6 +172,7 @@ class Question(models.Model):
         WORD_FORM_FILL_IN_BLANK = 'WORD_FORM_FILL_IN_BLANK', 'Word Form Fill-in-Blank'
         WORD_FORM_MC = 'WORD_FORM_MC', 'Word Form MC'
         SENTENCE_SCRAMBLE = 'SENTENCE_SCRAMBLE', 'Sentence Scramble'
+        DIALOGUE_COMPLETION_MC = 'DIALOGUE_COMPLETION_MC', 'Dialogue Completion MC'
         ODD_ONE_OUT_MC_SINGLE = 'ODD_ONE_OUT_MC_SINGLE', 'Odd One Out MC (Single Ans)'
         CONNOTATION_SORTING = 'CONNOTATION_SORTING', 'Connotation Sorting'
         COLLOCATION_MC_SINGLE = 'COLLOCATION_MC_SINGLE', 'Collocation MC (Single Ans)'
@@ -280,12 +281,30 @@ class Level(models.Model):
 
 
 class WordSet(models.Model):
+    class GenerationStatus(models.TextChoices):
+        DRAFT = 'DRAFT', 'Draft'
+        TO_GENERATE = 'TO_GENERATE', 'To Generate'
+        GENERATING = 'GENERATING', 'Generating'
+        GENERATED = 'GENERATED', 'Generated'
+
     title = models.CharField(max_length=200, help_text='The title of the book, article, or unit.')
     unit_or_chapter = models.CharField(max_length=200, blank=True, default='')
     description = models.TextField(blank=True, default='')
     source_text = models.TextField(
         blank=True, default='',
         help_text='Optional passage text for LLM context during generation.',
+    )
+    target_lexile = models.IntegerField(default=650, help_text='Target Lexile reading level.')
+    input_words = models.JSONField(
+        null=True, blank=True,
+        help_text='Raw word list entered by teacher, pending generation.',
+    )
+    input_source_title = models.CharField(max_length=300, blank=True, default='')
+    input_source_chapter = models.CharField(max_length=300, blank=True, default='')
+    generation_status = models.CharField(
+        max_length=20,
+        choices=GenerationStatus.choices,
+        default=GenerationStatus.DRAFT,
     )
     curriculum = models.ForeignKey(
         Curriculum, on_delete=models.SET_NULL, null=True, blank=True, related_name='word_sets',
@@ -399,7 +418,7 @@ class GeneratedImage(models.Model):
         REJECTED = 'REJECTED', 'Rejected'
 
     word = models.ForeignKey(Word, on_delete=models.CASCADE, related_name='generated_images')
-    image_url = models.URLField()
+    image = models.ImageField(upload_to='generated_images/', blank=True)
     prompt_used = models.TextField()
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING_REVIEW)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -465,6 +484,10 @@ class GenerationJob(models.Model):
     images_created = models.IntegerField(default=0)
 
     error_message = models.TextField(blank=True, default='')
+    last_completed_step = models.CharField(
+        max_length=30, blank=True, default='',
+        help_text='Last pipeline step that completed successfully.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 

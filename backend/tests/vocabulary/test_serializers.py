@@ -41,8 +41,8 @@ factory = APIRequestFactory()
 
 def _seed_mastery_levels():
     levels = [
-        (1, 'Introduction', 0, 3),
-        (2, 'Recognition', 1, 4),
+        (1, 'Novice', 0, 2),
+        (2, 'Familiar', 1, 4),
     ]
     for lid, name, interval, pts in levels:
         MasteryLevel.objects.get_or_create(

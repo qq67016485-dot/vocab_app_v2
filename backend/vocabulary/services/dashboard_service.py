@@ -230,6 +230,7 @@ class DashboardService:
         due_counts_qs = UserWordProgress.objects.filter(
             user_id__in=student_ids,
             next_review_date__lte=today_date,
+            instructional_status='READY',
         ).values('user_id').annotate(due_count=Count('id'))
 
         due_counts_map = {item['user_id']: item['due_count'] for item in due_counts_qs}

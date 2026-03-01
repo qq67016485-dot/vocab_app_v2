@@ -63,8 +63,12 @@ urlpatterns = [
 
     # Generation (Admin only)
     path('word-sets/<int:word_set_id>/generate/', generation_views.TriggerGenerationView.as_view(), name='trigger-generation'),
+    path('word-sets/<int:word_set_id>/add-words/', generation_views.AddWordsAndGenerateView.as_view(), name='add-words-generate'),
+    path('word-sets/<int:word_set_id>/latest-job/', generation_views.LatestGenerationJobView.as_view(), name='latest-generation-job'),
+    path('word-sets/<int:word_set_id>/content/', generation_views.WordSetContentView.as_view(), name='word-set-content'),
     path('generation-jobs/<int:job_id>/', generation_views.GenerationJobStatusView.as_view(), name='generation-job-status'),
     path('generation-jobs/<int:job_id>/logs/', generation_views.GenerationJobLogsView.as_view(), name='generation-job-logs'),
     path('generation-jobs/<int:job_id>/content/', generation_views.GenerationJobContentView.as_view(), name='generation-job-content'),
     path('generation-jobs/<int:job_id>/approve/', generation_views.ApproveGenerationJobView.as_view(), name='generation-job-approve'),
+    path('generation-jobs/<int:job_id>/resume/', generation_views.ResumeGenerationJobView.as_view(), name='generation-job-resume'),
 ]

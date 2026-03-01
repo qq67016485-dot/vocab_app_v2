@@ -125,9 +125,9 @@ class MasteryLevelFactory(factory.django.DjangoModelFactory):
         django_get_or_create = ('level_id',)
 
     level_id = 1
-    level_name = 'Introduction'
+    level_name = 'Novice'
     interval_days = 0
-    points_to_promote = 3
+    points_to_promote = 2
 
 
 class UserWordProgressFactory(factory.django.DjangoModelFactory):

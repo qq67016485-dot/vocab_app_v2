@@ -9,7 +9,6 @@ Output valid JSON with this exact structure:
       "part_of_speech": "noun/verb/adjective/etc.",
       "definition": "a clear, age-appropriate definition",
       "example_sentence": "a sentence using the word in context",
-      "lexile_score": 650,
       "source_context": "From [book title], [chapter]"
     }}
   ]
@@ -19,5 +18,5 @@ Guidelines:
 - Definitions should be clear and appropriate for students aged 8-14
 - Example sentences should clearly demonstrate the word's meaning
 - If the source context provides a specific meaning, prefer that meaning
-- Lexile scores should reflect the complexity of the definition text
+- Change plural nouns to singular nouns, past tense verbs to present tense verbs
 - Part of speech should be the most common usage unless context specifies otherwise

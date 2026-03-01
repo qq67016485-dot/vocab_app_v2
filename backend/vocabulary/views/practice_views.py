@@ -11,6 +11,7 @@ from datetime import date, datetime
 from collections import defaultdict
 
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -39,6 +40,21 @@ class NextPracticeWordView(APIView):
                 "message": f"You have reached your daily practice limit of {user.daily_question_limit} questions. Great work!",
             })
 
+        # Exclude words already answered in this session
+        session_start = request.query_params.get('session_start')
+        answered_word_ids = set()
+        if session_start:
+            try:
+                session_dt = datetime.fromisoformat(session_start.replace('Z', '+00:00'))
+                answered_word_ids = set(
+                    UserAnswer.objects.filter(
+                        user=user,
+                        answered_at__gte=session_dt,
+                    ).values_list('question__word_id', flat=True)
+                )
+            except (ValueError, TypeError):
+                pass
+
         due_records = UserWordProgress.objects.select_related(
             'word', 'level',
         ).filter(
@@ -49,6 +65,9 @@ class NextPracticeWordView(APIView):
             word__questions__lexile_score__gte=user.lexile_min,
             word__questions__lexile_score__lte=user.lexile_max,
         ).distinct().order_by('next_review_date')
+
+        if answered_word_ids:
+            due_records = due_records.exclude(word_id__in=answered_word_ids)
 
         if not due_records.exists():
             return Response({

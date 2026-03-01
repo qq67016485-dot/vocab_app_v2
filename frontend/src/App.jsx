@@ -21,6 +21,7 @@ import GenerationReview from './pages/admin/GenerationReview.jsx';
 
 import './styles/main.css';
 import './styles/students.css';
+import './styles/CommandCenter.css';
 
 function RoleRedirect() {
   const { user } = useUser();

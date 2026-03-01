@@ -37,11 +37,23 @@ class StudentDashboardView(APIView):
             word__questions__lexile_score__isnull=True,
         )
 
-        words_due_count = UserWordProgress.objects.filter(
+        # Words answered today — exclude from due count so practiced words don't reappear
+        answered_word_ids_today = set(
+            UserAnswer.objects.filter(
+                user=student, answered_at__date=today,
+            ).values_list('question__word_id', flat=True)
+        )
+
+        words_due_qs = UserWordProgress.objects.filter(
             user=student,
             next_review_date__lte=today,
             instructional_status='READY',
-        ).filter(lexile_filter).distinct().count()
+        ).filter(lexile_filter).distinct()
+
+        if answered_word_ids_today:
+            words_due_qs = words_due_qs.exclude(word_id__in=answered_word_ids_today)
+
+        words_due_count = words_due_qs.count()
 
         total_words_count = UserWordProgress.objects.filter(user=student).count()
         questions_answered_today = UserAnswer.objects.filter(

@@ -168,11 +168,11 @@ class TestTranslation:
 class TestMasteryLevel:
     def test_create_and_retrieve_levels(self):
         """Verify mastery levels can be created and retrieved."""
-        MasteryLevelFactory(level_id=1, level_name='Introduction', interval_days=0, points_to_promote=3)
-        MasteryLevelFactory(level_id=6, level_name='Mastered', interval_days=30, points_to_promote=0)
+        MasteryLevelFactory(level_id=1, level_name='Novice', interval_days=0, points_to_promote=2)
+        MasteryLevelFactory(level_id=5, level_name='Mastered', interval_days=14, points_to_promote=999)
         assert MasteryLevel.objects.count() == 2
-        assert MasteryLevel.objects.get(level_id=1).level_name == 'Introduction'
-        assert MasteryLevel.objects.get(level_id=6).level_name == 'Mastered'
+        assert MasteryLevel.objects.get(level_id=1).level_name == 'Novice'
+        assert MasteryLevel.objects.get(level_id=5).level_name == 'Mastered'
 
 
 @pytest.mark.django_db

@@ -1,8 +1,9 @@
 """
-Qwen 2.5 embedding service for semantic deduplication of word definitions.
+Embedding service for semantic deduplication of word definitions.
+Uses SiliconFlow API with Qwen3-Embedding-8B.
 
 Provides:
-- get_embedding(text) — Calls Qwen 2.5 API, returns vector (list of floats)
+- get_embedding(text) — Calls embedding API, returns vector (list of floats)
 - cosine_similarity(vec_a, vec_b) — Compute cosine similarity between two vectors
 - find_duplicate_definition(word_text, pos, definition_text) — Full dedup check
 """
@@ -17,17 +18,19 @@ from vocabulary.models import Word, DefinitionEmbedding
 logger = logging.getLogger(__name__)
 
 
-def _call_qwen_api(text):
-    """Call the Qwen 2.5 embedding API and return the raw vector."""
+def _call_embedding_api(text):
+    """Call the SiliconFlow embedding API and return the raw vector."""
     response = requests.post(
-        f"{settings.QWEN_BASE_URL}/v1/embeddings",
+        settings.QWEN_BASE_URL,
         headers={
             "Authorization": f"Bearer {settings.QWEN_API_KEY}",
             "Content-Type": "application/json",
         },
         json={
-            "model": "qwen2.5-embedding",
+            "model": settings.QWEN_EMBEDDING_MODEL,
             "input": text,
+            "encoding_format": "float",
+            "dimensions": settings.QWEN_EMBEDDING_DIMENSIONS,
         },
         timeout=30,
     )
@@ -43,7 +46,7 @@ def get_embedding(text):
     Returns:
         list[float]: The embedding vector.
     """
-    return _call_qwen_api(text)
+    return _call_embedding_api(text)
 
 
 def cosine_similarity(vec_a, vec_b):

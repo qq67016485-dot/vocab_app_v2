@@ -70,8 +70,8 @@
 }
 
 .primer-image {
-  width: 180px;
-  height: 180px;
+  width: 400px;
+  height: 400px;
   object-fit: cover;
   border-radius: var(--radius-l);
   margin: var(--space-4) auto;

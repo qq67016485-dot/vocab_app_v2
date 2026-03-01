@@ -18,6 +18,7 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
   const [job, setJob] = useState(null);
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState('');
+  const [isResuming, setIsResuming] = useState(false);
   const intervalRef = useRef(null);
 
   useEffect(() => {
@@ -147,6 +148,47 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
         }}>
           <strong>Error:</strong> {job.error_message}
         </div>
+      )}
+
+      {job.status === 'FAILED' && (
+        <button
+          onClick={async () => {
+            setIsResuming(true);
+            try {
+              await apiClient.post(`/generation-jobs/${jobId}/resume/`);
+              // Restart polling
+              const poll = async () => {
+                const [jobRes, logsRes] = await Promise.all([
+                  apiClient.get(`/generation-jobs/${jobId}/`),
+                  apiClient.get(`/generation-jobs/${jobId}/logs/`),
+                ]);
+                setJob(jobRes.data);
+                setLogs(logsRes.data);
+                if (jobRes.data.status === 'COMPLETED' || jobRes.data.status === 'PARTIALLY_COMPLETED') {
+                  clearInterval(intervalRef.current);
+                  onComplete?.(jobRes.data);
+                } else if (jobRes.data.status === 'FAILED') {
+                  clearInterval(intervalRef.current);
+                  onFail?.(jobRes.data);
+                }
+              };
+              poll();
+              intervalRef.current = setInterval(poll, POLL_INTERVAL);
+            } catch (err) {
+              setError(err.response?.data?.error || 'Failed to resume pipeline.');
+            } finally {
+              setIsResuming(false);
+            }
+          }}
+          disabled={isResuming}
+          style={{
+            marginTop: '0.75rem', padding: '0.5rem 1.5rem',
+            background: '#e67e22', color: '#fff', border: 'none',
+            borderRadius: '6px', cursor: 'pointer', fontWeight: 600,
+          }}
+        >
+          {isResuming ? 'Resuming...' : 'Resume Pipeline'}
+        </button>
       )}
 
       <style>{`
