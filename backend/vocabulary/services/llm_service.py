@@ -240,7 +240,7 @@ def call_gemini_image(prompt):
     logger.debug("Image prompt: %s", prompt)
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash-image",
+        model="gemini-3.1-flash-image-preview",
         contents=prompt,
         config=types.GenerateContentConfig(
             response_modalities=["IMAGE"],
