@@ -27,7 +27,7 @@ from vocabulary.models import (
     GenerationJob, GenerationJobLog,
 )
 from vocabulary.services.llm_service import (
-    call_anthropic, call_gemini_image, load_prompt_template,
+    call_anthropic, call_gemini, call_gemini_image, load_prompt_template,
 )
 from vocabulary.services.embedding_service import (
     get_embedding, find_duplicate_definition,
@@ -35,7 +35,7 @@ from vocabulary.services.embedding_service import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = 'claude-opus-4-6-thinking'
+DEFAULT_MODEL = 'gemini-3.1-pro-preview'
 
 
 def _log_step(job, step, status, duration=None, input_data=None,
@@ -117,6 +117,9 @@ def run_full_pipeline(job_id):
     job.status = GenerationJob.Status.RUNNING
     job.error_message = ''
     job.save(update_fields=['status', 'error_message'])
+
+    # Clear any existing words from the word_set to avoid duplicates on re-run
+    job.word_set.words.clear()
 
     words, words_data, packs = [], [], []
 
@@ -219,7 +222,7 @@ def _step_word_lookup(job):
         if job.input_source_text:
             user_prompt += f"\n\nSource passage:\n{job.input_source_text}"
 
-        result = call_anthropic(DEFAULT_MODEL, template, user_prompt)
+        result = call_gemini(DEFAULT_MODEL, template, user_prompt)
         words_data = result.get('words', [])
 
         duration = time.time() - start
@@ -340,7 +343,7 @@ def _step_generate_translations(job, words, words_data):
             items_to_translate=items_str,
         )
 
-        result = call_anthropic(DEFAULT_MODEL, prompt, f"Translate to {target_language}")
+        result = call_gemini(DEFAULT_MODEL, prompt, f"Translate to {target_language}")
         translations = result.get('translations', [])
 
         # Get ContentType for WordDefinition
@@ -447,7 +450,7 @@ def _step_generate_questions(job, words, words_data):
             }, indent=2)
 
             prompt_text = template.replace('{input_json}', input_json)
-            result = call_anthropic(DEFAULT_MODEL, prompt_text, '')
+            result = call_gemini(DEFAULT_MODEL, prompt_text, '')
             question_sets = result.get('generated_question_sets', [])
 
             for qs in question_sets:
@@ -612,7 +615,7 @@ def _step_auto_create_packs(job, words, words_data):
 
         prompt_text = template.replace('{pack_size}', str(pack_size))
         user_prompt = '\n'.join(word_info_parts)
-        result = call_anthropic(DEFAULT_MODEL, prompt_text, user_prompt)
+        result = call_gemini(DEFAULT_MODEL, prompt_text, user_prompt)
         llm_packs = result.get('packs', [])
 
         # Validate: every word must appear exactly once
@@ -691,7 +694,7 @@ def _step_generate_primers(job, words, words_data):
             )
 
         user_prompt = '\n'.join(word_info_parts)
-        result = call_anthropic(DEFAULT_MODEL, template, user_prompt)
+        result = call_gemini(DEFAULT_MODEL, template, user_prompt)
         primers = result.get('primer_cards', [])
 
         word_map = {w.text.lower(): w for w in words}
@@ -771,7 +774,7 @@ def _step_generate_stories_and_cloze(job, packs, words_data):
             user_prompt = f"Target words: {word_info}\nTarget Lexile: {job.target_lexile}"
             system_prompt = template.format(target_lexile=job.target_lexile)
 
-            result = call_anthropic(DEFAULT_MODEL, system_prompt, user_prompt)
+            result = call_gemini(DEFAULT_MODEL, system_prompt, user_prompt)
 
             # Create MicroStory
             story_data = result.get('micro_story', {})
