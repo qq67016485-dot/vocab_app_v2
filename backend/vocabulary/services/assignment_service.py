@@ -13,7 +13,7 @@ import logging
 from users.models import StudentGroup, CustomUser
 from vocabulary.models import (
     MasteryLevel, UserWordProgress,
-    StudentWordSetAssignment, WordPackItem,
+    StudentWordSetAssignment, StudentPackCompletion, WordPackItem,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,9 +62,28 @@ class AssignmentService:
                 defaults={'assigned_by': teacher},
             )
 
+            # Find packs this student has already completed — don't reset those words
+            completed_pack_ids = set(
+                StudentPackCompletion.objects.filter(
+                    user=student,
+                    pack__word_set=word_set,
+                ).values_list('pack_id', flat=True)
+            )
+            words_in_completed_packs = set(
+                WordPackItem.objects.filter(
+                    pack_id__in=completed_pack_ids,
+                ).values_list('word_id', flat=True)
+            ) if completed_pack_ids else set()
+
             for word in words_in_set:
                 # Words in packs get PENDING; words not in packs get READY
-                inst_status = 'PENDING' if word.id in words_in_packs else 'READY'
+                # But words in already-completed packs stay READY
+                if word.id in words_in_completed_packs:
+                    inst_status = 'READY'
+                elif word.id in words_in_packs:
+                    inst_status = 'PENDING'
+                else:
+                    inst_status = 'READY'
 
                 mastery, created = UserWordProgress.objects.get_or_create(
                     user=student,
@@ -75,8 +94,10 @@ class AssignmentService:
                         'instructional_status': inst_status,
                     },
                 )
-                # If mastery already existed but word is now in a pack, update status
-                if not created and word.id in words_in_packs and mastery.instructional_status == 'READY':
+                # If record exists and word is in an uncompleted pack, reset to PENDING
+                if not created and word.id in words_in_packs \
+                        and word.id not in words_in_completed_packs \
+                        and mastery.instructional_status == 'READY':
                     mastery.instructional_status = 'PENDING'
                     mastery.save(update_fields=['instructional_status'])
 
