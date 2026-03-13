@@ -861,7 +861,7 @@ def _step_generate_images(job, words):
                 word=word,
                 image=image_file,
                 prompt_used=prompt,
-                status=GeneratedImage.Status.PENDING_REVIEW,
+                status=GeneratedImage.Status.APPROVED,
             )
             created_count += 1
 
