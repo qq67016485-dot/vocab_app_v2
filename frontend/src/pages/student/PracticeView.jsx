@@ -691,7 +691,6 @@ export default function PracticeView() {
   return (
     <div>
       <div className="practice-header compact">
-        <h2>Practice Session</h2>
         <ProgressBar
           current={questionsAnsweredThisSession}
           total={sessionGoalTotal}

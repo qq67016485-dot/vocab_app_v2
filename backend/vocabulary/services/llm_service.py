@@ -11,6 +11,7 @@ import os
 import re
 import base64
 import logging
+from datetime import datetime
 
 import anthropic
 from google import genai
@@ -23,6 +24,36 @@ PROMPTS_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     'prompts',
 )
+
+# Directory for LLM call logs
+LLM_LOG_DIR = os.path.join(settings.BASE_DIR, '..', 'temp', 'llm_logs')
+
+
+def _log_llm_call(label, system_prompt, user_prompt, raw_response, error=None):
+    """Write the full input/output of an LLM call to a timestamped log file."""
+    try:
+        os.makedirs(LLM_LOG_DIR, exist_ok=True)
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        status = 'ERROR' if error else 'OK'
+        filename = f'{ts}_{label}_{status}.txt'
+        filepath = os.path.join(LLM_LOG_DIR, filename)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write(f'=== LLM CALL LOG ===\n')
+            f.write(f'Timestamp: {ts}\n')
+            f.write(f'Label: {label}\n')
+            f.write(f'Status: {status}\n')
+            if error:
+                f.write(f'Error: {error}\n')
+            f.write(f'\n=== SYSTEM PROMPT ===\n')
+            f.write(system_prompt or '(empty)')
+            f.write(f'\n\n=== USER PROMPT ===\n')
+            f.write(user_prompt or '(empty)')
+            f.write(f'\n\n=== RAW RESPONSE ===\n')
+            f.write(raw_response or '(empty)')
+            f.write('\n')
+        logger.info("LLM call logged to %s", filepath)
+    except Exception as e:
+        logger.warning("Failed to write LLM log: %s", e)
 
 
 def load_prompt_template(name):
@@ -73,7 +104,7 @@ def call_anthropic(model, system_prompt, user_prompt):
 
     create_kwargs = {
         'model': model,
-        'max_tokens': 50000 if is_thinking_model else 16000,
+        'max_tokens': 128000 if is_thinking_model else 600000,
         'messages': [{"role": "user", "content": f"{system_prompt}\n\n{user_prompt}"}],
     }
 
@@ -101,7 +132,13 @@ def call_anthropic(model, system_prompt, user_prompt):
 
     logger.debug("Raw response (first 2000 chars):\n%s", raw[:2000])
 
-    return _extract_json(raw)
+    try:
+        parsed = _extract_json(raw)
+        _log_llm_call(model, system_prompt, user_prompt, raw)
+        return parsed
+    except ValueError as e:
+        _log_llm_call(model, system_prompt, user_prompt, raw, error=str(e))
+        raise
 
 
 def _extract_json(raw):

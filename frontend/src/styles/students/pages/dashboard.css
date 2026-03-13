@@ -386,13 +386,13 @@
   font-size: 13px;
 }
 [data-app="student"] .dashboard-col-side .accordion-stats {
-  gap: 4px;
-  font-size: 10px;
+  gap: 8px;
+  font-size: 12px;
   margin-right: 0.5rem;
 }
 [data-app="student"] .dashboard-col-side .stat-change,
 [data-app="student"] .dashboard-col-side .stat-neutral {
-  font-size: 10px;
+  font-size: 12px;
 }
 
 /* Settings modal */
