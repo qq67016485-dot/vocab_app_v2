@@ -3,6 +3,7 @@ Low-level LLM wrapper service.
 
 Provides:
 - call_anthropic(model, system_prompt, user_prompt) — Call Claude, return parsed JSON
+- call_gemini(model, system_prompt, user_prompt) — Call Gemini, return parsed JSON
 - call_gemini_image(prompt) — Call Gemini image generation, return raw image bytes
 - load_prompt_template(name) — Load a .txt prompt template from vocabulary/prompts/
 """
@@ -170,6 +171,54 @@ def _extract_json(raw):
     raise ValueError(
         f"Could not parse JSON from LLM response. Raw (first 500 chars): {raw[:500]}"
     )
+
+
+def call_gemini(model, system_prompt, user_prompt):
+    """
+    Call the Gemini API and return parsed JSON from the response.
+
+    Args:
+        model: Model name (e.g., 'gemini-3.1-pro-preview').
+        system_prompt: System instruction string.
+        user_prompt: User prompt string.
+
+    Returns:
+        dict: Parsed JSON from the LLM response.
+
+    Raises:
+        ValueError: If JSON cannot be extracted from the response.
+    """
+    client_kwargs = {'api_key': settings.GEMINI_API_KEY}
+    if settings.GEMINI_BASE_URL:
+        client_kwargs['http_options'] = types.HttpOptions(base_url=settings.GEMINI_BASE_URL)
+    client = genai.Client(**client_kwargs)
+
+    logger.info("Calling Gemini model=%s", model)
+    logger.debug("User prompt:\n%s", user_prompt)
+
+    # Combine system and user prompts into contents (Gemini requires non-empty contents)
+    combined_prompt = f"{system_prompt}\n\n{user_prompt}".strip()
+
+    config = types.GenerateContentConfig(
+        response_mime_type='application/json',
+    )
+
+    response = client.models.generate_content(
+        model=model,
+        contents=combined_prompt,
+        config=config,
+    )
+
+    raw = response.text or ''
+    logger.debug("Raw response (first 2000 chars):\n%s", raw[:2000])
+
+    try:
+        parsed = _extract_json(raw)
+        _log_llm_call(model, system_prompt, user_prompt, raw)
+        return parsed
+    except ValueError as e:
+        _log_llm_call(model, system_prompt, user_prompt, raw, error=str(e))
+        raise
 
 
 def call_gemini_image(prompt):
