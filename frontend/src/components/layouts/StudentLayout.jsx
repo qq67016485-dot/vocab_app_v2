@@ -1,26 +1,18 @@
 import React from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import { useTheme } from '../../context/ThemeContext.jsx';
 import Navbar from '../Navbar.jsx';
-import ThemeSwitcher from '../ThemeSwitcher.jsx';
 
 export default function StudentLayout() {
-  const { theme, setTheme } = useTheme();
+  const { theme } = useTheme();
+  const location = useLocation();
+
+  // Dashboard has its own navbar, so hide the old one there
+  const isDashboard = location.pathname === '/student/dashboard' || location.pathname === '/student';
 
   return (
     <div className="app-shell" data-app="student" data-theme={theme}>
-      <Navbar />
-
-      <div className="page-title page-title--with-theme">
-        <h1>Vocabulary Learning App</h1>
-        <ThemeSwitcher
-          value={theme}
-          onChange={setTheme}
-          compact
-          asButton
-        />
-      </div>
-
+      {!isDashboard && <Navbar />}
       <Outlet />
     </div>
   );
