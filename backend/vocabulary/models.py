@@ -348,8 +348,15 @@ class StudentWordSetAssignment(models.Model):
 # =============================================================================
 
 class WordPack(models.Model):
+    class TextType(models.TextChoices):
+        FICTION = 'fiction', 'Fiction'
+        NARRATIVE_NONFICTION = 'narrative_nonfiction', 'Narrative Non-Fiction'
+
     word_set = models.ForeignKey(WordSet, on_delete=models.CASCADE, related_name='packs')
     label = models.CharField(max_length=100)
+    text_type = models.CharField(
+        max_length=30, choices=TextType.choices, default=TextType.FICTION,
+    )
     order = models.IntegerField(default=0)
 
     class Meta:

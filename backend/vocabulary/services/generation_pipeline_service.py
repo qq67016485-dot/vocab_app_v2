@@ -37,6 +37,15 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = 'gemini-3.1-pro-preview'
 
+# Content Lexile should be 15% below the word set's target Lexile
+# so scaffolding text is easier to read than the vocabulary being taught.
+LEXILE_OFFSET = 0.85
+
+
+def _content_lexile(job):
+    """Return the Lexile level for generated content (15% below target)."""
+    return int(job.target_lexile * LEXILE_OFFSET)
+
 
 def _log_step(job, step, status, duration=None, input_data=None,
               output_data=None, error_message=''):
@@ -272,11 +281,17 @@ def _step_dedup_and_persist(job, words_data):
             job.word_set.words.add(existing)
             continue
 
-        # Create new Word
+        # Create new Word — source_context comes from the job, not per-word LLM output
+        source_context = ''
+        if job.input_source_title:
+            source_context = f"From {job.input_source_title}"
+            if job.input_source_chapter:
+                source_context += f", {job.input_source_chapter}"
+
         word = Word.objects.create(
             text=term,
             part_of_speech=pos,
-            source_context=wd.get('source_context', ''),
+            source_context=source_context,
         )
 
         # Create WordDefinition
@@ -329,13 +344,15 @@ def _step_generate_translations(job, words, words_data):
         template = load_prompt_template('translation')
         target_language = job.target_language
 
-        # Build items to translate
+        # Build items to translate — include term for context
         items_list = []
         for wd in words_data:
-            items_list.append(f"- definition_text: {wd.get('definition', '')}")
+            term = wd.get('term', '')
+            items_list.append(f"- term: {term}")
+            items_list.append(f"  definition_text: {wd.get('definition', '')}")
             example = wd.get('example_sentence', '')
             if example:
-                items_list.append(f"- example_sentence: {example}")
+                items_list.append(f"  example_sentence: {example}")
 
         items_str = '\n'.join(items_list)
         prompt = template.format(
@@ -417,19 +434,20 @@ def _step_generate_questions(job, words, words_data):
         import json as _json
         template = load_prompt_template('question_generation')
 
-        # Build simplified word list
-        simplified_words = []
+        # Build word list with existing definitions from Step 1
+        word_list = []
         for wd in words_data:
-            simplified_words.append({
+            word_list.append({
                 'term': wd['term'],
                 'part_of_speech': wd.get('part_of_speech', ''),
-                'simple_definition': wd.get('definition', ''),
+                'definition': wd.get('definition', ''),
+                'example_sentence': wd.get('example_sentence', ''),
             })
 
         # Split into batches of QUESTION_BATCH_SIZE
         batches = [
-            simplified_words[i:i + QUESTION_BATCH_SIZE]
-            for i in range(0, len(simplified_words), QUESTION_BATCH_SIZE)
+            word_list[i:i + QUESTION_BATCH_SIZE]
+            for i in range(0, len(word_list), QUESTION_BATCH_SIZE)
         ]
 
         word_map = {w.text.lower(): w for w in words}
@@ -445,8 +463,8 @@ def _step_generate_questions(job, words, words_data):
             )
 
             input_json = _json.dumps({
-                'target_lexile_level': job.target_lexile,
-                'simplified_words': batch,
+                'target_lexile_level': _content_lexile(job),
+                'words': batch,
             }, indent=2)
 
             prompt_text = template.replace('{input_json}', input_json)
@@ -454,8 +472,7 @@ def _step_generate_questions(job, words, words_data):
             question_sets = result.get('generated_question_sets', [])
 
             for qs in question_sets:
-                word_info = qs.get('word', [{}])[0] if qs.get('word') else {}
-                term = word_info.get('term', '').lower()
+                term = qs.get('term', '').lower()
                 word = word_map.get(term)
                 if not word:
                     logger.warning("Question set for unknown term '%s', skipping", term)
@@ -606,6 +623,11 @@ def _step_auto_create_packs(job, words, words_data):
         import json as _json
         template = load_prompt_template('pack_grouping')
 
+        # Calculate balanced pack distribution (max 6 per pack)
+        max_per_pack = pack_size
+        total_words = len(words)
+        num_packs = math.ceil(total_words / max_per_pack)
+
         # Build word list with definitions for the LLM
         word_info_parts = []
         for wd in words_data:
@@ -613,7 +635,8 @@ def _step_auto_create_packs(job, words, words_data):
                 f"- {wd['term']} ({wd.get('part_of_speech', '')}): {wd.get('definition', '')}"
             )
 
-        prompt_text = template.replace('{pack_size}', str(pack_size))
+        prompt_text = template.replace('{num_packs}', str(num_packs))
+        prompt_text = prompt_text.replace('{max_per_pack}', str(max_per_pack))
         user_prompt = '\n'.join(word_info_parts)
         result = call_gemini(DEFAULT_MODEL, prompt_text, user_prompt)
         llm_packs = result.get('packs', [])
@@ -631,9 +654,13 @@ def _step_auto_create_packs(job, words, words_data):
 
         packs = []
         for i, pack_data in enumerate(llm_packs):
+            text_type = pack_data.get('text_type', 'fiction')
+            if text_type not in ('fiction', 'narrative_nonfiction'):
+                text_type = 'fiction'
             pack = WordPack.objects.create(
                 word_set=job.word_set,
                 label=pack_data.get('label', f'Pack {i + 1}'),
+                text_type=text_type,
                 order=i,
             )
             for idx, term in enumerate(pack_data.get('words', [])):
@@ -694,7 +721,8 @@ def _step_generate_primers(job, words, words_data):
             )
 
         user_prompt = '\n'.join(word_info_parts)
-        result = call_gemini(DEFAULT_MODEL, template, user_prompt)
+        prompt_text = template.replace('{target_lexile}', str(_content_lexile(job)))
+        result = call_gemini(DEFAULT_MODEL, prompt_text, user_prompt)
         primers = result.get('primer_cards', [])
 
         word_map = {w.text.lower(): w for w in words}
@@ -770,18 +798,31 @@ def _step_generate_stories_and_cloze(job, packs, words_data):
                 if wd['term'].lower() in [t.lower() for t in pack_word_texts]
             ]
 
-            word_info = ', '.join(pack_word_texts)
-            user_prompt = f"Target words: {word_info}\nTarget Lexile: {job.target_lexile}"
-            system_prompt = template.format(target_lexile=job.target_lexile)
+            # Build word info with definitions for richer context
+            word_parts = []
+            for wd in pack_words_data:
+                word_parts.append(
+                    f"- {wd['term']} ({wd.get('part_of_speech', '')}): {wd.get('definition', '')}"
+                )
+            word_info = '\n'.join(word_parts)
+
+            content_lexile = _content_lexile(job)
+            user_prompt = (
+                f"Pack Label: {pack.label}\n"
+                f"Text Type: {pack.text_type}\n"
+                f"Target Lexile: {content_lexile}\n\n"
+                f"Target words:\n{word_info}"
+            )
+            system_prompt = template.format(target_lexile=content_lexile)
 
             result = call_gemini(DEFAULT_MODEL, system_prompt, user_prompt)
 
-            # Create MicroStory
-            story_data = result.get('micro_story', {})
+            # Create MicroStory — try both field names for robustness
+            story_data = result.get('micro_passage', result.get('micro_story', {}))
             MicroStory.objects.create(
                 pack=pack,
-                story_text=story_data.get('story_text', ''),
-                reading_level=story_data.get('reading_level', job.target_lexile),
+                story_text=story_data.get('text', story_data.get('story_text', '')),
+                reading_level=story_data.get('reading_level', content_lexile),
             )
             total_stories += 1
 
@@ -848,7 +889,8 @@ def _step_generate_images(job, words):
             f"Create a simple, colorful illustration for a children's vocabulary card. "
             f"The word is '{word.text}' which means '{definition_text}'. "
             f"The image should be clear, age-appropriate for children aged 8-14, "
-            f"and help illustrate the meaning of the word. No text in the image."
+            f"and help illustrate the meaning of the word. No text in the image. "
+            f"Square format, 1:1 aspect ratio."
         )
 
         try:

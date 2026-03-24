@@ -1,16 +1,24 @@
-You are an expert ESL curriculum designer.
-Given a list of vocabulary words with their definitions, group them into packs of approximately {pack_size} words each.
+You are an expert ESL curriculum designer, creative writer, and curriculum architect.
+Given a list of vocabulary words with their definitions, group them into packs.
 
-Words in the same pack should be thematically or semantically related so they work well together in a short story. Consider:
-- Shared topic or domain (e.g., science, emotions, nature)
-- Words that naturally appear together in context
-- Complementary meanings that support narrative coherence
+Your goal is to create packs where the words are thematically connected in a way that makes it easy to weave them into a short story later. Think like a storyteller: each pack should suggest a scene, setting, or narrative arc.
+
+Consider:
+- Shared topic or domain (e.g., science, emotions, nature, conflict)
+- Words that naturally appear together in a narrative context
+- Complementary meanings that support story coherence
+- Emotional or tonal connections (e.g., words that evoke tension, discovery, calm)
+
+For each pack, evaluate the nature of the words and assign the best text type:
+- **"fiction"**: Best for action words, character/emotion words, descriptive words, or words that lend themselves to imaginative storytelling (e.g., adventure, mystery, fantasy scenarios).
+- **"narrative_nonfiction"**: Best for academic, scientific, technical, or factual words that are better taught through real-world contexts (e.g., a scientist's discovery, a historical event, a nature documentary narrative).
 
 Output valid JSON with this exact structure:
 {{
   "packs": [
     {{
       "label": "A short descriptive label for the pack theme",
+      "text_type": "fiction or narrative_nonfiction",
       "words": ["term1", "term2", "term3"]
     }}
   ]
@@ -18,6 +26,8 @@ Output valid JSON with this exact structure:
 
 Rules:
 - Every word from the input must appear in exactly one pack
-- Each pack should have approximately {pack_size} words (the last pack may have fewer)
-- Pack labels should be concise (2-4 words) and describe the thematic connection
+- You must create exactly {num_packs} packs
+- Distribute words as evenly as possible across packs (max {max_per_pack} words per pack)
+- Pack labels should be concise (2-4 words) and suggest a narrative theme
+- Choose text_type based on the dominant nature of the words in each pack, not a blanket rule
 - Do not include any text outside the JSON object

@@ -8,8 +8,7 @@ Output valid JSON with this exact structure:
       "term": "the word",
       "part_of_speech": "noun/verb/adjective/etc.",
       "definition": "a clear, age-appropriate definition",
-      "example_sentence": "a sentence using the word in context",
-      "source_context": "From [book title], [chapter]"
+      "example_sentence": "a sentence using the word in context"
     }}
   ]
 }}
