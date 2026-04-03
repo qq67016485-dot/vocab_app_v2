@@ -66,28 +66,16 @@ export default function GenerationReview() {
   if (error) return <p style={{ padding: '2rem', color: '#dc2626' }}>{error}</p>;
   if (!job) return <p style={{ padding: '2rem' }}>Loading...</p>;
 
-  const isRunning = job.status === 'RUNNING' || job.status === 'PENDING';
   const isComplete = job.status === 'COMPLETED' || job.status === 'PARTIALLY_COMPLETED';
 
-  if (isRunning) {
-    return (
-      <div style={{ padding: '1rem' }}>
-        <h2>Generation Job #{jobId}</h2>
-        <GenerationJobStatus jobId={jobId} onComplete={handleJobComplete} onFail={handleJobFail} />
-        <button onClick={() => navigate(`/teacher/word-sets/${job.word_set_id}`)}
-          className="secondary-button" style={{ marginTop: '1rem' }}>
-          Back to Word Set
-        </button>
-      </div>
-    );
-  }
-
+  // Show pipeline status for any non-complete state (RUNNING, PENDING, FAILED)
+  // Also show when complete but content hasn't loaded yet
   if (!isComplete || !content) {
     return (
       <div style={{ padding: '1rem' }}>
         <h2>Generation Job #{jobId}</h2>
-        <p>Status: <strong>{job.status}</strong></p>
-        {job.error_message && <p style={{ color: '#dc2626' }}>{job.error_message}</p>}
+        <GenerationJobStatus jobId={jobId} onComplete={handleJobComplete} onFail={handleJobFail} />
+        {isComplete && !content && <p>Loading generated content...</p>}
         <button onClick={() => navigate(`/teacher/word-sets/${job.word_set_id}`)}
           className="secondary-button" style={{ marginTop: '1rem' }}>
           Back to Word Set

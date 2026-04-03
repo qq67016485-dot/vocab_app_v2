@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../../api/axiosConfig.js';
 import { useUser } from '../../context/UserContext.jsx';
@@ -33,6 +33,17 @@ export default function StudentDashboard() {
       }
     };
     fetchData();
+
+    // Re-fetch when tab/window regains focus (e.g., returning from practice)
+    const lastFetchRef = { current: Date.now() };
+    const handleFocus = () => {
+      if (Date.now() - lastFetchRef.current > 30_000) {
+        lastFetchRef.current = Date.now();
+        fetchData();
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
   }, []);
 
   if (isLoading) return <p>Loading your dashboard...</p>;

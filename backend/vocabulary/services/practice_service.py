@@ -74,6 +74,27 @@ class PracticeService:
         return answer_text.strip().lower().translate(str.maketrans('', '', string.punctuation))
 
     @staticmethod
+    def _damerau_levenshtein_distance(s1, s2):
+        """Compute Damerau-Levenshtein distance (substitution, insertion, deletion, transposition)."""
+        len1, len2 = len(s1), len(s2)
+        d = [[0] * (len2 + 1) for _ in range(len1 + 1)]
+        for i in range(len1 + 1):
+            d[i][0] = i
+        for j in range(len2 + 1):
+            d[0][j] = j
+        for i in range(1, len1 + 1):
+            for j in range(1, len2 + 1):
+                cost = 0 if s1[i - 1] == s2[j - 1] else 1
+                d[i][j] = min(
+                    d[i - 1][j] + 1,       # deletion
+                    d[i][j - 1] + 1,       # insertion
+                    d[i - 1][j - 1] + cost, # substitution
+                )
+                if i > 1 and j > 1 and s1[i - 1] == s2[j - 2] and s1[i - 2] == s2[j - 1]:
+                    d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)  # transposition
+        return d[len1][len2]
+
+    @staticmethod
     def _get_translation(word, language):
         """Look up the definition translation for a word in the student's native language."""
         defn = word.definitions.first()
@@ -114,6 +135,26 @@ class PracticeService:
                 normalized_user_answer == cls.normalize_answer(ans)
                 for ans in correct_answers_from_db
             )
+
+            # Typo detection: only for type-to-spell questions (answer == target word)
+            # If near-miss, return early without recording the attempt
+            if not is_correct and normalized_user_answer:
+                term_normalized = cls.normalize_answer(question.word.text)
+                is_type_to_spell = any(
+                    cls.normalize_answer(ans) == term_normalized
+                    for ans in correct_answers_from_db
+                )
+                if is_type_to_spell and len(term_normalized) > 0:
+                    distance = cls._damerau_levenshtein_distance(
+                        normalized_user_answer, term_normalized
+                    )
+                    ratio = distance / len(term_normalized)
+                    if ratio <= 0.25:
+                        return {
+                            'is_typo': True,
+                            'is_correct': False,
+                            'message': 'Almost! Check your spelling and try again.',
+                        }
 
             current_mastery_level_before_update = mastery_record.level
             did_level_up_word = False

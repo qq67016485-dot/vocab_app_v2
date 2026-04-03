@@ -11,9 +11,11 @@ Runs the full LLM content generation pipeline for a word set:
   7. Generate Stories & Cloze (LLM generates per-pack stories/cloze)
   8. Generate Images (Gemini generates per-word images)
 """
+import json
 import logging
-import time
 import math
+import random
+import time
 
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
@@ -29,6 +31,7 @@ from vocabulary.models import (
 from vocabulary.services.llm_service import (
     call_anthropic, call_gemini, call_gemini_image, load_prompt_template,
 )
+from vocabulary.constants import QUESTION_TYPE_LEVEL
 from vocabulary.services.embedding_service import (
     get_embedding, find_duplicate_definition,
 )
@@ -72,6 +75,7 @@ PIPELINE_STEP_ORDER = [
     GenerationJobLog.Step.PRIMER_GEN,
     GenerationJobLog.Step.STORY_CLOZE_GEN,
     GenerationJobLog.Step.IMAGE_GEN,
+    GenerationJobLog.Step.PICTURE_MATCH_GEN,
 ]
 
 
@@ -114,6 +118,8 @@ def _run_step(job, step, words, words_data, packs):
         _step_generate_stories_and_cloze(job, packs, words_data)
     elif step == S.IMAGE_GEN:
         _step_generate_images(job, words)
+    elif step == S.PICTURE_MATCH_GEN:
+        _step_generate_picture_match_questions(job, words, packs)
     return words, words_data, packs
 
 
@@ -425,14 +431,17 @@ def _step_generate_questions(job, words, words_data):
     """
     Step 4: Call LLM to generate practice questions for each word.
 
-    Uses the v1-style prompt format: sends simplified_words + target_lexile_level as JSON,
-    expects generated_question_sets back with enriched word data + questions.
+    Uses two alternating prompts (A/B) chosen randomly per batch for variety.
     Batches words into groups of QUESTION_BATCH_SIZE to keep error rates low.
     """
+
     start = time.time()
     try:
-        import json as _json
-        template = load_prompt_template('question_generation')
+
+        templates = {
+            'A': load_prompt_template('question_generation_A'),
+            'B': load_prompt_template('question_generation_B'),
+        }
 
         # Build word list with existing definitions from Step 1
         word_list = []
@@ -457,12 +466,14 @@ def _step_generate_questions(job, words, words_data):
 
         for batch_idx, batch in enumerate(batches, 1):
             batch_terms = [w['term'] for w in batch]
+            prompt_label = random.choice(['A', 'B'])
+            template = templates[prompt_label]
             logger.info(
-                "Question generation batch %d/%d: %s",
-                batch_idx, total_batches, ', '.join(batch_terms),
+                "Question generation batch %d/%d (prompt %s): %s",
+                batch_idx, total_batches, prompt_label, ', '.join(batch_terms),
             )
 
-            input_json = _json.dumps({
+            input_json = json.dumps({
                 'target_lexile_level': _content_lexile(job),
                 'words': batch,
             }, indent=2)
@@ -483,9 +494,10 @@ def _step_generate_questions(job, words, words_data):
                     if isinstance(options, dict) and 'choices' in options:
                         options = options['choices']
 
+                    q_type = qd.get('question_type', 'DEFINITION_MC_SINGLE')
                     question = Question.objects.create(
                         word=word,
-                        question_type=qd.get('question_type', 'DEFINITION_MC_SINGLE'),
+                        question_type=q_type,
                         question_text=qd.get('question_text', ''),
                         options=options,
                         correct_answers=qd.get('correct_answers', []),
@@ -495,7 +507,8 @@ def _step_generate_questions(job, words, words_data):
                         generation_job=job,
                     )
 
-                    for level_num in qd.get('suitable_mastery_levels', []):
+                    level_num = QUESTION_TYPE_LEVEL.get(q_type)
+                    if level_num:
                         ml = mastery_levels.get(level_num)
                         if ml:
                             question.suitable_levels.add(ml)
@@ -620,7 +633,7 @@ def _step_auto_create_packs(job, words, words_data):
 
     # Fresh generation: use LLM to group words semantically
     try:
-        import json as _json
+
         template = load_prompt_template('pack_grouping')
 
         # Calculate balanced pack distribution (max 6 per pack)
@@ -880,9 +893,24 @@ def _step_generate_images(job, words):
     """
     start = time.time()
     created_count = 0
+    failed_words = []
+
+    # Batch lookups to avoid N+1 queries
+    defn_map = {}
+    for d in WordDefinition.objects.filter(word__in=words).order_by('word_id', 'id'):
+        defn_map.setdefault(d.word_id, d)
+    already_approved = set(
+        GeneratedImage.objects.filter(
+            word__in=words, status=GeneratedImage.Status.APPROVED
+        ).values_list('word_id', flat=True)
+    )
 
     for word in words:
-        defn = word.definitions.first()
+        if word.id in already_approved:
+            created_count += 1
+            continue
+
+        defn = defn_map.get(word.id)
         definition_text = defn.definition_text if defn else word.text
 
         prompt = (
@@ -890,7 +918,7 @@ def _step_generate_images(job, words):
             f"The word is '{word.text}' which means '{definition_text}'. "
             f"The image should be clear, age-appropriate for children aged 8-14, "
             f"and help illustrate the meaning of the word. No text in the image. "
-            f"Square format, 1:1 aspect ratio."
+            f"Square format, 512x512 pixels, 1:1 aspect ratio."
         )
 
         try:
@@ -911,15 +939,141 @@ def _step_generate_images(job, words):
             logger.warning(
                 "Image generation failed for word '%s': %s", word.text, exc,
             )
+            failed_words.append(word.text)
             continue
 
     job.images_created = created_count
     job.save(update_fields=['images_created'])
 
     duration = time.time() - start
+
+    if created_count == 0 and len(words) > 0:
+        _log_step(
+            job, GenerationJobLog.Step.IMAGE_GEN,
+            GenerationJob.Status.FAILED,
+            duration=duration,
+            output_data={'images_created': 0, 'failed_words': failed_words},
+            error_message=f"All {len(words)} image generations failed.",
+        )
+        raise RuntimeError(
+            f"Image generation failed for all {len(words)} words: {', '.join(failed_words)}"
+        )
+
     _log_step(
         job, GenerationJobLog.Step.IMAGE_GEN,
         GenerationJob.Status.COMPLETED,
         duration=duration,
-        output_data={'images_created': created_count},
+        output_data={
+            'images_created': created_count,
+            'failed_words': failed_words,
+        },
     )
+
+
+def _step_generate_picture_match_questions(job, words, packs):
+    """
+    Step 9: Generate PICTURE_WORD_MATCH questions for each word that has an
+    approved generated image.
+
+    Question stem: the word's definition + its image.
+    Options: 4 word terms — 1 correct, up to 2 pack-mates, 1 random outside word.
+    Suitable mastery level: 1 (Recognition).
+    """
+
+
+    start = time.time()
+    created_count = 0
+
+    # Build pack membership map: word_id → list of pack-mate Word objects
+    pack_mates_map = {}  # word_id -> [Word, ...] (excluding self)
+    for pack in packs:
+        pack_items = list(pack.items.select_related('word').all())
+        pack_word_objs = [item.word for item in pack_items]
+        for word_obj in pack_word_objs:
+            pack_mates_map[word_obj.id] = [w for w in pack_word_objs if w.id != word_obj.id]
+
+    # Fetch all word ids in this word set for exclusion when picking outside words
+    word_set_ids = set(w.id for w in words)
+
+    # Batch lookups to avoid N+1 queries
+    approved_images = {
+        img.word_id: img
+        for img in GeneratedImage.objects.filter(
+            word__in=words, status=GeneratedImage.Status.APPROVED
+        )
+    }
+    defn_map = {}
+    for d in WordDefinition.objects.filter(word__in=words).order_by('word_id', 'id'):
+        defn_map.setdefault(d.word_id, d)
+
+    # Pre-fetch a pool of outside distractor words (avoids per-word ORDER BY RANDOM())
+    outside_pool = list(
+        Word.objects.exclude(id__in=word_set_ids).order_by('?')[:50]
+    )
+
+    # Level 1 MasteryLevel object
+    try:
+        level1 = MasteryLevel.objects.get(level_id=1)
+    except MasteryLevel.DoesNotExist:
+        level1 = None
+
+    outside_idx = 0
+    for word in words:
+        image = approved_images.get(word.id)
+        if not image:
+            continue
+
+        defn = defn_map.get(word.id)
+        if not defn:
+            continue
+        definition_text = defn.definition_text
+
+        # Build distractor pool from pack-mates (up to 2)
+        mates = list(pack_mates_map.get(word.id, []))
+        random.shuffle(mates)
+        distractors = mates[:2]
+
+        # Add 1 random word from outside the word set (from pre-fetched pool)
+        if outside_pool:
+            distractors.append(outside_pool[outside_idx % len(outside_pool)])
+            outside_idx += 1
+
+        # If still need more distractors (pack has < 2 mates), fill from pool
+        if len(distractors) < 3 and outside_pool:
+            existing_ids = {d.id for d in distractors} | {word.id}
+            for w in outside_pool:
+                if w.id not in existing_ids and len(distractors) < 3:
+                    distractors.append(w)
+                    existing_ids.add(w.id)
+
+        # Build options: correct answer + distractors, shuffled
+        all_options = [word.text] + [d.text for d in distractors]
+        random.shuffle(all_options)
+
+        question_text = definition_text
+
+        question = Question.objects.create(
+            word=word,
+            question_type=Question.QuestionType.PICTURE_WORD_MATCH,
+            question_text=question_text,
+            options=all_options,
+            correct_answers=[word.text],
+            explanation=f"The image shows '{word.text}', which means: {definition_text}",
+            example_sentence='',
+            lexile_score=None,
+            generation_job=job,
+        )
+
+        if level1:
+            question.suitable_levels.add(level1)
+
+        created_count += 1
+
+    duration = time.time() - start
+    _log_step(
+        job, GenerationJobLog.Step.PICTURE_MATCH_GEN,
+        GenerationJob.Status.COMPLETED,
+        duration=duration,
+        output_data={'questions_created': created_count},
+    )
+    logger.info("Picture-word match: created %d questions", created_count)

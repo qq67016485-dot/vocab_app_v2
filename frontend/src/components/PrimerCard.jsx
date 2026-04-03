@@ -2,6 +2,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import TextToSpeechButton from './TextToSpeechButton.jsx';
 import correctSfx from '../assets/sounds/correct.mp3';
 
+function highlightWord(sentence, word) {
+  if (!sentence || !word) return sentence;
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`\\b(${escaped})\\b`, 'gi');
+  const parts = sentence.split(regex);
+  return parts.map((part, i) =>
+    part.toLowerCase() === word.toLowerCase()
+      ? <strong key={i} className="primer-highlight-word">{part}</strong>
+      : part
+  );
+}
+
 export default function PrimerCard({ card, index, total, onNext }) {
   const [gotIt, setGotIt] = useState(false);
   const [showDefTranslation, setShowDefTranslation] = useState(false);
@@ -35,38 +47,46 @@ export default function PrimerCard({ card, index, total, onNext }) {
     <div className="primer-card">
       <div className="primer-counter">{index + 1} of {total}</div>
 
-      <div className="primer-word">{card.term_text}</div>
-      <div className="primer-syllable">{card.syllable_text}</div>
-
-      <TextToSpeechButton textToSpeak={card.term_text} />
-
-      <div className="primer-definition">
-        {card.kid_friendly_definition}
+      <div className="primer-word">
+        {card.term_text}
+        {card.part_of_speech && (
+          <span className="primer-pos">({card.part_of_speech})</span>
+        )}
       </div>
 
-      {card.definition_translation && (
-        showDefTranslation ? (
-          <div className="primer-translation-text">{card.definition_translation}</div>
-        ) : (
-          <button
-            className="primer-translation-btn"
-            onClick={() => setShowDefTranslation(true)}
-            type="button"
-          >
-            Show Translation
-          </button>
-        )
-      )}
+      <div className="primer-pronunciation">
+        <span className="primer-syllable">{card.syllable_text}</span>
+        <TextToSpeechButton textToSpeak={card.term_text} />
+      </div>
+
+      <div className="primer-definition-box">
+        <p className="primer-definition">{card.kid_friendly_definition}</p>
+        {card.definition_translation && (
+          showDefTranslation ? (
+            <p className="primer-translation-text">{card.definition_translation}</p>
+          ) : (
+            <button
+              className="primer-translation-btn"
+              onClick={() => setShowDefTranslation(true)}
+              type="button"
+            >
+              Show Translation
+            </button>
+          )
+        )}
+      </div>
 
       {card.image_url && (
         <img src={card.image_url} alt={card.term_text} className="primer-image" />
       )}
 
-      <div className="primer-example">{card.example_sentence}</div>
+      <p className="primer-example">
+        {highlightWord(card.example_sentence, card.term_text)}
+      </p>
 
       {card.example_translation && (
         showExTranslation ? (
-          <div className="primer-translation-text">{card.example_translation}</div>
+          <p className="primer-ex-translation-text">{card.example_translation}</p>
         ) : (
           <button
             className="primer-translation-btn"

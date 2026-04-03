@@ -179,6 +179,14 @@ class Question(models.Model):
         COLLOCATION_FILL_IN_BLANK = 'COLLOCATION_FILL_IN_BLANK', 'Collocation Fill-in-Blank'
         COLLOCATION_MATCHING = 'COLLOCATION_MATCHING', 'Collocation Matching'
         CONCEPTUAL_ASSOCIATION_MC_SINGLE = 'CONCEPTUAL_ASSOCIATION_MC_SINGLE', 'Conceptual Association MC (Single Ans)'
+        REVERSE_DEFINITION_MC = 'REVERSE_DEFINITION_MC', 'Reverse Definition MC'
+        SYNONYM_IN_CONTEXT_MC = 'SYNONYM_IN_CONTEXT_MC', 'Synonym in Context MC'
+        REVERSE_SYNONYM_IN_CONTEXT_MC = 'REVERSE_SYNONYM_IN_CONTEXT_MC', 'Reverse Synonym in Context MC'
+        APPLICATION_MC = 'APPLICATION_MC', 'Application MC'
+        REVERSE_ASSOCIATION_MC = 'REVERSE_ASSOCIATION_MC', 'Reverse Association MC'
+        REVERSE_COLLOCATION_MC = 'REVERSE_COLLOCATION_MC', 'Reverse Collocation MC'
+        NUANCE_CONTRAST_MC = 'NUANCE_CONTRAST_MC', 'Nuance Contrast MC'
+        PICTURE_WORD_MATCH = 'PICTURE_WORD_MATCH', 'Picture-Word Match'
 
     word = models.ForeignKey(Word, on_delete=models.CASCADE, related_name='questions')
     question_type = models.CharField(max_length=50, choices=QuestionType.choices)
@@ -512,6 +520,7 @@ class GenerationJobLog(models.Model):
         PRIMER_GEN = 'PRIMER_GEN', 'Primer Generation'
         STORY_CLOZE_GEN = 'STORY_CLOZE_GEN', 'Story & Cloze Generation'
         IMAGE_GEN = 'IMAGE_GEN', 'Image Generation'
+        PICTURE_MATCH_GEN = 'PICTURE_MATCH_GEN', 'Picture-Word Match Generation'
 
     job = models.ForeignKey(GenerationJob, on_delete=models.CASCADE, related_name='logs')
     step = models.CharField(max_length=30, choices=Step.choices)

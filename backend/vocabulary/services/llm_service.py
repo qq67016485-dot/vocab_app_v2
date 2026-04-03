@@ -244,7 +244,6 @@ def call_gemini_image(prompt):
         contents=prompt,
         config=types.GenerateContentConfig(
             response_modalities=["IMAGE"],
-            image_resolution="low",
         ),
     )
 

@@ -127,6 +127,62 @@
   font-style: normal;
 }
 
+/* ── Picture-Word Match image ── */
+[data-app="student"] .pwm-image-container {
+  display: flex;
+  justify-content: center;
+  margin: 16px 0;
+}
+[data-app="student"] .pwm-image {
+  max-width: 256px;
+  max-height: 256px;
+  border-radius: 12px;
+  border: 2px solid #e0e4ef;
+  object-fit: cover;
+}
+
+/* ── Type-to-spell mode (options shown as read-only reference) ── */
+[data-app="student"] .mc-option-button.reference {
+  opacity: 0.55;
+  cursor: default;
+  pointer-events: none;
+  border-style: dashed;
+}
+[data-app="student"] .type-to-spell-input {
+  width: 100%;
+  padding: 14px 16px;
+  margin-top: 12px;
+  border: 2px solid #e0e4ef;
+  border-radius: 12px;
+  font-size: 16px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+[data-app="student"] .type-to-spell-input:focus {
+  border-color: var(--brand-1, #6a74ff);
+}
+
+/* ── Typo hint ── */
+[data-app="student"] .typo-hint {
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  color: #92400e;
+  font-size: 14px;
+  text-align: center;
+}
+[data-app="student"] .type-to-spell-input.typo-shake {
+  border-color: #f59e0b;
+  animation: shake 0.4s ease;
+}
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-4px); }
+  40%, 80% { transform: translateX(4px); }
+}
+
 /* ── Multiple-choice options ── */
 [data-app="student"] .mc-options-container {
   display: flex;

@@ -90,6 +90,7 @@ class InstructionalService:
             primer_cards.append({
                 'word_id': word.id,
                 'term_text': word.text,
+                'part_of_speech': word.part_of_speech,
                 'syllable_text': primer.syllable_text if primer else word.text,
                 'image_url': approved_images.get(word.id, ''),
                 'audio_url': primer.audio_url if primer else '',

@@ -15,6 +15,7 @@ from django.conf import settings
 from users.models import CustomUser, StudentGroup
 from .models import (
     Word, WordDefinition, Question, WordSet, Curriculum, Level,
+    GeneratedImage,
 )
 from .utils import get_tier_info, calculate_xp_in_current_level
 
@@ -128,13 +129,33 @@ class WordDetailSerializer(WordSerializer):
 class QuestionSerializer(serializers.ModelSerializer):
     """Serializes Question for practice — excludes correct_answers."""
     term_text = serializers.CharField(source='word.text', read_only=True)
+    image_url = serializers.SerializerMethodField()
+    correct_answer_is_term = serializers.SerializerMethodField()
 
     class Meta:
         model = Question
         fields = [
             'id', 'term_text', 'question_type', 'question_text',
             'options', 'explanation', 'example_sentence', 'lexile_score',
+            'image_url', 'correct_answer_is_term',
         ]
+
+    def get_image_url(self, obj):
+        if obj.question_type != 'PICTURE_WORD_MATCH':
+            return None
+        image = GeneratedImage.objects.filter(
+            word=obj.word, status=GeneratedImage.Status.APPROVED
+        ).first()
+        if image and image.image:
+            return image.image.url
+        return None
+
+    def get_correct_answer_is_term(self, obj):
+        term = obj.word.text.lower()
+        answers = obj.correct_answers
+        if not isinstance(answers, list):
+            answers = [answers]
+        return any(str(a).lower() == term for a in answers)
 
 
 # =============================================================================

@@ -10,6 +10,7 @@ const PIPELINE_STEPS = [
   { key: 'PRIMER_GEN', label: 'Primer Generation' },
   { key: 'STORY_CLOZE_GEN', label: 'Story & Cloze Generation' },
   { key: 'IMAGE_GEN', label: 'Image Generation' },
+  { key: 'PICTURE_MATCH_GEN', label: 'Picture-Word Match' },
 ];
 
 const POLL_INTERVAL = 3000;

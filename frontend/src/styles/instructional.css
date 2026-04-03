@@ -52,6 +52,12 @@
   padding: var(--space-8);
   max-width: 520px;
   margin: 0 auto;
+}
+
+.primer-counter {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: var(--space-4);
   text-align: center;
 }
 
@@ -59,41 +65,84 @@
   font-size: 2.2rem;
   font-weight: 800;
   color: var(--text);
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
   letter-spacing: 0.02em;
+  text-align: center;
 }
 
-.primer-syllable {
-  font-size: 1.1rem;
+.primer-pos {
+  font-size: 0.9rem;
   color: var(--muted);
+  font-style: italic;
+  font-weight: 400;
+  margin-left: var(--space-2);
+}
+
+.primer-pronunciation {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
   margin-bottom: var(--space-4);
 }
 
+.primer-syllable {
+  font-size: 1.15rem;
+  color: var(--muted);
+}
+
 .primer-image {
-  width: 400px;
-  height: 400px;
+  width: 100%;
+  max-width: 360px;
+  aspect-ratio: 1 / 1;
   object-fit: cover;
   border-radius: var(--radius-l);
   margin: var(--space-4) auto;
   display: block;
 }
 
-.primer-definition {
-  font-size: 1.15rem;
-  line-height: 1.5;
-  color: var(--text);
+.primer-definition-box {
   margin: var(--space-4) 0;
   padding: var(--space-4);
   background: #fef9f0;
   border-radius: var(--radius-m);
   border-left: 3px solid #d97706;
+  text-align: left;
+}
+
+.primer-definition {
+  font-size: 1.1rem;
+  line-height: 1.5;
+  color: #333333;
+  margin: 0;
+}
+
+.primer-translation-text {
+  font-size: 1.2rem;
+  color: #666666;
+  margin: var(--space-2) 0 0;
+  line-height: 1.4;
 }
 
 .primer-example {
-  font-size: 1rem;
-  color: var(--muted);
-  font-style: italic;
+  font-size: 1.05rem;
+  line-height: 1.5;
+  color: #333333;
   margin: var(--space-3) 0;
+  text-align: left;
+}
+
+.primer-highlight-word {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.primer-ex-translation-text {
+  font-size: 1.05rem;
+  color: #666666;
+  margin: 0 0 var(--space-3);
+  text-align: left;
+  line-height: 1.4;
 }
 
 .primer-translation-btn {
@@ -104,18 +153,12 @@
   font-size: 0.85rem;
   color: var(--muted);
   cursor: pointer;
-  margin: var(--space-2);
+  margin: var(--space-2) 0 0;
 }
 
 .primer-translation-btn:hover {
   border-color: #d97706;
   color: #d97706;
-}
-
-.primer-translation-text {
-  font-size: 0.9rem;
-  color: #92400e;
-  margin: var(--space-2) 0;
 }
 
 .primer-actions {

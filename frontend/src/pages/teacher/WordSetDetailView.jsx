@@ -21,6 +21,8 @@ export default function WordSetDetailView() {
   const [generateMessage, setGenerateMessage] = useState({});
   const [packImages, setPackImages] = useState({});
   const [reviewingImageId, setReviewingImageId] = useState(null);
+  const [latestJobId, setLatestJobId] = useState(null);
+  const [latestJobStatus, setLatestJobStatus] = useState(null);
 
   const fetchWordSet = async () => {
     const response = await apiClient.get(`/word-sets/${setId}/`);
@@ -50,6 +52,11 @@ export default function WordSetDetailView() {
           const packsRes = await apiClient.get(`/word-sets/${setId}/packs/`);
           setPacks(packsRes.data);
         } catch (e) { /* packs may not exist yet */ }
+        try {
+          const jobRes = await apiClient.get(`/word-sets/${setId}/latest-job/`);
+          setLatestJobId(jobRes.data.id);
+          setLatestJobStatus(jobRes.data.status);
+        } catch (e) { /* no job yet */ }
       } catch (err) {
         console.error("Error fetching data:", err);
         setError("Could not load data for this word set.");
@@ -194,6 +201,15 @@ export default function WordSetDetailView() {
           <button onClick={() => navigate(`/teacher/generate/${setId}`)}
             style={{ background: '#7c3aed', color: '#fff' }}>
             Generate Full Pipeline
+          </button>
+        )}
+        {latestJobId && (
+          <button onClick={() => navigate(`/teacher/generation-jobs/${latestJobId}`)}
+            style={{
+              background: latestJobStatus === 'FAILED' ? '#dc2626' : latestJobStatus === 'COMPLETED' ? '#16a34a' : '#6b7280',
+              color: '#fff',
+            }}>
+            {latestJobStatus === 'FAILED' ? 'View Failed Job' : 'View Latest Job'}
           </button>
         )}
         <button onClick={() => navigate('/teacher/word-sets')}>Back to All Sets</button>

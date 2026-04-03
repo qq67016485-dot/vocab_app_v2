@@ -1,0 +1,259 @@
+**ROLE AND GOAL**
+You are an expert AI educational content creator and psychometrician specializing in English vocabulary. Your task is to process a JSON list of words (each with its definition and example sentence) and a target reading level. For EACH word, generate a comprehensive set of **15 practice questions, 3 for each of the 5 mastery levels**. The question types are strictly defined below. The questions are **learning-oriented**, not high-stakes tests. Each question must have its own specific **Lexile score**, a logical and instructive **explanation**, and a unique contextual **example sentence**. Finally, you will package all results into a single, valid JSON object.
+
+---
+
+**INPUT**
+You will be provided with a JSON object containing two main keys:
+* `"words"`: A list of word objects, each with `term`, `part_of_speech`, `definition`, and `example_sentence`.
+* `"target_lexile_level"`: An integer representing the *center point* for the desired Lexile scores (e.g., 800, 1000, 1200).
+
+---
+
+### QUESTION GENERATION
+Generate questions for each word according to the following rules.
+
+**Strict Question Quota**
+Exactly 15 questions per word: **3** at Level 1, **3** at Level 2, **3** at Level 3, **3** at Level 4, **3** at Level 5. *(Note: Where a level has fewer than 3 question types, duplicate one of the types to reach the required 3 questions).*
+
+**Fields required for EACH question**
+1) `lexile_score` — an integer within **target_lexile_level +/- 50**.
+2) `explanation` — logically and instructively explains **why** the correct answer is right and **must include the vocabulary word**. **NOTE: the student is most likely to read this explanation when the student's answer is incorrect.
+3) `example_sentence` — a different, real-world usage of the word, including a natural collocation or context the learner is likely to meet again (not redundant with the explanation).
+
+**Question Types and Mastery Levels (15 Items Total)**
+* **Level 1 – Recognition** (3 items)
+  * `DEFINITION_MC_SINGLE`: The question asks for the primary meaning of the target word. Options are various definitions.
+  * `REVERSE_DEFINITION_MC`: The formal definition is provided in the question stem. The target word is the correct answer among other vocabulary distractors.
+* **Level 2 – Relationships** (3 items)
+  * `SYNONYM_IN_CONTEXT_MC`: A full sentence is provided using the target word. The options are synonyms; the student must pick the one that fits the specific nuance and grammar of that sentence.
+  * `ANTONYM_MC_SINGLE`: A direct question asking for a word with the opposite meaning. (Used for words with clear opposites).
+  * `CONCEPTUAL_ASSOCIATION_MC_SINGLE`: Asks the student to identify which category, broad concept, or related idea best fits the target word.
+  * *Fallback Protocol:* If `ANTONYM_MC_SINGLE` is difficult for a word (e.g., a highly specific noun), generate questions of different type to meet the quota.
+* **Level 3 – Context & Application** (3 items)
+  * `APPLICATION_MC`: The target word is used in the stem to describe a scenario. The options are real-world behaviors, objects, or outcomes.
+  * `REVERSE_ASSOCIATION_MC`: The stem provides 2–3 related concepts, actions, or clues (e.g., "Microscope, evidence, and detailed notes"). The target word is the correct answer.
+* **Level 4 – Nuance & Usage** (3 items)
+  * `WORD_FORM_MC`: Tests grammatical accuracy using same-root minimal pairs (e.g., Analyze vs. Analysis). Only one fits the sentence. *DO NOT generate `WORD_FORM_MC` if the "target_lexile_level" is less than 600.*
+  * `REVERSE_COLLOCATION_MC`: The stem provides typical partner words (e.g., "Which word is commonly paired with data, trends, and evidence?"). The target word is the answer.
+* **Level 5 – Deep Comparison** (3 items)
+  * `ODD_ONE_OUT_MC_SINGLE`: Provides four words in a tight semantic field. The student must identify the one that violates a "latent rule".
+  * `NUANCE_CONTRAST_MC`: A sentence that explicitly contrasts the target word with a near-synonym to test high-level nuance (e.g., "It wasn't just a quick glance; he took hours to _____ every detail"). The target word is the blank.
+
+---
+
+## Distractor Tiers (apply to ALL MC types)
+- **Tier 1 (near-synonym/antonym):** Same part of speech as the key. High semantic similarity, but differs on at least one defining feature in the formal definition.
+- **Tier 2 (collocation foil):** A real word/phrase that commonly collocates with a **neighbor concept** in the same domain, but **not** with the target word (e.g., "wing flap" vs. "propeller pitch").
+- **Tier 3 (orthographic/phonological trap):** Looks/sounds similar but has a different meaning (e.g., propose/propel; manifest/manifesto). Use sparingly and **never** if it changes POS.
+
+**Enforcement**
+- For **all MC items at Levels 3-5**, include **at least one Tier-2** distractor.
+- Do **not** include more than **one Tier-3** distractor in any single item.
+- All distractors must be plausible in context and the **same POS** as the correct answer unless the item purposefully contrasts forms (only in `WORD_FORM_MC`).
+- For collocations, ensure incorrect choices are **genuine collocations with a related neighbor concept** (not nonsense).
+
+---
+
+## Lexile Guardrails
+- Target Lexile per item (including the question, answer text, explanation text, example sentence) = **target_lexile_level +/- 50**.
+
+---
+
+## Nuance Requirements
+- **`APPLICATION_MC` (L3)**: Ensure options describe realistic behaviors, outcomes, or steps. The distractor behaviors should sound plausible but logically fail the specific constraint of the target word.
+- **`WORD_FORM_MC` (L4)**: Use **same-root minimal pairs** differing by POS/meaning (e.g., *propel* (V) vs *propulsion* (N) vs *propulsive* (ADJ) vs *propeller* (N device)). Exactly **one** fits the prompt.
+- **`REVERSE_COLLOCATION_MC` (L4)**: Wrong options (distractors) should be real verbs or adjectives that strongly collocate with a *different* neighbor concept (e.g., if the clues are "data" and "trends", distractors might be words paired with physical objects or speeches, like "assemble" or "recite").
+- **`ODD_ONE_OUT_MC_SINGLE` (L5)**: Keep all options within a **tight semantic field**; the odd one must violate a **latent rule** (e.g., reusability; medium-air/water; building up vs. breaking down). The explanation must **state the rule** clearly.
+- **`NUANCE_CONTRAST_MC` (L5)**: The sentence stem must structurally reject the weaker near-synonym (e.g., using constructions like "Rather than just X, she needed to Y"). 
+
+---
+
+### OUTPUT REQUIREMENTS
+Return a single, valid JSON object. The root object must have one key: `"generated_question_sets"`. Its value is a list; each element contains:
+- `"term"`: the word term (string).
+- `"questions"`: the exactly fifteen question objects for that word.
+
+Do **not** include any text outside the JSON object.
+
+---
+
+### QUALITY GUIDELINES
+- **Lexile adherence:** Always within +/-50 of target; apply Guardrails and revise if needed.
+- **Explanation vs. example:** The explanation is analytical ("why"); the example is contextual ("how"). No redundancy.
+- **Plausible distractors:** Follow **Distractor Tiers**; ensure at least one Tier-2 distractor at L3-L5; <=1 Tier-3 per item.
+- **Avoid tautologies:** The `explanation` must **never** use the root of the term itself to define the word.
+- **Vary sentence structures:** Across the 15 items, vary stems, explanations, examples.
+- **Supportive tone**: avoid grading language; use encouraging, learner-friendly phrasing.
+
+---
+
+### PRE-FLIGHT CHECKLIST (apply to every item before output)
+- [ ] Exactly 15 questions generated (3 per level)?
+- [ ] Lexile proxy **within band** (+/- 50 of target)?
+- [ ] **At least one Tier-2** distractor for **all L3-L5** items; **<=1 Tier-3** per item?
+- [ ] `WORD_FORM_MC` uses **same-root minimal pairs**?
+- [ ] `NUANCE_CONTRAST_MC` has an explicit structural contrast setting up the exact nuance?
+- [ ] `REVERSE_COLLOCATION_MC` uses clues that are real, high-frequency partner words?
+- [ ] `ODD_ONE_OUT_MC_SINGLE` uses a **tight field** and the explanation **states the latent rule**?
+- [ ] `explanation` includes the target word and clarifies the specific reasoning?
+- [ ] `example_sentence` is **different** from the explanation and contextually natural?
+
+---
+**EXAMPLE**
+
+**INPUT:**
+```json
+{
+  "target_lexile_level": 1000,
+  "words": [
+    {
+      "term": "Analyze",
+      "part_of_speech": "verb",
+      "definition": "to study something closely and carefully to learn more about it",
+      "example_sentence": "The scientist needed to analyze the rock samples to determine their age."
+    }
+  ]
+}
+```
+
+**EXPECTED JSON OUTPUT:**
+```json
+{
+  "generated_question_sets": [
+    {
+      "term": "Analyze",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the primary meaning of the verb 'analyze'?",
+          "options": { "choices": ["To examine in detail", "To create something new", "To guess a solution", "To overlook the facts"] },
+          "correct_answers": ["To examine in detail"],
+          "explanation": "To 'analyze' means to study the structure or parts of something carefully. 'Create', 'guess', and 'overlook' do not involve detailed examination.",
+          "example_sentence": "Before making a purchase, he took time to analyze the costs and benefits.",
+          "lexile_score": 980        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "Which word means to study something closely and carefully to learn more about its parts?",
+          "options": { "choices": ["Analyze", "Fabricate", "Disguise", "Promote"] },
+          "correct_answers": ["Analyze"],
+          "explanation": "To 'analyze' is to break a subject down and study it closely. 'Fabricate' means to invent or fake something, while 'disguise' means to hide it.",
+          "example_sentence": "The lab technician will analyze the water sample for any impurities.",
+          "lexile_score": 950
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "If you break a complex topic down into smaller parts to understand it better, which action are you performing?",
+          "options": { "choices": ["Analyzing", "Summarizing", "Ignoring", "Broadcasting"] },
+          "correct_answers": ["Analyzing"],
+          "explanation": "Breaking something down to study its details is the core meaning of 'analyzing'. Summarizing is about making things shorter, not necessarily breaking down parts.",
+          "example_sentence": "We spent the afternoon analyzing the poem to understand its hidden themes.",
+          "lexile_score": 1010        },
+        {
+          "question_type": "SYNONYM_IN_CONTEXT_MC",
+          "question_text": "Read the sentence: 'The detective needed to analyze the evidence found at the scene before drawing conclusions.' Which word best replaces 'analyze' in this sentence?",
+          "options": { "choices": ["Inspect", "Assemble", "Conceal", "Invent"] },
+          "correct_answers": ["Inspect"],
+          "explanation": "In this context, 'inspect' is a strong synonym because both verbs involve looking at something closely. 'Assemble' means putting things together, not studying them.",
+          "example_sentence": "The mechanic had to analyze the engine closely to find the source of the noise.",
+          "lexile_score": 1000        },
+        {
+          "question_type": "ANTONYM_MC_SINGLE",
+          "question_text": "Which word is an antonym for 'analyze'?",
+          "options": { "choices": ["Synthesize", "Investigate", "Scrutinize", "Evaluate"] },
+          "correct_answers": ["Synthesize"],
+          "explanation": "To 'analyze' is to break a whole down into individual parts. To 'synthesize' is to combine parts into a whole, making it the direct opposite action.",
+          "example_sentence": "It is usually easier to analyze a completed project than to synthesize a new plan from scratch.",
+          "lexile_score": 1050        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which broad field or concept is most strongly associated with the action of analyzing?",
+          "options": { "choices": ["Scientific research", "Creative writing", "Physical exercise", "Random guessing"] },
+          "correct_answers": ["Scientific research"],
+          "explanation": "'Scientific research' relies heavily on testing and logically breaking down information, which is what it means to analyze. The other fields rely more on imagination or physical exertion.",
+          "example_sentence": "Analysts in the finance sector analyze market trends to advise their clients.",
+          "lexile_score": 1040        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "If a doctor needs to analyze a patient's unusual symptoms, what is the most likely action she will take?",
+          "options": { "choices": ["Run specific tests and carefully review the results.", "Give the patient a random medicine and hope it works.", "Tell the patient to ignore the symptoms entirely.", "Write a fictional story about the patient's background."] },
+          "correct_answers": ["Run specific tests and carefully review the results."],
+          "explanation": "To 'analyze' means to study something methodically to understand it. Running tests and reviewing results is a methodical way to study symptoms.",
+          "example_sentence": "The coach will analyze the game footage to see where the team can improve.",
+          "lexile_score": 1030        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "When an environmentalist decides to analyze local pollution levels, what outcome are they seeking?",
+          "options": { "choices": ["To discover the precise sources and amounts of the pollutants.", "To plant more trees in a neighboring city.", "To sweep the streets and pick up visible trash.", "To write a song about the beauty of nature."] },
+          "correct_answers": ["To discover the precise sources and amounts of the pollutants."],
+          "explanation": "Analyzing aims to gain deeper understanding. Finding the sources and amounts of pollution is the logical result of studying (analyzing) the environment.",
+          "example_sentence": "Experts analyze traffic patterns to design safer and more efficient roads.",
+          "lexile_score": 1020        },
+        {
+          "question_type": "REVERSE_ASSOCIATION_MC",
+          "question_text": "A microscope, a set of detailed notes, and a complex spreadsheet are clues most closely related to which action?",
+          "options": { "choices": ["Analyze", "Celebrate", "Memorize", "Demolish"] },
+          "correct_answers": ["Analyze"],
+          "explanation": "Microscopes, notes, and spreadsheets are all tools used to examine details and data closely. Therefore, they are strongly associated with the word 'analyze'.",
+          "example_sentence": "The historian used old letters to analyze the daily life of ancient citizens.",
+          "lexile_score": 990        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "Select the correct form of the word to complete the sentence: 'Her detailed _____ of the economic trends deeply impressed the board of directors.'",
+          "options": { "choices": ["analysis", "analyze", "analytical", "analyzing"] },
+          "correct_answers": ["analysis"],
+          "explanation": "The sentence requires a noun to act as the subject modified by the adjective 'detailed'. 'Analysis' is the noun form. 'Analyze' is the verb, and 'analytical' is an adjective.",
+          "example_sentence": "He possessed a highly analytical mind, making him excellent at solving puzzles.",
+          "lexile_score": 1050        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is most commonly paired as a verb with the nouns 'data', 'trends', and 'evidence'?",
+          "options": { "choices": ["Analyze", "Recite", "Fabricate", "Harvest"] },
+          "correct_answers": ["Analyze"],
+          "explanation": "In academic and professional contexts, you typically 'analyze' data, trends, or evidence to understand them. You 'recite' poetry, and you 'harvest' crops.",
+          "example_sentence": "The marketing team must analyze consumer data to create better advertisements.",
+          "lexile_score": 1040        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is frequently paired with 'samples', 'statistics', and 'results' in a laboratory setting?",
+          "options": { "choices": ["Analyze", "Propose", "Memorize", "Deliver"] },
+          "correct_answers": ["Analyze"],
+          "explanation": "A lab setting revolves around studying things closely, so you 'analyze' samples and statistics. You would 'propose' a theory or 'deliver' a speech.",
+          "example_sentence": "It took the computers three days to fully analyze the statistics from the census.",
+          "lexile_score": 1010        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": { "choices": ["Synthesize", "Analyze", "Examine", "Dissect"] },
+          "correct_answers": ["Synthesize"],
+          "explanation": "The latent rule here is 'breaking something down'. 'Analyze', 'examine', and 'dissect' all refer to breaking a subject apart to look at details. 'Synthesize' is the odd one out because it means combining parts to build something up.",
+          "example_sentence": "When you analyze a legal contract, you check every single clause for errors.",
+          "lexile_score": 1040        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'It wasn't enough to just give the document a quick glance; she had to sit down and _____ every single detail to find the error.'",
+          "options": { "choices": ["analyze", "summarize", "mention", "overlook"] },
+          "correct_answers": ["analyze"],
+          "explanation": "The sentence specifically contrasts 'a quick glance' with a much deeper, more rigorous examination. 'Analyze' perfectly captures the deep, methodical study required.",
+          "example_sentence": "Rather than just watching the film for fun, the critics analyze the director's lighting choices.",
+          "lexile_score": 980        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'Rather than simply describing the surface of the problem, the consultant was hired to deeply _____ its root causes.'",
+          "options": { "choices": ["analyze", "narrate", "ignore", "translate"] },
+          "correct_answers": ["analyze"],
+          "explanation": "The phrase 'rather than simply describing' sets up a contrast requiring a word that means digging into the mechanics of 'why' something happened. 'Analyze' is the precise term for investigating root causes.",
+          "example_sentence": "The engineers will analyze the bridge's failure to ensure it never happens again.",
+          "lexile_score": 1040        }
+      ]
+    }
+  ]
+}
+```
+
+**YOUR TASK**
+Now, process the following JSON input according to the rules, make sure the output is a JSON object strictly following the format shown above.
+
+```json
+{input_json}
+```

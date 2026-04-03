@@ -142,6 +142,7 @@ export default function PracticeView() {
 
   const [sessionGoalTotal, setSessionGoalTotal] = useState(0);
   const [questionsAnsweredThisSession, setQuestionsAnsweredThisSession] = useState(0);
+  const [typoHint, setTypoHint] = useState('');
 
   const { visibleTranslationTerm, handleShowTranslation } = useTranslationVisibility();
 
@@ -195,6 +196,7 @@ export default function PracticeView() {
     setUserAnswer('');
     setSubmittedAnswer('');
     setScrambledAttempt([]);
+    setTypoHint('');
     setQuestion(null);
     answerSwitchCount.current = 0;
 
@@ -264,7 +266,6 @@ export default function PracticeView() {
     if (!question || feedback || !answerToSubmit) return;
 
     setSubmittedAnswer(answerToSubmit);
-    setQuestionsAnsweredThisSession((prev) => prev + 1);
 
     const endTime = new Date();
     const durationMillis = endTime - questionStartTimeRef.current;
@@ -278,6 +279,17 @@ export default function PracticeView() {
         answer_switches: answerSwitchCount.current,
       });
       const data = response.data;
+
+      // Typo detected — let student retry without penalty
+      if (data.is_typo) {
+        setTypoHint(data.message || 'Almost! Check your spelling and try again.');
+        setUserAnswer('');
+        setSubmittedAnswer('');
+        return;
+      }
+
+      setTypoHint('');
+      setQuestionsAnsweredThisSession((prev) => prev + 1);
       playFeedbackSound(data.is_correct);
 
       if (data.is_correct) {
@@ -370,6 +382,10 @@ export default function PracticeView() {
       'DEFINITION_MC_SINGLE', 'SYNONYM_MC_SINGLE', 'ANTONYM_MC_SINGLE',
       'CONTEXT_MC_SINGLE', 'COLLOCATION_MC_SINGLE', 'ODD_ONE_OUT_MC_SINGLE',
       'WORD_FORM_MC', 'CONCEPTUAL_ASSOCIATION_MC_SINGLE',
+      'REVERSE_DEFINITION_MC', 'SYNONYM_IN_CONTEXT_MC',
+      'REVERSE_SYNONYM_IN_CONTEXT_MC', 'APPLICATION_MC',
+      'REVERSE_ASSOCIATION_MC', 'REVERSE_COLLOCATION_MC',
+      'NUANCE_CONTRAST_MC', 'PICTURE_WORD_MATCH',
     ];
 
     const handleMcOptionClick = (option) => {
@@ -377,12 +393,49 @@ export default function PracticeView() {
       setUserAnswer(option);
     };
 
+    // Type-to-spell: when answer is the target word and Lexile > 600,
+    // show options as read-only reference and require typing the answer
+    const isTypeToSpell =
+      question.correct_answer_is_term &&
+      question.lexile_score > 600 &&
+      question.question_type !== 'DEFINITION_TRUE_FALSE';
+
     if (
       question.question_type === 'DEFINITION_TRUE_FALSE' ||
       mcQuestionTypes.includes(question.question_type)
     ) {
       const choices =
         question.question_type === 'DEFINITION_TRUE_FALSE' ? ['True', 'False'] : optionsArray;
+
+      if (isTypeToSpell) {
+        return (
+          <form onSubmit={handleSubmit}>
+            <div className="mc-options-container">
+              {choices.map((option, index) => (
+                <div key={index} className="mc-option-button reference">
+                  {option}
+                </div>
+              ))}
+            </div>
+            {typoHint && (
+              <div className="typo-hint">{typoHint}</div>
+            )}
+            <input
+              type="text"
+              className={`type-to-spell-input${typoHint ? ' typo-shake' : ''}`}
+              placeholder="Type the correct word..."
+              value={userAnswer || ''}
+              onChange={(e) => { setUserAnswer(e.target.value); setTypoHint(''); }}
+              autoFocus
+            />
+            {userAnswer && (
+              <button type="submit" className="btn btn-primary" style={{ marginTop: '20px', width: '100%' }}>
+                Submit
+              </button>
+            )}
+          </form>
+        );
+      }
 
       return (
         <form onSubmit={handleSubmit}>
@@ -683,6 +736,11 @@ export default function PracticeView() {
             <ReasonDisplay category={question.reason_category} />
           </div>
         </div>
+        {question.question_type === 'PICTURE_WORD_MATCH' && question.image_url && (
+          <div className="pwm-image-container">
+            <img src={question.image_url} alt="Vocabulary illustration" className="pwm-image" />
+          </div>
+        )}
         {renderQuestionInput()}
       </div>
     );
