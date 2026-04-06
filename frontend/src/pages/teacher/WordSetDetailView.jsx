@@ -3,6 +3,16 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useUser } from '../../context/UserContext.jsx';
 import apiClient from '../../api/axiosConfig.js';
 
+function WordInfo({ word }) {
+  return (
+    <div className="word-info-container">
+      <strong>{word.text}</strong>
+      {word.part_of_speech && <span className="part-of-speech"> ({word.part_of_speech})</span>}
+      <div className="word-definition">{word.definition}</div>
+    </div>
+  );
+}
+
 export default function WordSetDetailView() {
   const { setId } = useParams();
   const navigate = useNavigate();
@@ -23,6 +33,7 @@ export default function WordSetDetailView() {
   const [reviewingImageId, setReviewingImageId] = useState(null);
   const [latestJobId, setLatestJobId] = useState(null);
   const [latestJobStatus, setLatestJobStatus] = useState(null);
+  const [requestToast, setRequestToast] = useState(null);
 
   const fetchWordSet = async () => {
     const response = await apiClient.get(`/word-sets/${setId}/`);
@@ -186,17 +197,49 @@ export default function WordSetDetailView() {
   packs.forEach(p => p.words.forEach(w => wordsInPacks.add(w.id)));
   const unpackedWords = wordSet.words.filter(w => !wordsInPacks.has(w.id));
 
-  const WordInfo = ({ word }) => (
-    <div className="word-info-container">
-      <strong>{word.text}</strong>
-      {word.part_of_speech && <span className="part-of-speech"> ({word.part_of_speech})</span>}
-      <div className="word-definition">{word.definition}</div>
-    </div>
-  );
+  const handleRequestGeneration = async () => {
+    try {
+      await apiClient.post(`/word-sets/${setId}/request-generation/`);
+      setWordSet(prev => ({ ...prev, generation_status: 'GENERATION_REQUESTED' }));
+      setRequestToast({ type: 'success', text: 'Generation requested! An admin will process it soon.' });
+      setTimeout(() => setRequestToast(null), 5000);
+    } catch (err) {
+      setRequestToast({ type: 'error', text: err.response?.data?.error || 'Failed to request generation.' });
+      setTimeout(() => setRequestToast(null), 5000);
+    }
+  };
+
+  const canRequestGeneration =
+    (wordSet.generation_status === 'DRAFT' || wordSet.generation_status === 'TO_GENERATE')
+    && wordSet.input_words?.length > 0;
 
   return (
     <div>
+      {requestToast && (
+        <div style={{
+          position: 'fixed', top: '20px', right: '20px', zIndex: 2000,
+          background: requestToast.type === 'error' ? '#dc2626' : '#16a34a',
+          color: '#fff', padding: '12px 20px', borderRadius: '8px',
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)', fontSize: '0.95rem', maxWidth: '400px',
+        }}>
+          {requestToast.text}
+        </div>
+      )}
       <div style={{ float: 'right', display: 'flex', gap: '0.5rem' }}>
+        {canRequestGeneration && (
+          <button onClick={handleRequestGeneration}
+            style={{ background: '#d97706', color: '#fff' }}>
+            Request Generation
+          </button>
+        )}
+        {wordSet.generation_status === 'GENERATION_REQUESTED' && (
+          <span style={{
+            padding: '8px 14px', borderRadius: '5px', background: '#fef3c7',
+            color: '#92400e', fontSize: '0.9rem', alignSelf: 'center',
+          }}>
+            Generation Requested
+          </span>
+        )}
         {user?.role === 'ADMIN' && (
           <button onClick={() => navigate(`/teacher/generate/${setId}`)}
             style={{ background: '#7c3aed', color: '#fff' }}>

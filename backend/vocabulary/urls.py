@@ -62,6 +62,7 @@ urlpatterns = [
     path('teacher/roster/', dashboard_views.RosterDashboardView.as_view(), name='roster-dashboard'),
 
     # Generation (Admin only)
+    path('admin/generation-queue/', generation_views.GenerationQueueView.as_view(), name='generation-queue'),
     path('word-sets/<int:word_set_id>/generate/', generation_views.TriggerGenerationView.as_view(), name='trigger-generation'),
     path('word-sets/<int:word_set_id>/add-words/', generation_views.AddWordsAndGenerateView.as_view(), name='add-words-generate'),
     path('word-sets/<int:word_set_id>/latest-job/', generation_views.LatestGenerationJobView.as_view(), name='latest-generation-job'),

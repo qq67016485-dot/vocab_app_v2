@@ -10,8 +10,9 @@ Changes from v1:
 """
 from datetime import date, timedelta
 
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import viewsets, status, serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -22,7 +23,8 @@ from users.models import CustomUser, StudentGroup
 from ..models import (
     Curriculum, Level, WordSet, Word, WordDefinition,
     UserWordProgress, MasteryLevel, WordPack, WordPackItem,
-    PrimerCardContent, GeneratedImage,
+    PrimerCardContent, GeneratedImage, StudentWordSetAssignment,
+    WordSetBookmark,
 )
 from ..serializers import (
     CurriculumSerializer, LevelSerializer, WordSetSerializer,
@@ -105,10 +107,18 @@ class WordSetViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         if user.role == CustomUser.Role.ADMIN:
-            return WordSet.objects.all().order_by('-created_at')
-        return WordSet.objects.filter(
-            Q(creator=user) | Q(is_public=True),
-        ).distinct().order_by('-created_at')
+            qs = WordSet.objects.all()
+        else:
+            qs = WordSet.objects.filter(
+                Q(creator=user) | Q(is_public=True),
+            ).distinct()
+        return qs.annotate(
+            is_bookmarked=models.Exists(
+                WordSetBookmark.objects.filter(
+                    user=user, word_set=models.OuterRef('pk'),
+                )
+            ),
+        ).order_by('-created_at')
 
     def perform_create(self, serializer):
         instance = serializer.save(creator=self.request.user)
@@ -154,6 +164,57 @@ class WordSetViewSet(viewsets.ModelViewSet):
             })
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['get'])
+    def assignments(self, request, pk=None):
+        word_set = self.get_object()
+        assigned = StudentWordSetAssignment.objects.filter(
+            word_set=word_set,
+        ).select_related('user')
+        student_ids = list(assigned.values_list('user_id', flat=True))
+        group_ids = list(
+            StudentGroup.objects.filter(
+                teacher=request.user,
+                students__id__in=student_ids,
+            ).distinct().values_list('id', flat=True)
+        )
+        return Response({
+            'student_ids': student_ids,
+            'group_ids': group_ids,
+        })
+
+    @action(detail=True, methods=['post'], url_path='bookmark')
+    def toggle_bookmark(self, request, pk=None):
+        word_set = self.get_object()
+        bookmark, created = WordSetBookmark.objects.get_or_create(
+            user=request.user, word_set=word_set,
+        )
+        if not created:
+            bookmark.delete()
+        return Response({'is_bookmarked': created})
+
+    @action(detail=True, methods=['post'], url_path='request-generation')
+    def request_generation(self, request, pk=None):
+        word_set = self.get_object()
+        allowed = {
+            WordSet.GenerationStatus.DRAFT,
+            WordSet.GenerationStatus.TO_GENERATE,
+        }
+        if word_set.generation_status not in allowed:
+            return Response(
+                {'error': f'Cannot request generation when status is "{word_set.generation_status}".'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not word_set.input_words:
+            return Response(
+                {'error': 'Add words to the set before requesting generation.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        word_set.generation_status = WordSet.GenerationStatus.GENERATION_REQUESTED
+        word_set.requested_by = request.user
+        word_set.requested_at = timezone.now()
+        word_set.save(update_fields=['generation_status', 'requested_by', 'requested_at'])
+        return Response({'status': 'Generation requested.'})
 
     @action(detail=True, methods=['post'])
     def add_word(self, request, pk=None):

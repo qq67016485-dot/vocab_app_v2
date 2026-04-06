@@ -1,20 +1,28 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../../api/axiosConfig.js';
 import { useUser } from '../../context/UserContext.jsx';
 import WordSetForm from '../../components/WordSetForm.jsx';
 import AssignSetForm from '../../components/AssignSetForm.jsx';
 
+const TABS = [
+  { key: 'mine', label: 'My Sets' },
+  { key: 'bookmarked', label: 'Bookmarked' },
+  { key: 'public', label: 'Public' },
+  { key: 'all', label: 'All' },
+];
+
+const STATUS_BADGE = {
+  DRAFT: { label: 'Draft', color: '#95a5a6' },
+  TO_GENERATE: { label: 'To Generate', color: '#e67e22' },
+  GENERATION_REQUESTED: { label: 'Requested', color: '#d97706' },
+  GENERATING: { label: 'Generating...', color: '#3498db' },
+  GENERATED: { label: 'Generated', color: '#27ae60' },
+};
+
 export default function WordSetListView() {
   const { user } = useUser();
   const navigate = useNavigate();
-
-  const STATUS_BADGE = {
-    DRAFT: { label: 'Draft', color: '#95a5a6' },
-    TO_GENERATE: { label: 'To Generate', color: '#e67e22' },
-    GENERATING: { label: 'Generating...', color: '#3498db' },
-    GENERATED: { label: 'Generated', color: '#27ae60' },
-  };
 
   const [wordSets, setWordSets] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -25,6 +33,7 @@ export default function WordSetListView() {
   const [curriculums, setCurriculums] = useState([]);
   const [levels, setLevels] = useState([]);
 
+  const [activeTab, setActiveTab] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCurriculumId, setFilterCurriculumId] = useState('all');
   const [filterLevelId, setFilterLevelId] = useState('all');
@@ -33,6 +42,7 @@ export default function WordSetListView() {
   const [setToEdit, setSetToEdit] = useState(null);
   const [showAssignForm, setShowAssignForm] = useState(false);
   const [setToAssign, setSetToAssign] = useState(null);
+  const [toast, setToast] = useState('');
 
   const fetchInitialData = async () => {
     setIsLoading(true);
@@ -85,17 +95,38 @@ export default function WordSetListView() {
   };
 
   const handleSaveSuccess = () => { setShowEditForm(false); setSetToEdit(null); refetchWordSets(); };
-  const handleAssignSuccess = (successMessage) => { setShowAssignForm(false); setSetToAssign(null); alert(successMessage); };
+  const handleAssignSuccess = (successMessage) => {
+    setShowAssignForm(false);
+    setSetToAssign(null);
+    setToast(successMessage);
+    setTimeout(() => setToast(''), 5000);
+  };
   const handleCancel = () => { setShowEditForm(false); setShowAssignForm(false); setSetToEdit(null); setSetToAssign(null); };
+
+  const handleToggleBookmark = useCallback(async (setId) => {
+    try {
+      const res = await apiClient.post(`/word-sets/${setId}/bookmark/`);
+      setWordSets(prev => prev.map(s =>
+        s.id === setId ? { ...s, is_bookmarked: res.data.is_bookmarked } : s
+      ));
+    } catch (err) {
+      console.error('Error toggling bookmark:', err);
+    }
+  }, []);
 
   const filteredWordSets = useMemo(() => {
     return wordSets.filter(set => {
+      // Tab filter
+      if (activeTab === 'mine' && set.creator_username !== user.username) return false;
+      if (activeTab === 'bookmarked' && !set.is_bookmarked) return false;
+      if (activeTab === 'public' && (!set.is_public || set.creator_username === user.username)) return false;
+      // Search + dropdown filters
       if (searchQuery && !set.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
       if (filterCurriculumId !== 'all' && set.curriculum?.id !== Number(filterCurriculumId)) return false;
       if (filterLevelId !== 'all' && set.level?.id !== Number(filterLevelId)) return false;
       return true;
     });
-  }, [wordSets, searchQuery, filterCurriculumId, filterLevelId]);
+  }, [wordSets, activeTab, searchQuery, filterCurriculumId, filterLevelId, user.username]);
 
   const renderContent = () => {
     if (isLoading) return <p>Loading Word Sets...</p>;
@@ -103,6 +134,18 @@ export default function WordSetListView() {
 
     return (
       <div>
+        <div className="ws-tabs">
+          {TABS.map(tab => (
+            <button
+              key={tab.key}
+              className={`ws-tab${activeTab === tab.key ? ' ws-tab--active' : ''}`}
+              onClick={() => setActiveTab(tab.key)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
         <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
           <input
             type="text" placeholder="Search by title..." value={searchQuery}
@@ -124,8 +167,15 @@ export default function WordSetListView() {
         {filteredWordSets.length > 0 ? (
           <ul style={{ padding: 0, listStyleType: 'none' }}>
             {filteredWordSets.map(set => (
-              <li key={set.id} className="practice-card" style={{ marginBottom: '15px' }}>
-                <div style={{ fontWeight: 'bold', fontSize: '1.2rem', cursor: 'pointer', color: '#3498db' }}
+              <li key={set.id} className="practice-card" style={{ marginBottom: '15px', position: 'relative' }}>
+                <button
+                  className={`ws-bookmark-btn${set.is_bookmarked ? ' ws-bookmark-btn--active' : ''}`}
+                  title={set.is_bookmarked ? 'Remove bookmark' : 'Bookmark this set'}
+                  onClick={() => handleToggleBookmark(set.id)}
+                >
+                  {set.is_bookmarked ? '\u2605 Bookmarked' : '\u2606 Bookmark'}
+                </button>
+                <div style={{ fontWeight: 'bold', fontSize: '1.2rem', cursor: 'pointer', color: '#3498db', paddingRight: '32px' }}
                   onClick={() => navigate(`/teacher/word-sets/${set.id}`)}>
                   {set.title}
                 </div>
@@ -159,7 +209,9 @@ export default function WordSetListView() {
             ))}
           </ul>
         ) : (
-          <p>{wordSets.length === 0 ? 'No Word Sets found. Create one to get started!' : 'No word sets match your filters.'}</p>
+          <p>{activeTab === 'bookmarked' ? 'No bookmarked sets yet. Star a set to save it here.'
+            : wordSets.length === 0 ? 'No Word Sets found. Create one to get started!'
+            : 'No word sets match your filters.'}</p>
         )}
       </div>
     );
@@ -167,6 +219,16 @@ export default function WordSetListView() {
 
   return (
     <div>
+      {toast && (
+        <div style={{
+          position: 'fixed', top: '20px', right: '20px', zIndex: 2000,
+          background: '#16a34a', color: '#fff', padding: '12px 20px',
+          borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          fontSize: '0.95rem', maxWidth: '400px',
+        }}>
+          {toast}
+        </div>
+      )}
       {showEditForm && <WordSetForm onSave={handleSaveSuccess} onCancel={handleCancel} setToEdit={setToEdit} />}
       {showAssignForm && (
         <AssignSetForm wordSet={setToAssign} students={students} groups={groups}

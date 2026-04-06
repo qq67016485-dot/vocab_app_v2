@@ -17,6 +17,32 @@ from ..permissions import IsAdmin
 from ..services.generation_pipeline_service import run_full_pipeline, resume_pipeline
 
 
+class GenerationQueueView(APIView):
+    """GET /api/admin/generation-queue/ — List word sets awaiting generation."""
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        queue = WordSet.objects.filter(
+            generation_status=WordSet.GenerationStatus.GENERATION_REQUESTED,
+        ).select_related('creator', 'requested_by', 'curriculum', 'level').order_by('requested_at')
+        data = [
+            {
+                'id': ws.id,
+                'title': ws.title,
+                'unit_or_chapter': ws.unit_or_chapter,
+                'curriculum': ws.curriculum.name if ws.curriculum else None,
+                'level': ws.level.name if ws.level else None,
+                'word_count': len(ws.input_words) if isinstance(ws.input_words, list) else 0,
+                'target_lexile': ws.target_lexile,
+                'requested_by': ws.requested_by.username if ws.requested_by else None,
+                'requested_at': ws.requested_at,
+                'creator': ws.creator.username,
+            }
+            for ws in queue
+        ]
+        return Response(data)
+
+
 class TriggerGenerationView(APIView):
     """POST /api/word-sets/{id}/generate/ — Start full pipeline."""
     permission_classes = [IsAuthenticated, IsAdmin]

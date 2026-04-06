@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useUser } from './context/UserContext.jsx';
+import ErrorBoundary from './components/ErrorBoundary.jsx';
 import ProtectedRoute from './components/auth/ProtectedRoute.jsx';
 import StudentLayout from './components/layouts/StudentLayout.jsx';
 import TeacherLayout from './components/layouts/TeacherLayout.jsx';
@@ -18,6 +19,7 @@ import GroupManagementView from './pages/teacher/GroupManagementView.jsx';
 import StudentProgressDashboard from './pages/teacher/StudentProgressDashboard.jsx';
 import GenerationWizard from './pages/admin/GenerationWizard.jsx';
 import GenerationReview from './pages/admin/GenerationReview.jsx';
+import GenerationQueue from './pages/admin/GenerationQueue.jsx';
 
 import './styles/main.css';
 import './styles/students.css';
@@ -32,7 +34,8 @@ function RoleRedirect() {
 
 function App() {
   return (
-    <BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
 
@@ -70,6 +73,7 @@ function App() {
           <Route path="students/:studentId/patterns" element={<LearningPatternsView />} />
           <Route path="generate/:setId" element={<GenerationWizard />} />
           <Route path="generation-jobs/:jobId" element={<GenerationReview />} />
+          <Route path="generation-queue" element={<GenerationQueue />} />
         </Route>
 
         {/* Root — redirect by role */}
@@ -77,6 +81,7 @@ function App() {
         <Route path="*" element={<RoleRedirect />} />
       </Routes>
     </BrowserRouter>
+    </ErrorBoundary>
   );
 }
 

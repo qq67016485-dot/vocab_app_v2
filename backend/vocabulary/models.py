@@ -292,6 +292,7 @@ class WordSet(models.Model):
     class GenerationStatus(models.TextChoices):
         DRAFT = 'DRAFT', 'Draft'
         TO_GENERATE = 'TO_GENERATE', 'To Generate'
+        GENERATION_REQUESTED = 'GENERATION_REQUESTED', 'Generation Requested'
         GENERATING = 'GENERATING', 'Generating'
         GENERATED = 'GENERATED', 'Generated'
 
@@ -325,6 +326,11 @@ class WordSet(models.Model):
     )
     is_public = models.BooleanField(default=False, help_text='If true, visible to other teachers.')
     words = models.ManyToManyField(Word, blank=True, related_name='word_sets')
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='generation_requests',
+    )
+    requested_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -332,6 +338,20 @@ class WordSet(models.Model):
         if self.unit_or_chapter:
             return f"'{self.title} - {self.unit_or_chapter}' by {self.creator.username}"
         return f"'{self.title}' by {self.creator.username}"
+
+
+class WordSetBookmark(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='word_set_bookmarks',
+    )
+    word_set = models.ForeignKey(WordSet, on_delete=models.CASCADE, related_name='bookmarks')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'word_set')
+
+    def __str__(self):
+        return f"{self.user.username} bookmarked '{self.word_set.title}'"
 
 
 class StudentWordSetAssignment(models.Model):

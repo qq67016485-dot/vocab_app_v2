@@ -124,6 +124,11 @@ export default function WordSetForm({ onSave, onCancel, setToEdit }) {
         <input name="input_source_chapter" value={formData.input_source_chapter} onChange={handleChange} placeholder="e.g., Chapter 3" />
         <label>Words (one per line or comma-separated)</label>
         <textarea name="input_words_text" value={formData.input_words_text} onChange={handleChange} rows="6" placeholder="campaign&#10;philosophy&#10;dedicate" />
+        {formData.input_words_text.trim() && (
+          <small style={{ color: '#666', marginTop: '4px', display: 'block' }}>
+            {formData.input_words_text.split(/[\n,]+/).map(w => w.trim()).filter(Boolean).length} word(s)
+          </small>
+        )}
 
         <div style={{ margin: '20px 0', display: 'flex', alignItems: 'center' }}>
           <input type="checkbox" name="is_public" id="is_public" checked={formData.is_public} onChange={handleChange} style={{ width: 'auto', marginRight: '10px' }} />

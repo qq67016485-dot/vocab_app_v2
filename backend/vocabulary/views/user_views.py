@@ -4,9 +4,14 @@ from django.contrib.auth import authenticate, login, logout
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
+from rest_framework.throttling import AnonRateThrottle
 
 from ..serializers import UserSerializer
+
+
+class LoginRateThrottle(AnonRateThrottle):
+    rate = '5/min'
 
 
 @ensure_csrf_cookie
@@ -16,6 +21,7 @@ def get_csrf_token(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([LoginRateThrottle])
 def custom_login_view(request):
     username = request.data.get('username')
     password = request.data.get('password')

@@ -180,6 +180,10 @@ class WordSetSerializer(serializers.ModelSerializer):
     level = LevelSerializer(read_only=True)
     creator_username = serializers.CharField(source='creator.username', read_only=True)
     word_count = serializers.SerializerMethodField()
+    is_bookmarked = serializers.BooleanField(read_only=True, default=False)
+    requested_by_username = serializers.CharField(
+        source='requested_by.username', read_only=True, default=None,
+    )
 
     class Meta:
         model = WordSet
@@ -187,7 +191,8 @@ class WordSetSerializer(serializers.ModelSerializer):
             'id', 'title', 'unit_or_chapter', 'description',
             'curriculum', 'level', 'creator_username', 'is_public', 'word_count',
             'target_lexile', 'generation_status', 'input_words',
-            'input_source_title', 'input_source_chapter',
+            'input_source_title', 'input_source_chapter', 'is_bookmarked',
+            'requested_by_username', 'requested_at',
         ]
 
     def get_word_count(self, obj):
