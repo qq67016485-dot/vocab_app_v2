@@ -2,25 +2,57 @@
 
 All notable changes to Vocab App V2 are documented in this file.
 
-## [Unreleased]
+## [Unreleased] — 2026-04-23
 
-Large UI/UX overhaul and backend refinements across 59 files.
+### Daily Goal System
+- Teacher-configurable daily goal bounds per student (`daily_goal_min`, `daily_goal_max`)
+- Daily goal adjustment prompt with `last_goal_prompt_date` tracking
+- New `StudentGoalPromptView` endpoint (`POST /student/goal-prompt-shown/`)
+- Default daily question limit changed from 20 to 30
+- Goal bounds validation in `StudentCreateUpdateSerializer` (min >= 10, min <= limit <= max)
+- Dashboard API returns `daily_goal_min`, `daily_goal_max`, `last_goal_prompt_date`
 
-### Frontend
+### Student Names
+- Added `first_name` and `last_name` fields to student serializers (User, TeacherStudent, StudentCreateUpdate, Roster)
+- Bulk student creation now accepts `first_name` and `last_name`
+
+### Practice Session Rework
+- Scaffolded retry system: `is_retry` flag on answer submission skips mastery/XP updates, increments `retry_count` on UserAnswer
+- Lexile filtering now includes `lexile_score__isnull=True` questions (fallback for unscored questions)
+- Streak tracking uses `timezone.localdate()` instead of `date.today()` for timezone correctness
 - Redesigned PracticeView with improved layout and interaction flow
+
+### Curriculum & Level Model Changes
+- Level now has a ForeignKey to Curriculum (scoped levels per program)
+- Level `name` uniqueness changed from global to `unique_together = [('curriculum', 'name')]`
+- `LevelViewSet` supports `?curriculum_id=` query param filtering
+- WordSetFormSerializer resolves `curriculum_name` and `level_name` via `get_or_create`
+- Removed `unit_or_chapter` from WordSet serializers
+
+### Mastery Level Interval Update
+- Spaced repetition intervals changed: Level 1: 0→1d, Level 2: 1→3d, Level 3: 3→7d, Level 4: 7→10d, Level 5: 14→20d
+- Data migration with reversible `revert_intervals`
+
+### Image Generation Config
+- Separate `IMAGE_API_KEY` and `IMAGE_BASE_URL` settings (defaults to Gemini credentials)
+
+### Frontend Overhaul
 - Simplified GenerationWizard, GenerationReview, and GenerationJobStatus components
 - Streamlined CommandCenter, StudentProgressDashboard, and WordSetDetailView
-- Refactored form modals (StudentFormModal, BulkStudentFormModal, GroupFormModal, AssignSetForm, WordSetForm)
+- Refactored form modals with SearchableSelect component for curriculum/level dropdowns
+- New `teacher.css` stylesheet
 - Updated student styles: dashboard, practice, feedback, and component CSS
 - Improved MicroStoryView and PrimerCard rendering
 - Navbar and layout adjustments for Student and Teacher views
 
-### Backend
-- Reworked practice_service with cleaner session logic
-- Updated serializers with expanded field handling
-- Added new URL route and updated view logic across dashboard, generation, practice, and teacher views
-- Refined assignment, dashboard, and instructional services
-- Updated generation pipeline service and LLM service
+### Migrations
+- `0002_add_daily_goal_bounds` — daily_goal_min, daily_goal_max, last_goal_prompt_date on CustomUser
+- `0010_level_curriculum_alter_level_name_and_more` — Level FK to Curriculum, scoped uniqueness
+- `0011_backfill_picture_word_match_lexile` — backfill lexile scores on PICTURE_WORD_MATCH questions
+- `0012_add_retry_count_to_useranswer` — retry_count field on UserAnswer
+- `0013_update_mastery_level_intervals` — updated spaced repetition intervals
+
+### Tests
 - Expanded test coverage: views, serializers, models, adapted services, embedding service
 
 ---
