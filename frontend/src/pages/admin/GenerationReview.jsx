@@ -8,7 +8,6 @@ export default function GenerationReview() {
   const { jobId } = useParams();
   const navigate = useNavigate();
   const { user } = useUser();
-
   const [job, setJob] = useState(null);
   const [content, setContent] = useState(null);
   const [activeTab, setActiveTab] = useState('words');
@@ -25,61 +24,38 @@ export default function GenerationReview() {
           const contentRes = await apiClient.get(`/generation-jobs/${jobId}/content/`);
           setContent(contentRes.data);
         }
-      } catch (err) {
-        setError('Failed to load job.');
-      }
+      } catch (err) { setError('Failed to load job.'); }
     };
     fetchJob();
   }, [jobId]);
 
   const handleJobComplete = useCallback(async (jobData) => {
     setJob(jobData);
-    try {
-      const res = await apiClient.get(`/generation-jobs/${jobData.id}/content/`);
-      setContent(res.data);
-    } catch (err) {
-      setError('Failed to load generated content.');
-    }
+    try { const res = await apiClient.get(`/generation-jobs/${jobData.id}/content/`); setContent(res.data); }
+    catch (err) { setError('Failed to load generated content.'); }
   }, []);
-
-  const handleJobFail = useCallback((jobData) => {
-    setJob(jobData);
-  }, []);
+  const handleJobFail = useCallback((jobData) => { setJob(jobData); }, []);
 
   const handleApproveAll = async () => {
-    setIsApproving(true);
-    setApproveMessage('');
-    try {
-      const res = await apiClient.post(`/generation-jobs/${jobId}/approve/`);
-      setApproveMessage(`Approved. ${res.data.images_approved} image(s) approved.`);
-    } catch (err) {
-      setApproveMessage(err.response?.data?.error || 'Approval failed.');
-    } finally {
-      setIsApproving(false);
-    }
+    setIsApproving(true); setApproveMessage('');
+    try { const res = await apiClient.post(`/generation-jobs/${jobId}/approve/`); setApproveMessage(`Approved. ${res.data.images_approved} image(s) approved.`); }
+    catch (err) { setApproveMessage(err.response?.data?.error || 'Approval failed.'); }
+    finally { setIsApproving(false); }
   };
 
-  if (user?.role !== 'ADMIN') {
-    return <p style={{ padding: '2rem' }}>Only admins can review generation jobs.</p>;
-  }
-
-  if (error) return <p style={{ padding: '2rem', color: '#dc2626' }}>{error}</p>;
+  if (user?.role !== 'ADMIN') return <p style={{ padding: '2rem' }}>Only admins can review generation jobs.</p>;
+  if (error) return <p style={{ padding: '2rem', color: 'var(--t-danger)' }}>{error}</p>;
   if (!job) return <p style={{ padding: '2rem' }}>Loading...</p>;
 
   const isComplete = job.status === 'COMPLETED' || job.status === 'PARTIALLY_COMPLETED';
 
-  // Show pipeline status for any non-complete state (RUNNING, PENDING, FAILED)
-  // Also show when complete but content hasn't loaded yet
   if (!isComplete || !content) {
     return (
-      <div style={{ padding: '1rem' }}>
-        <h2>Generation Job #{jobId}</h2>
+      <div>
+        <div className="t-page-header"><h1 className="t-page-title">Generation Job #{jobId}</h1></div>
         <GenerationJobStatus jobId={jobId} onComplete={handleJobComplete} onFail={handleJobFail} />
         {isComplete && !content && <p>Loading generated content...</p>}
-        <button onClick={() => navigate(`/teacher/word-sets/${job.word_set_id}`)}
-          className="secondary-button" style={{ marginTop: '1rem' }}>
-          Back to Word Set
-        </button>
+        <button className="t-btn t-btn--secondary" onClick={() => navigate(`/teacher/word-sets/${job.word_set_id}`)} style={{ marginTop: 12 }}>Back to Word Set</button>
       </div>
     );
   }
@@ -92,87 +68,48 @@ export default function GenerationReview() {
   ];
 
   return (
-    <div style={{ padding: '1rem' }}>
-      <h2>Review: {content.word_set_title}</h2>
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          {tabs.map(t => (
-            <button key={t.key} onClick={() => setActiveTab(t.key)}
-              className={activeTab === t.key ? '' : 'secondary-button'}
-              style={activeTab === t.key ? { background: '#7c3aed', color: '#fff' } : {}}>
-              {t.label}
-            </button>
-          ))}
+    <div>
+      <div className="t-page-header"><h1 className="t-page-title">Review: {content.word_set_title}</h1></div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div className="t-tabs" style={{ marginBottom: 0, borderBottom: 'none' }}>
+          {tabs.map(t => (<button key={t.key} onClick={() => setActiveTab(t.key)} className={`t-tab${activeTab === t.key ? ' t-tab--active' : ''}`}>{t.label}</button>))}
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          {approveMessage && (
-            <span style={{ fontSize: '0.85rem', color: approveMessage.startsWith('Approved') ? '#16a34a' : '#dc2626' }}>
-              {approveMessage}
-            </span>
-          )}
-          <button onClick={handleApproveAll} disabled={isApproving}
-            style={{ background: '#16a34a', color: '#fff' }}>
-            {isApproving ? 'Approving...' : 'Approve All'}
-          </button>
-          <button onClick={() => navigate(`/teacher/word-sets/${job.word_set_id}`)} className="secondary-button">
-            Back to Word Set
-          </button>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {approveMessage && <span style={{ fontSize: '0.85rem', color: approveMessage.startsWith('Approved') ? 'var(--t-success)' : 'var(--t-danger)' }}>{approveMessage}</span>}
+          <button className="t-btn t-btn--accent t-btn--sm" onClick={handleApproveAll} disabled={isApproving}>{isApproving ? 'Approving...' : 'Approve All'}</button>
+          <button className="t-btn t-btn--secondary t-btn--sm" onClick={() => navigate(`/teacher/word-sets/${job.word_set_id}`)}>Back to Word Set</button>
         </div>
       </div>
 
       {activeTab === 'words' && (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '2px solid #e5e7eb', textAlign: 'left' }}>
-              <th style={{ padding: '0.5rem' }}>Word</th>
-              <th style={{ padding: '0.5rem' }}>POS</th>
-              <th style={{ padding: '0.5rem' }}>Definition</th>
-              <th style={{ padding: '0.5rem' }}>Example</th>
+        <table className="t-table">
+          <thead><tr><th>Word</th><th>POS</th><th>Definition</th><th>Example</th></tr></thead>
+          <tbody>{content.words.map(w => (
+            <tr key={w.id}>
+              <td style={{ fontWeight: 600 }}>{w.text}</td>
+              <td className="t-muted">{w.part_of_speech}</td>
+              <td style={{ fontSize: '0.9rem' }}>{w.definitions.map(d => d.definition_text).join('; ')}</td>
+              <td className="t-hint" style={{ fontStyle: 'italic' }}>{w.definitions.map(d => d.example_sentence).filter(Boolean).join('; ')}</td>
             </tr>
-          </thead>
-          <tbody>
-            {content.words.map(w => (
-              <tr key={w.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                <td style={{ padding: '0.5rem', fontWeight: 600 }}>{w.text}</td>
-                <td style={{ padding: '0.5rem', color: '#6b7280' }}>{w.part_of_speech}</td>
-                <td style={{ padding: '0.5rem', fontSize: '0.9rem' }}>
-                  {w.definitions.map(d => d.definition_text).join('; ')}
-                </td>
-                <td style={{ padding: '0.5rem', fontSize: '0.85rem', fontStyle: 'italic', color: '#6b7280' }}>
-                  {w.definitions.map(d => d.example_sentence).filter(Boolean).join('; ')}
-                </td>
-              </tr>
-            ))}
-          </tbody>
+          ))}</tbody>
         </table>
       )}
 
       {activeTab === 'questions' && (() => {
         const grouped = {};
-        content.questions.forEach(q => {
-          if (!grouped[q.word_text]) grouped[q.word_text] = [];
-          grouped[q.word_text].push(q);
-        });
+        content.questions.forEach(q => { if (!grouped[q.word_text]) grouped[q.word_text] = []; grouped[q.word_text].push(q); });
         return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {Object.entries(grouped).map(([word, questions]) => (
-              <div key={word} style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '1rem' }}>
-                <h4 style={{ margin: '0 0 0.5rem', color: '#7c3aed' }}>{word}</h4>
+              <div key={word} className="t-card">
+                <h4 style={{ margin: '0 0 8px', color: 'var(--t-primary)' }}>{word}</h4>
                 {questions.map(q => (
-                  <div key={q.id} style={{ marginBottom: '0.75rem', paddingLeft: '1rem', borderLeft: '3px solid #e5e7eb' }}>
-                    <p style={{ fontSize: '0.8rem', color: '#6b7280', margin: '0 0 0.25rem' }}>{q.question_type}</p>
-                    <p style={{ margin: '0 0 0.25rem' }}>{q.question_text}</p>
-                    {q.options && (
-                      <ul style={{ margin: '0.25rem 0', paddingLeft: '1.5rem', fontSize: '0.9rem' }}>
-                        {q.options.map((opt, i) => (
-                          <li key={i} style={{
-                            color: q.correct_answers?.includes(opt) ? '#16a34a' : 'inherit',
-                            fontWeight: q.correct_answers?.includes(opt) ? 600 : 400,
-                          }}>{opt}</li>
-                        ))}
-                      </ul>
-                    )}
+                  <div key={q.id} style={{ marginBottom: 10, paddingLeft: 12, borderLeft: '3px solid var(--t-border)' }}>
+                    <p className="t-hint" style={{ margin: '0 0 2px', fontSize: '0.78rem' }}>{q.question_type}</p>
+                    <p style={{ margin: '0 0 4px' }}>{q.question_text}</p>
+                    {q.options && <ul style={{ margin: '4px 0', paddingLeft: 20, fontSize: '0.9rem' }}>
+                      {q.options.map((opt, i) => (<li key={i} style={{ color: q.correct_answers?.includes(opt) ? 'var(--t-success)' : 'inherit', fontWeight: q.correct_answers?.includes(opt) ? 600 : 400, background: 'none', border: 'none', padding: '2px 0' }}>{opt}</li>))}
+                    </ul>}
                   </div>
                 ))}
               </div>
@@ -182,67 +119,29 @@ export default function GenerationReview() {
       })()}
 
       {activeTab === 'packs' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {content.packs.map(pack => (
-            <div key={pack.id} style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '1rem' }}>
-              <h4 style={{ margin: '0 0 0.5rem' }}>{pack.label}</h4>
-              <p style={{ fontSize: '0.85rem', color: '#6b7280', margin: '0 0 0.5rem' }}>
-                Words: {pack.words.map(w => w.text).join(', ')}
-              </p>
-              {pack.primer_cards.length > 0 && (
-                <div style={{ marginBottom: '0.5rem' }}>
-                  <strong style={{ fontSize: '0.85rem' }}>Primer Cards:</strong>
-                  {pack.primer_cards.map(pc => (
-                    <div key={pc.id} style={{ paddingLeft: '1rem', fontSize: '0.85rem', margin: '0.25rem 0' }}>
-                      <span style={{ fontWeight: 600 }}>{pc.word_text}</span> ({pc.syllable_text}) — {pc.kid_friendly_definition}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {pack.stories.length > 0 && (
-                <div style={{ marginBottom: '0.5rem' }}>
-                  <strong style={{ fontSize: '0.85rem' }}>Story:</strong>
-                  {pack.stories.map(s => (
-                    <p key={s.id} style={{ fontSize: '0.85rem', margin: '0.25rem 0', whiteSpace: 'pre-wrap' }}>
-                      {s.story_text} <span style={{ color: '#6b7280' }}>(Lexile: {s.reading_level})</span>
-                    </p>
-                  ))}
-                </div>
-              )}
-              {pack.cloze_items.length > 0 && (
-                <div>
-                  <strong style={{ fontSize: '0.85rem' }}>Cloze Items:</strong>
-                  {pack.cloze_items.map(ci => (
-                    <div key={ci.id} style={{ paddingLeft: '1rem', fontSize: '0.85rem', margin: '0.25rem 0' }}>
-                      {ci.sentence_text} — Answer: <strong>{ci.correct_answer}</strong>
-                    </div>
-                  ))}
-                </div>
-              )}
+            <div key={pack.id} className="t-card">
+              <h4 style={{ margin: '0 0 6px' }}>{pack.label}</h4>
+              <p className="t-hint" style={{ margin: '0 0 8px' }}>Words: {pack.words.map(w => w.text).join(', ')}</p>
+              {pack.primer_cards.length > 0 && <div style={{ marginBottom: 6 }}><strong style={{ fontSize: '0.85rem' }}>Primer Cards:</strong>{pack.primer_cards.map(pc => (<div key={pc.id} style={{ paddingLeft: 12, fontSize: '0.85rem', margin: '3px 0' }}><span style={{ fontWeight: 600 }}>{pc.word_text}</span> ({pc.syllable_text}) — {pc.kid_friendly_definition}</div>))}</div>}
+              {pack.stories.length > 0 && <div style={{ marginBottom: 6 }}><strong style={{ fontSize: '0.85rem' }}>Story:</strong>{pack.stories.map(s => (<p key={s.id} style={{ fontSize: '0.85rem', margin: '3px 0', whiteSpace: 'pre-wrap' }}>{s.story_text} <span className="t-hint">(Lexile: {s.reading_level})</span></p>))}</div>}
+              {pack.cloze_items.length > 0 && <div><strong style={{ fontSize: '0.85rem' }}>Cloze Items:</strong>{pack.cloze_items.map(ci => (<div key={ci.id} style={{ paddingLeft: 12, fontSize: '0.85rem', margin: '3px 0' }}>{ci.sentence_text} — Answer: <strong>{ci.correct_answer}</strong></div>))}</div>}
             </div>
           ))}
         </div>
       )}
 
       {activeTab === 'images' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '1rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
           {content.images.map(img => (
-            <div key={img.id} style={{
-              border: `2px solid ${img.status === 'APPROVED' ? '#16a34a' : img.status === 'PENDING_REVIEW' ? '#d97706' : '#dc2626'}`,
-              borderRadius: '8px', padding: '0.5rem', textAlign: 'center',
-            }}>
-              <img src={img.image_url} alt={img.word_text}
-                style={{ width: '100%', borderRadius: '4px', marginBottom: '0.25rem' }} />
-              <p style={{ fontSize: '0.85rem', fontWeight: 600, margin: '0.25rem 0' }}>{img.word_text}</p>
-              <p style={{
-                fontSize: '0.75rem', margin: 0,
-                color: img.status === 'APPROVED' ? '#16a34a' : img.status === 'PENDING_REVIEW' ? '#d97706' : '#dc2626',
-              }}>
-                {img.status.replace('_', ' ')}
-              </p>
+            <div key={img.id} style={{ border: `2px solid ${img.status === 'APPROVED' ? 'var(--t-success)' : img.status === 'PENDING_REVIEW' ? 'var(--t-warning)' : 'var(--t-danger)'}`, borderRadius: 'var(--t-radius)', padding: 8, textAlign: 'center' }}>
+              <img src={img.image_url} alt={img.word_text} style={{ width: '100%', borderRadius: 4, marginBottom: 4 }} />
+              <p style={{ fontSize: '0.85rem', fontWeight: 600, margin: '4px 0' }}>{img.word_text}</p>
+              <p style={{ fontSize: '0.75rem', margin: 0, color: img.status === 'APPROVED' ? 'var(--t-success)' : img.status === 'PENDING_REVIEW' ? 'var(--t-warning)' : 'var(--t-danger)' }}>{img.status.replace('_', ' ')}</p>
             </div>
           ))}
-          {content.images.length === 0 && <p style={{ color: '#6b7280' }}>No images generated.</p>}
+          {content.images.length === 0 && <p className="t-hint">No images generated.</p>}
         </div>
       )}
     </div>

@@ -5,33 +5,33 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
+  padding: 16px 20px;
   background: linear-gradient(135deg, var(--brand-1), var(--brand-2) 65%);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   margin-bottom: var(--space-6);
   color: #fff;
 }
 [data-app="student"] .student-navbar-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 [data-app="student"] .student-avatar {
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   background: rgba(255,255,255,0.25);
   border: 2px solid rgba(255,255,255,0.5);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  font-size: 24px;
   font-weight: 700;
   color: #fff;
   flex-shrink: 0;
 }
 [data-app="student"] .student-navbar-greeting {
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 700;
 }
 [data-app="student"] .student-navbar-tier {
@@ -48,7 +48,7 @@
   height: 20px;
   border-radius: 50%;
   background: linear-gradient(135deg, #cd7f32, #a0522d);
-  font-size: 10px;
+  font-size: 14px;
   box-shadow: inset 0 1px 2px rgba(255,255,255,0.6), 0 1px 2px rgba(0,0,0,0.15);
   line-height: 1;
   color: #fff;
@@ -73,7 +73,7 @@
   color: #0277bd;
 }
 [data-app="student"] .tier-label {
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 600;
   opacity: 0.9;
 }
@@ -81,32 +81,32 @@
   margin-top: 6px;
 }
 [data-app="student"] .student-xp-bar-bg {
-  width: 140px;
-  height: 7px;
+  width: 160px;
+  height: 8px;
   background: rgba(255,255,255,0.25);
-  border-radius: 99px;
+  border-radius: var(--radius-pill);
   overflow: hidden;
 }
 [data-app="student"] .student-xp-bar-fill {
   height: 100%;
   background: linear-gradient(90deg, #facc15, #a3e635);
-  border-radius: 99px;
+  border-radius: var(--radius-pill);
   transition: width 0.4s ease;
 }
 [data-app="student"] .student-xp-bar-label {
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 600;
   margin-top: 2px;
   opacity: 1;
 }
 [data-app="student"] .student-settings-btn {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   background: rgba(255,255,255,0.2) !important;
   border: none !important;
   color: #fff !important;
-  font-size: 18px;
+  font-size: 22px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -121,7 +121,7 @@
 /* Two-column layout */
 [data-app="student"] .dashboard-columns {
   display: flex;
-  gap: 20px;
+  gap: 28px;
 }
 [data-app="student"] .dashboard-col-main {
   flex: 1;
@@ -137,48 +137,59 @@
   }
 }
 
-/* Review card */
+/* Review card — visually prominent */
 [data-app="student"] .review-card {
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  background: linear-gradient(135deg, color-mix(in oklab, var(--primary) 6%, #fff), color-mix(in oklab, var(--brand-2) 8%, #fff));
+  border: 2px solid color-mix(in oklab, var(--primary) 20%, #fff);
+  border-radius: var(--radius-card);
   padding: var(--space-6);
   margin-bottom: var(--space-6);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--shadow-2);
+  position: relative;
+  overflow: hidden;
+}
+[data-app="student"] .review-card::before {
+  content: '';
+  position: absolute;
+  top: -30px; right: -30px;
+  width: 100px; height: 100px;
+  background: radial-gradient(circle, color-mix(in oklab, var(--primary) 12%, transparent) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
 }
 [data-app="student"] .review-card-title {
-  font-size: 15px;
+  font-size: 19px;
   font-weight: 700;
-  margin: 0 0 4px;
+  margin: 0 0 14px;
 }
 [data-app="student"] .review-card-desc {
-  font-size: 13px;
+  font-size: 17px;
   color: var(--muted);
-  margin: 0 0 12px;
+  margin: 0 0 16px;
 }
 [data-app="student"] .review-card-count-row {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 16px;
 }
 [data-app="student"] .review-count {
-  font-size: 1.75rem;
+  font-size: 2rem;
   font-weight: 700;
   color: var(--primary);
   line-height: 1;
 }
 [data-app="student"] .review-count-label {
-  font-size: 12px;
+  font-size: 16px;
   color: var(--muted);
 }
 [data-app="student"] .review-start-btn {
   display: block;
   width: 100%;
-  padding: 14px;
-  font-size: 16px;
+  padding: 16px;
+  font-size: 20px;
   text-align: center;
-  border-radius: 10px;
+  border-radius: var(--radius-btn);
 }
 
 /* Learn card */
@@ -186,26 +197,26 @@
   background: #fff;
   border: 1px solid var(--border);
   border-left: 4px solid var(--brand-1);
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   padding: var(--space-6);
   margin-bottom: var(--space-6);
   box-shadow: var(--shadow-1);
 }
 [data-app="student"] .learn-card-title {
-  font-size: 15px;
+  font-size: 19px;
   font-weight: 700;
-  margin: 0 0 4px;
+  margin: 0 0 6px;
 }
 [data-app="student"] .learn-card-desc {
-  font-size: 13px;
+  font-size: 17px;
   color: var(--muted);
-  margin: 0 0 8px;
+  margin: 0 0 12px;
 }
 [data-app="student"] .pack-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 0;
+  padding: 12px 0;
   border-bottom: 1px solid #f0f0f0;
 }
 [data-app="student"] .pack-row:last-child {
@@ -213,16 +224,16 @@
 }
 [data-app="student"] .pack-row-name {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 18px;
 }
 [data-app="student"] .pack-row-meta {
-  font-size: 12px;
+  font-size: 16px;
   color: var(--muted);
 }
 [data-app="student"] .pack-learn-btn-lg {
-  padding: 10px 24px;
-  border-radius: 10px;
-  font-size: 14px;
+  padding: 12px 28px;
+  border-radius: var(--radius-btn);
+  font-size: 18px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -231,9 +242,9 @@
 [data-app="student"] .learn-waiting-note {
   background: #fefce8;
   border: 1px solid #fde68a;
-  border-radius: 12px;
+  border-radius: var(--radius-card);
   padding: var(--space-4);
-  font-size: 13px;
+  font-size: 17px;
   color: #92400e;
   margin-bottom: var(--space-6);
 }
@@ -244,16 +255,16 @@
   padding: 2rem var(--space-6);
   background: linear-gradient(180deg, #f0fdf4, #fff);
   border: 2px solid #22c55e;
-  border-radius: 16px;
+  border-radius: var(--radius-card);
   margin-bottom: var(--space-6);
 }
-[data-app="student"] .all-done-emoji { font-size: 3rem; margin-bottom: 8px; }
-[data-app="student"] .all-done-title { font-size: 1.4rem; font-weight: 700; color: #166534; margin: 0 0 4px; }
-[data-app="student"] .all-done-subtitle { font-size: 0.9rem; color: #666; margin: 0; }
+[data-app="student"] .all-done-emoji { font-size: 3.25rem; margin-bottom: 8px; }
+[data-app="student"] .all-done-title { font-size: 1.65rem; font-weight: 700; color: #166534; margin: 0 0 4px; }
+[data-app="student"] .all-done-subtitle { font-size: 1.15rem; color: #666; margin: 0; }
 
 /* Journey section (right column) */
 [data-app="student"] .journey-heading {
-  font-size: 14px;
+  font-size: 18px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -262,36 +273,36 @@
 }
 [data-app="student"] .journey-stats-row {
   display: flex;
-  gap: 8px;
-  margin-bottom: 14px;
+  gap: 10px;
+  margin-bottom: 16px;
 }
 [data-app="student"] .journey-stat {
   flex: 1;
   background: #fff;
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px 8px;
+  border-radius: var(--radius-btn);
+  padding: 14px 10px;
   text-align: center;
 }
 [data-app="student"] .journey-stat-val {
-  font-size: 20px;
+  font-size: 24px;
   font-weight: 700;
 }
 [data-app="student"] .journey-stat-lbl {
-  font-size: 10px;
+  font-size: 14px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
 [data-app="student"] .journey-empty {
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 1.15rem;
 }
 
 /* Stat icons */
 [data-app="student"] .stat-icon-flame,
 [data-app="student"] .stat-icon-freeze {
-  font-size: 18px;
+  font-size: 22px;
   vertical-align: middle;
 }
 
@@ -304,7 +315,7 @@
   border-color: var(--primary);
 }
 [data-app="student"] .freeze-info-hint {
-  font-size: 11px;
+  font-size: 15px;
   opacity: 0.6;
   margin-left: 2px;
 }
@@ -312,20 +323,20 @@
 /* Freeze info modal */
 [data-app="student"] .freeze-info-panel {
   background: #fff;
-  border-radius: 16px;
-  padding: 28px 24px 24px;
-  width: 380px;
+  border-radius: var(--radius-card);
+  padding: 32px 28px 28px;
+  width: 420px;
   max-width: 90vw;
   box-shadow: 0 8px 32px rgba(0,0,0,0.15);
 }
 [data-app="student"] .freeze-info-title {
-  font-size: 1.25rem;
+  font-size: 1.5rem;
   font-weight: 700;
   margin: 0 0 8px;
   color: var(--text);
 }
 [data-app="student"] .freeze-info-intro {
-  font-size: 14px;
+  font-size: 18px;
   color: var(--text);
   margin: 0 0 16px;
 }
@@ -335,7 +346,7 @@
   list-style: disc;
 }
 [data-app="student"] .freeze-info-list li {
-  font-size: 14px;
+  font-size: 18px;
   color: var(--text);
   margin-bottom: 10px;
   line-height: 1.5;
@@ -344,9 +355,9 @@
   margin-bottom: 0;
 }
 [data-app="student"] .freeze-info-btn {
-  padding: 10px 24px;
-  border-radius: 10px;
-  font-size: 15px;
+  padding: 12px 28px;
+  border-radius: var(--radius-btn);
+  font-size: 19px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -365,34 +376,34 @@
 
 /* Override accordion styles in dashboard to match mockup's flat journey-level look */
 [data-app="student"] .dashboard-col-side .accordion-container {
-  gap: 6px;
+  gap: 8px;
 }
 [data-app="student"] .dashboard-col-side .accordion-item {
-  border-radius: 10px;
+  border-radius: var(--radius-btn);
   background: #fafafa;
   border: 1px solid #ddd;
 }
 [data-app="student"] .dashboard-col-side .accordion-header {
-  padding: 10px 14px;
+  padding: 12px 16px;
   background: transparent;
 }
 [data-app="student"] .dashboard-col-side .accordion-title {
-  font-size: 14px;
+  font-size: 18px;
 }
 [data-app="student"] .dashboard-col-side .accordion-title strong {
   font-weight: 600;
 }
 [data-app="student"] .dashboard-col-side .count-badge {
-  font-size: 13px;
+  font-size: 17px;
 }
 [data-app="student"] .dashboard-col-side .accordion-stats {
   gap: 8px;
-  font-size: 12px;
+  font-size: 16px;
   margin-right: 0.5rem;
 }
 [data-app="student"] .dashboard-col-side .stat-change,
 [data-app="student"] .dashboard-col-side .stat-neutral {
-  font-size: 12px;
+  font-size: 16px;
 }
 
 /* Settings modal */
@@ -407,9 +418,9 @@
 }
 [data-app="student"] .settings-panel {
   background: #fff;
-  border-radius: 16px;
-  padding: 24px;
-  width: 360px;
+  border-radius: var(--radius-card);
+  padding: 28px;
+  width: 400px;
   max-width: 90vw;
   box-shadow: 0 8px 32px rgba(0,0,0,0.15);
 }
@@ -421,12 +432,12 @@
 }
 [data-app="student"] .settings-title {
   font-weight: 700;
-  font-size: 1.1rem;
+  font-size: 1.35rem;
 }
 [data-app="student"] .settings-close {
   background: none !important;
   border: none !important;
-  font-size: 1.2rem;
+  font-size: 1.45rem;
   cursor: pointer;
   color: #999 !important;
   padding: 4px;
@@ -442,11 +453,11 @@
 }
 [data-app="student"] .settings-section-label {
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: 1.1rem;
   margin-bottom: 4px;
 }
 [data-app="student"] .settings-section-desc {
-  font-size: 0.8rem;
+  font-size: 1.05rem;
   color: var(--muted);
   margin: 0 0 12px;
 }
@@ -463,7 +474,7 @@
   gap: 4px;
   padding: 6px 4px;
   border: 2px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-btn);
   background: none !important;
   cursor: pointer;
   transition: border-color 0.15s ease;
@@ -472,8 +483,8 @@
 [data-app="student"] .theme-swatch-btn::before {
   content: '';
   display: block;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
@@ -489,7 +500,7 @@
   background: color-mix(in oklab, var(--primary) 8%, #fff) !important;
 }
 [data-app="student"] .theme-swatch-label {
-  font-size: 0.6rem;
+  font-size: 0.85rem;
   color: var(--muted);
   text-align: center;
   line-height: 1.2;
@@ -499,11 +510,11 @@
   width: 100%;
   padding: 10px;
   border: 1px solid #ef4444 !important;
-  border-radius: 10px;
+  border-radius: var(--radius-btn);
   background: #fff !important;
   color: #ef4444 !important;
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: 1.15rem;
   cursor: pointer;
   text-align: center;
 }

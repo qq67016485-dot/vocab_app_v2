@@ -1,0 +1,112 @@
+=== LLM CALL LOG ===
+Timestamp: 20260314_015908
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+You are an expert ESL curriculum designer for young learners (ages 8-14).
+Given a list of vocabulary words with their parts of speech, formal definitions, and example sentences, generate primer card content for each word.
+
+For each word you will receive:
+- term, part_of_speech, definition (formal), example_sentence
+
+Your job is to create a kid-friendly version of the definition and a syllable breakdown.
+
+Output valid JSON with this exact structure:
+{{
+  "primer_cards": [
+    {{
+      "term": "the word",
+      "syllable_text": "syl·la·ble form",
+      "kid_friendly_definition": "a simple definition a child can understand"
+    }}
+  ]
+}}
+
+Guidelines:
+- Base the kid-friendly definition on the provided formal definition
+- Kid-friendly definitions should use simple vocabulary (under 600L Lexile)
+- Syllable text uses the middle dot character (·) as separator
+- Keep definitions concise (1-2 sentences max)
+- Do not generate a new example sentence — the formal example will be reused
+
+
+=== USER PROMPT ===
+- refugee (noun): definition: A person who has been forced to leave their country to escape war, danger, or a natural disaster. | example: The refugee traveled for many days to find a safe place to live.
+- audience (noun): definition: A group of people who gather to listen to or watch a performance, like a play, movie, or concert. | example: The audience clapped loudly when the magician finished his amazing trick.
+- spectator (noun): definition: A person who watches an event, show, or game, especially a sports match. | example: The spectator cheered excitedly as her favorite football team scored a goal.
+- pilgrim (noun): definition: A person who travels on a long journey to a holy place for religious reasons. | example: The pilgrim walked for hundreds of miles to visit the sacred temple.
+- volunteer (noun): definition: A person who freely offers to do a job or help others without getting paid. | example: The volunteer spent her Saturday morning picking up trash at the local park.
+- congregation (noun): definition: A group of people gathered together for a religious worship service. | example: The congregation sang a beautiful song together at the church.
+- smuggler (noun): definition: A person who secretly and illegally moves people or things into or out of a country. | example: The police caught the smuggler trying to hide stolen diamonds in his suitcase.
+- hostage (noun): definition: A person kept as a prisoner by someone who demands that certain conditions be met before letting them go. | example: The brave police officer negotiated with the robbers to safely release the hostage.
+- colleague (noun): definition: A person that you work with at a job or profession. | example: My mother's colleague helped her finish the big project at the office.
+- citizen (noun): definition: A person who legally belongs to a country and has the rights and protection of that country. | example: As a good citizen, he always obeys the law and votes in elections.
+- foreigner (noun): definition: A person born in or coming from a country other than one's own. | example: The foreigner asked for directions because he was visiting the city for the first time.
+- bandit (noun): definition: A robber or outlaw who often belongs to a gang and attacks travelers. | example: The bandit hid in the forest, waiting to steal gold from passing carriages.
+
+=== RAW RESPONSE ===
+{
+  "primer_cards": [
+    {
+      "term": "refugee",
+      "syllable_text": "ref·u·gee",
+      "kid_friendly_definition": "Someone who has to leave their home country to find a safe place away from danger or war."
+    },
+    {
+      "term": "audience",
+      "syllable_text": "au·di·ence",
+      "kid_friendly_definition": "A group of people who watch or listen to a show, like a movie or a play."
+    },
+    {
+      "term": "spectator",
+      "syllable_text": "spec·ta·tor",
+      "kid_friendly_definition": "A person who watches an event, like a sports game."
+    },
+    {
+      "term": "pilgrim",
+      "syllable_text": "pil·grim",
+      "kid_friendly_definition": "Someone who travels a long way to visit a special and holy place."
+    },
+    {
+      "term": "volunteer",
+      "syllable_text": "vol·un·teer",
+      "kid_friendly_definition": "A person who chooses to help others or do a job without getting paid."
+    },
+    {
+      "term": "congregation",
+      "syllable_text": "con·gre·ga·tion",
+      "kid_friendly_definition": "A group of people who gather together to pray or worship."
+    },
+    {
+      "term": "smuggler",
+      "syllable_text": "smug·gler",
+      "kid_friendly_definition": "Someone who secretly brings people or things into a country, which is against the law."
+    },
+    {
+      "term": "hostage",
+      "syllable_text": "hos·tage",
+      "kid_friendly_definition": "A person held as a prisoner by someone who wants a reward before letting them go."
+    },
+    {
+      "term": "colleague",
+      "syllable_text": "col·league",
+      "kid_friendly_definition": "Someone you work with at your job."
+    },
+    {
+      "term": "citizen",
+      "syllable_text": "cit·i·zen",
+      "kid_friendly_definition": "A person who officially belongs to a country and is protected by its laws."
+    },
+    {
+      "term": "foreigner",
+      "syllable_text": "for·eign·er",
+      "kid_friendly_definition": "A person who is from a different country."
+    },
+    {
+      "term": "bandit",
+      "syllable_text": "ban·dit",
+      "kid_friendly_definition": "A robber who steals from travelers, usually working with a gang."
+    }
+  ]
+}

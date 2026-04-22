@@ -1,0 +1,587 @@
+=== LLM CALL LOG ===
+Timestamp: 20260324_212519
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+**ROLE AND GOAL**
+You are an expert AI educational content creator and psychometrician specializing in English vocabulary. Your task is to process a JSON list of words (each with its definition and example sentence) and a target reading level. For EACH word, generate a comprehensive set of **15 practice questions, 3 for each of the 5 mastery levels**. The question types will include multiple-choice, true/false. The questions are **learning-oriented**, not high-stakes tests. Each question must have its own specific **Lexile score**, a logical and instructive **explanation**, and a unique contextual **example sentence**. Finally, you will package all results into a single, valid JSON object.
+
+---
+
+**INPUT**
+You will be provided with a JSON object containing two main keys:
+* `"words"`: A list of word objects, each with `term`, `part_of_speech`, `definition`, and `example_sentence`.
+* `"target_lexile_level"`: An integer representing the *center point* for the desired Lexile scores (e.g., 800, 1000, 1200).
+
+---
+
+### QUESTION GENERATION
+Generate questions for each word according to the following rules.
+
+**Strict Question Quota**
+Exactly 15 questions per word: **3** at Level 1, **3** at Level 2, **3** at Level 3, **3** at Level 4, **3** at Level 5.
+
+**Fields required for EACH question**
+1) `lexile_score` — an integer within **target_lexile_level +/- 50**.
+2) `explanation` — logically and instructively explains **why** the correct answer is right and **must include the vocabulary word**. **NOTE: the student is most likely to read this explanation when the student's answer is incorrect.
+3) `example_sentence` — a different, real-world usage of the word, including a natural collocation or context the learner is likely to meet again (not redundant with the explanation).
+
+**Question Types and Mastery Levels**
+* **Level 1 – Recognition** (3 items)
+  * `DEFINITION_MC_SINGLE`
+  * `DEFINITION_TRUE_FALSE`
+* **Level 2 – Relationships** (3 items)
+  * `SYNONYM_MC_SINGLE`
+  * `ANTONYM_MC_SINGLE`
+  * `CONCEPTUAL_ASSOCIATION_MC_SINGLE`
+  Fallback Protocol: If both ANTONYM_MC_SINGLE and SYNONYM_MC_SINGLE types are difficult for a word, generate two distinct CONCEPTUAL_ASSOCIATION_MC_SINGLE questions.
+* **Level 3 – Context & Application** (3 items)
+  * `CONTEXT_MC_SINGLE`
+  * `DIALOGUE_COMPLETION_MC`
+    * **Structure:** A short exchange between two speakers (Person A and Person B).
+    * **Constraint:** Person A sets a clear context/scenario. Person B responds, and the target word is the blank (_____) in Person B's line.
+* **Level 4 – Nuance & Usage** (3 items)
+  * `WORD_FORM_MC` (e.g., noun/verb/adjective form)
+  * `COLLOCATION_MC_SINGLE` (e.g., *make* a decision vs *do* a decision)
+* **Level 5 – Deep Comparison** (3 items)
+  * `ODD_ONE_OUT_MC_SINGLE`
+
+**Special Instructions for `DIALOGUE_COMPLETION_MC`**
+* **Format:** `question_text` must follow the format: "Person A: [Context sentence].\nPerson B: [Response sentence with _____]."
+* **Context Cue:** Person A's line must contain a specific keyword or clue that makes the target word the **only** logical answer for Person B.
+* **Natural Tone:** Use natural, conversational English suitable for the target Lexile level.
+
+---
+
+## Distractor Tiers (apply to ALL MC types)
+- **Tier 1 (near-synonym/antonym):** Same part of speech as the key. High semantic similarity, but differs on at least one defining feature in the formal definition.
+- **Tier 2 (collocation foil):** A real word/phrase that commonly collocates with a **neighbor concept** in the same domain, but **not** with the target word (e.g., "wing flap" vs. "propeller pitch").
+- **Tier 3 (orthographic/phonological trap):** Looks/sounds similar but has a different meaning (e.g., propose/propel; manifest/manifesto). Use sparingly and **never** if it changes POS.
+
+**Enforcement**
+- For **all MC items at Levels 3-5**, include **at least one Tier-2** distractor.
+- Do **not** include more than **one Tier-3** distractor in any single item.
+- All distractors must be plausible in context and the **same POS** as the correct answer unless the item purposefully contrasts forms (only in `WORD_FORM_MC`).
+- For collocations, ensure incorrect choices are **genuine collocations with a related neighbor concept** (not nonsense).
+
+---
+
+## Lexile Guardrails
+- Target Lexile per item (including the question, answer text, explanation text, example sentence) = **target_lexile_level +/- 50**.
+
+---
+
+## Nuance Requirements for Levels 4-5
+- **`WORD_FORM_MC` (L4)**: Use **same-root minimal pairs** differing by POS/meaning (e.g., *propel* (V) vs *propulsion* (N) vs *propulsive* (ADJ) vs *propeller* (N device)). Exactly **one** fits the prompt.
+- **`COLLOCATION_MC_SINGLE` (L4)**: Test genuine **verb-object** or **adjective-noun** patterns and include one **register/domain cue** (e.g., *orbital* (technical) vs *space* (general); *deploy* (military) vs *send* (general)). Only **one** choice is the high-frequency, domain-true pairing.
+- **`ODD_ONE_OUT_MC_SINGLE` (L5)**: Keep all options within a **tight semantic field**; the odd one must violate a **latent rule** (e.g., reusability; medium-air/water; rigidity). The explanation must **state the rule** clearly.
+
+---
+
+### OUTPUT REQUIREMENTS
+Return a single, valid JSON object. The root object must have one key: `"generated_question_sets"`. Its value is a list; each element contains:
+- `"term"`: the word term (string).
+- `"questions"`: the fifteen question objects for that word.
+
+Do **not** include any text outside the JSON object.
+
+---
+
+### QUALITY GUIDELINES
+- **Lexile adherence:** Always within +/-50 of target; apply Guardrails and revise if needed.
+- **Explanation vs. example:** The explanation is analytical ("why"); the example is contextual ("how"). No redundancy.
+- **Plausible distractors:** Follow **Distractor Tiers**; ensure at least one Tier-2 distractor at L3-L5; <=1 Tier-3 per item.
+- **Avoid tautologies:** The `explanation` must **never** use the root of the term itself.
+- **Vary sentence structures:** Across the 15 items for a word, vary stems, explanations, examples. Use one mild complexity feature at L4-L5.
+- **Answer balance:** For True/False, ~50% should be "True." For MC, balance correct answer positions (A/B/C/D).
+- **Collocation authenticity**: wrong collocations must be real for a neighbor concept, not invented.
+- **Supportive tone**: avoid grading language; use encouraging, learner-friendly phrasing.
+
+---
+
+### PRE-FLIGHT CHECKLIST (apply to every item before output)
+- [ ] Lexile proxy **within band**; if L4-L5, include exactly **one** advanced structure.
+- [ ] **At least one Tier-2** distractor for **all L3-L5** MC items; **<=1 Tier-3** per item.
+- [ ] `WORD_FORM_MC` uses **same-root minimal pairs**; exactly one matches the prompt.
+- [ ] `DIALOGUE_COMPLETION_MC` has a clear conversational context; Person A's clue makes the answer unique.
+- [ ] `COLLOCATION_MC_SINGLE` uses **real domain collocations** + one **register/domain cue**.
+- [ ] `ODD_ONE_OUT_MC_SINGLE` uses a **tight field** and the explanation **states the latent rule**.
+- [ ] `explanation` includes the target word and gives a **hypernym + differentiating feature** (not circular).
+- [ ] `example_sentence` is **different** from the explanation and contextually natural.
+
+---
+**EXAMPLE**
+
+**INPUT:**
+```json
+{
+  "target_lexile_level": 1000,
+  "words": [
+    {
+      "term": "Analyze",
+      "part_of_speech": "verb",
+      "definition": "to study something closely and carefully to learn more about it",
+      "example_sentence": "The scientist needed to analyze the rock samples to determine their age."
+    }
+  ]
+}
+```
+
+**EXPECTED JSON OUTPUT:**
+```json
+{
+  "generated_question_sets": [
+    {
+      "term": "Analyze",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the primary meaning of the verb 'analyze'?",
+          "options": { "choices": ["To create something new", "To examine in detail", "To guess a solution", "To ignore the facts"] },
+          "correct_answers": ["To examine in detail"],
+          "explanation": "To 'analyze' means to study the structure or parts of something carefully. 'Create', 'guess', and 'ignore' do not involve detailed examination.",
+          "example_sentence": "Before making a purchase, he took time to analyze the costs and benefits.",
+          "lexile_score": 950,
+          "suitable_mastery_levels": [1]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: To analyze something means to look at it quickly and superficially.",
+          "options": { "choices": ["True", "False"] },
+          "correct_answers": ["False"],
+          "explanation": "This is false. Analyzing requires a deep, methodical, and detailed examination, not a quick or superficial look.",
+          "example_sentence": "The teacher asked the students to analyze the poem's deeper meaning.",
+          "lexile_score": 920,
+          "suitable_mastery_levels": [1]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word is a synonym for 'analyze'?",
+          "options": { "choices": ["Synthesize", "Inspect", "Invent", "Neglect"] },
+          "correct_answers": ["Inspect"],
+          "explanation": "'Inspect' is a synonym because both verbs involve looking at something closely. 'Synthesize' is an antonym (combining parts), and 'Invent' means creating.",
+          "example_sentence": "The mechanic had to analyze the engine to find the source of the noise.",
+          "lexile_score": 1000,
+          "suitable_mastery_levels": [2]
+        },
+        {
+          "question_type": "ANTONYM_MC_SINGLE",
+          "question_text": "Which word is an antonym for 'analyze'?",
+          "options": { "choices": ["Synthesize", "Investigate", "Scrutinize", "Evaluate"] },
+          "correct_answers": ["Synthesize"],
+          "explanation": "To 'analyze' is to break a whole down into parts. To 'synthesize' is to combine parts into a whole, making it the direct opposite action.",
+          "example_sentence": "It is easier to analyze a completed project than to synthesize a new plan from scratch.",
+          "lexile_score": 1100,
+          "suitable_mastery_levels": [2]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The detective needed to _____ the fingerprints found at the scene to see if they matched the suspect.",
+          "options": { "choices": ["analyze", "fabricate", "guess", "discard"] },
+          "correct_answers": ["analyze"],
+          "explanation": "In the context of a detective and evidence, 'analyze' is the only logical action. Detectives do not 'fabricate' (fake) or 'guess' evidence.",
+          "example_sentence": "Software programs can now analyze huge amounts of data in seconds.",
+          "lexile_score": 1050,
+          "suitable_mastery_levels": [3]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Complete the conversation.\nPerson A: 'The survey results are too complex to understand just by looking at them.'\nPerson B: 'You are right; we need to _____ the data carefully to find the real trends.'",
+          "options": { "choices": ["analyze", "guess", "erase", "invent"] },
+          "correct_answers": ["analyze"],
+          "explanation": "Person A describes the data as 'complex.' To understand complex data, you must examine it in detail. Therefore, 'analyze' is the correct verb. You should not 'guess', 'erase', or 'invent' data in a serious context.",
+          "example_sentence": "The software helps us analyze customer feedback quickly.",
+          "lexile_score": 1020,
+          "suitable_mastery_levels": [3]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "What is the noun form of 'analyze'?",
+          "options": { "choices": ["analysis", "analytic", "analyzing", "analyzed"] },
+          "correct_answers": ["analysis"],
+          "explanation": "'Analysis' is the noun referring to the process itself. 'Analytic' is an adjective, and 'analyzing/analyzed' are verb forms.",
+          "example_sentence": "Her detailed analysis of the market trends impressed the investors.",
+          "lexile_score": 1120,
+          "suitable_mastery_levels": [4]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which word forms a common expression with 'analyze' in a scientific context?",
+          "options": { "choices": ["data", "decision", "truth", "goal"] },
+          "correct_answers": ["data"],
+          "explanation": "While you 'make' a decision, 'tell' the truth, or 'set' a goal, you specifically 'analyze' data. This is a standard academic collocation.",
+          "example_sentence": "It took weeks to analyze the data collected during the field study.",
+          "lexile_score": 1150,
+          "suitable_mastery_levels": [4]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": { "choices": ["Analyze", "Examine", "Synthesize", "Dissect"] },
+          "correct_answers": ["Synthesize"],
+          "explanation": "'Analyze', 'examine', and 'dissect' all refer to breaking something down or looking at details. 'Synthesize' refers to building something up (combining).",
+          "example_sentence": "When you analyze a contract, you check every detail.",
+          "lexile_score": 1150,
+          "suitable_mastery_levels": [5]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which action is the most different from the others?",
+          "options": { "choices": ["Investigate", "Study", "Guess", "Probe"] },
+          "correct_answers": ["Guess"],
+          "explanation": "'Investigate', 'study', and 'probe' imply a methodical effort to find information (analysis). To 'guess' implies answering without any analysis or proof.",
+          "example_sentence": "Scientists do not simply guess; they analyze facts to prove their theories.",
+          "lexile_score": 1180,
+          "suitable_mastery_levels": [5]
+        }
+      ]
+    }
+  ]
+}
+```
+
+**YOUR TASK**
+Now, process the following JSON input according to the rules, make sure the output is a JSON object strictly following the format shown above.
+
+```json
+{
+  "target_lexile_level": 650,
+  "words": [
+    {
+      "term": "sculpture",
+      "part_of_speech": "noun",
+      "definition": "a piece of three-dimensional art made by carving, molding, or combining materials like clay, stone, metal, or wood",
+      "example_sentence": "In the middle of the city park, there is a giant bronze sculpture of a soaring eagle."
+    }
+  ]
+}
+```
+
+
+=== USER PROMPT ===
+(empty)
+
+=== RAW RESPONSE ===
+{
+  "generated_question_sets": [
+    {
+      "term": "sculpture",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What does the word 'sculpture' mean?",
+          "options": {
+            "choices": [
+              "A piece of three-dimensional art",
+              "A flat picture painted on a wall",
+              "A fast song played on a guitar",
+              "A story written about a hero"
+            ]
+          },
+          "correct_answers": [
+            "A piece of three-dimensional art"
+          ],
+          "explanation": "A sculpture is a solid piece of art that has shape and depth, like a statue. It is not flat like a picture or a painting.",
+          "example_sentence": "We walked around the giant horse sculpture to see it from all sides.",
+          "lexile_score": 620,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A sculpture is always flat and drawn on a piece of paper.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false. A sculpture is three-dimensional art that you can touch and see from different sides, unlike a flat drawing.",
+          "example_sentence": "He used heavy stone to create his beautiful new sculpture.",
+          "lexile_score": 630,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "Which action describes how someone usually makes a sculpture?",
+          "options": {
+            "choices": [
+              "Carving or molding materials into a shape",
+              "Drawing flat lines with a pencil",
+              "Singing words into a microphone",
+              "Typing letters on a computer"
+            ]
+          },
+          "correct_answers": [
+            "Carving or molding materials into a shape"
+          ],
+          "explanation": "Making a sculpture involves shaping materials like clay, wood, or metal into a 3D form.",
+          "example_sentence": "The artist made a tiny bird sculpture out of soft clay.",
+          "lexile_score": 650,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word means almost the same thing as a 'sculpture'?",
+          "options": {
+            "choices": [
+              "Statue",
+              "Poster",
+              "Melody",
+              "Sketch"
+            ]
+          },
+          "correct_answers": [
+            "Statue"
+          ],
+          "explanation": "A statue is a type of 3D art, making it a synonym for a sculpture. Posters and sketches are flat, and a melody is a sound.",
+          "example_sentence": "The city built a lovely statue of the brave dog.",
+          "lexile_score": 640,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which material is most often used to create a sculpture?",
+          "options": {
+            "choices": [
+              "Clay",
+              "Watercolor",
+              "Ink",
+              "Chalk"
+            ]
+          },
+          "correct_answers": [
+            "Clay"
+          ],
+          "explanation": "Clay is a thick, solid material that artists can mold to create a 3D sculpture. Watercolor, ink, and chalk are used for flat artwork.",
+          "example_sentence": "She pressed the wet clay into the shape of a bowl.",
+          "lexile_score": 630,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Where are you most likely to see a very large sculpture?",
+          "options": {
+            "choices": [
+              "In a public park",
+              "Inside a thin book",
+              "On a movie screen",
+              "Playing on the radio"
+            ]
+          },
+          "correct_answers": [
+            "In a public park"
+          ],
+          "explanation": "A large 3D piece of art, or sculpture, needs physical space to stand. You cannot fit it inside a book or hear it on a radio.",
+          "example_sentence": "The town placed a beautiful metal sculpture near the main fountain.",
+          "lexile_score": 640,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The museum guide pointed at the heavy stone _____ and told us not to touch it.",
+          "options": {
+            "choices": [
+              "sculpture",
+              "painting",
+              "symphony",
+              "novel"
+            ]
+          },
+          "correct_answers": [
+            "sculpture"
+          ],
+          "explanation": "A stone 'sculpture' is a heavy, 3D piece of art. A 'painting' is flat art, while symphonies and novels are music and books.",
+          "example_sentence": "The garden features a famous marble sculpture of a lion.",
+          "lexile_score": 660,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Complete the conversation.\nPerson A: 'I cannot believe the artist made this 3D dragon entirely out of glass!'\nPerson B: 'I know, that _____ is completely amazing.'",
+          "options": {
+            "choices": [
+              "sculpture",
+              "drawing",
+              "book",
+              "costume"
+            ]
+          },
+          "correct_answers": [
+            "sculpture"
+          ],
+          "explanation": "Person A describes a '3D dragon' made of glass. A 3D piece of art is a sculpture. A 'drawing' is 2D, so it does not fit.",
+          "example_sentence": "The glass sculpture caught the sunlight and sparkled brightly.",
+          "lexile_score": 670,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "For her art class project, Maya molded soft wax into a _____ of a beautiful flower.",
+          "options": {
+            "choices": [
+              "sculpture",
+              "portrait",
+              "melody",
+              "poem"
+            ]
+          },
+          "correct_answers": [
+            "sculpture"
+          ],
+          "explanation": "Molding wax into a 3D shape creates a sculpture. A 'portrait' is usually a flat drawing or painting of a person.",
+          "example_sentence": "He won a prize for his metal sculpture of a train.",
+          "lexile_score": 650,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "Choose the correct word to complete the sentence: The city bought a new metal _____ for the town square.",
+          "options": {
+            "choices": [
+              "sculpture",
+              "sculptor",
+              "sculpt",
+              "sculptural"
+            ]
+          },
+          "correct_answers": [
+            "sculpture"
+          ],
+          "explanation": "The sentence needs the noun that names the art object ('sculpture'). A 'sculptor' is the person, 'sculpt' is the verb, and 'sculptural' is an adjective.",
+          "example_sentence": "We visited an exhibit showing a large wood sculpture.",
+          "lexile_score": 660,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which word best completes this common art phrase: 'The artist carved a beautiful _____ sculpture for the winter festival'?",
+          "options": {
+            "choices": [
+              "ice",
+              "canvas",
+              "oil",
+              "paper"
+            ]
+          },
+          "correct_answers": [
+            "ice"
+          ],
+          "explanation": "An 'ice sculpture' is a common type of 3D art made for winter events. 'Canvas' and 'oil' are used for paintings, not 3D carving.",
+          "example_sentence": "Before it melted, the ice sculpture looked just like a real swan.",
+          "lexile_score": 650,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which verb is most commonly used when an artist creates a sculpture out of stone?",
+          "options": {
+            "choices": [
+              "Carve",
+              "Paint",
+              "Sing",
+              "Publish"
+            ]
+          },
+          "correct_answers": [
+            "Carve"
+          ],
+          "explanation": "To 'carve' means to cut away hard material to make a 3D shape, which is how a stone sculpture is made. You 'paint' a picture or 'publish' a book.",
+          "example_sentence": "It took the artist three weeks to carve the wooden statue.",
+          "lexile_score": 660,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group of art forms?",
+          "options": {
+            "choices": [
+              "Painting",
+              "Sculpture",
+              "Statue",
+              "Monument"
+            ]
+          },
+          "correct_answers": [
+            "Painting"
+          ],
+          "explanation": "A sculpture, a statue, and a monument are all three-dimensional (3D) objects. A painting is flat, two-dimensional art, which makes it the odd one out.",
+          "example_sentence": "The artist decided to make a sculpture instead of a flat drawing.",
+          "lexile_score": 670,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which material does not belong in a group of supplies used to make a sculpture?",
+          "options": {
+            "choices": [
+              "Watercolor",
+              "Clay",
+              "Bronze",
+              "Marble"
+            ]
+          },
+          "correct_answers": [
+            "Watercolor"
+          ],
+          "explanation": "Clay, bronze, and marble are solid materials used to mold or carve 3D art. Watercolor is a thin paint used on flat paper.",
+          "example_sentence": "He chose bright watercolor paint for his flat landscape picture.",
+          "lexile_score": 680,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which action does not belong with the creation of a sculpture?",
+          "options": {
+            "choices": [
+              "Sketching",
+              "Molding",
+              "Carving",
+              "Shaping"
+            ]
+          },
+          "correct_answers": [
+            "Sketching"
+          ],
+          "explanation": "Molding, carving, and shaping are actions used to create three-dimensional art. Sketching means drawing flat lines, so it is the odd one out.",
+          "example_sentence": "She started by sketching her idea on paper before building the 3D model.",
+          "lexile_score": 690,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    }
+  ]
+}

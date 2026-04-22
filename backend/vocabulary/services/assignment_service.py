@@ -7,8 +7,9 @@ V2 changes from v1:
 - Removed all BKT state creation (KnowledgeComponent, UserKnowledgeComponentState)
 - meaning_id → word_id in WordPackItem lookups
 """
-from datetime import date
 import logging
+
+from django.utils import timezone
 
 from users.models import StudentGroup, CustomUser
 from vocabulary.models import (
@@ -90,7 +91,7 @@ class AssignmentService:
                     word=word,
                     defaults={
                         'level': starting_level,
-                        'next_review_date': date.today(),
+                        'next_review_date': timezone.localdate(),
                         'instructional_status': inst_status,
                     },
                 )

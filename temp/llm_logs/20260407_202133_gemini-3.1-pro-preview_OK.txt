@@ -1,0 +1,74 @@
+=== LLM CALL LOG ===
+Timestamp: 20260407_202133
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+You are an expert ESL curriculum designer and lexicographer.
+Given a list of vocabulary words and optional source context (book title, chapter, passage), look up each word and provide comprehensive information.
+
+Output valid JSON with this exact structure:
+{{
+  "words": [
+    {{
+      "term": "the word",
+      "part_of_speech": "noun/verb/adjective/etc.",
+      "definition": "a clear, age-appropriate definition",
+      "example_sentence": "a sentence using the word in context"
+    }}
+  ]
+}}
+
+Guidelines:
+- Definitions should be clear and appropriate for students aged 8-14
+- Example sentences should clearly demonstrate the word's meaning
+- If the source context provides a specific meaning, prefer that meaning
+- Change plural nouns to singular nouns, past tense verbs to present tense verbs
+- Part of speech should be the most common usage unless context specifies otherwise
+
+
+=== USER PROMPT ===
+Words to look up: adventure, obstacles, athletes, course, themes, zombies
+Source: Mud Runs
+
+=== RAW RESPONSE ===
+{
+  "words": [
+    {
+      "term": "adventure",
+      "part_of_speech": "noun",
+      "definition": "an exciting and sometimes dangerous experience or activity.",
+      "example_sentence": "Crawling through the slippery mud felt like a wild adventure."
+    },
+    {
+      "term": "obstacle",
+      "part_of_speech": "noun",
+      "definition": "something that blocks your path or makes it difficult to move forward.",
+      "example_sentence": "The hardest obstacle in the race was a giant slippery wall that we had to climb over."
+    },
+    {
+      "term": "athlete",
+      "part_of_speech": "noun",
+      "definition": "a person who is trained in or good at sports and physical exercises.",
+      "example_sentence": "The athlete trained for months to be strong enough to finish the race."
+    },
+    {
+      "term": "course",
+      "part_of_speech": "noun",
+      "definition": "a path or route that is set up for a race or sport.",
+      "example_sentence": "The race course went through a dark forest and ended in a giant pool of water."
+    },
+    {
+      "term": "theme",
+      "part_of_speech": "noun",
+      "definition": "a main idea or specific subject that an event, party, or story is based on.",
+      "example_sentence": "The race had a pirate theme, so all the runners wore eye patches and bandanas."
+    },
+    {
+      "term": "zombie",
+      "part_of_speech": "noun",
+      "definition": "a scary, imaginary creature from stories that is a dead person walking around.",
+      "example_sentence": "During the Halloween mud run, volunteers dressed up as a zombie to chase the runners."
+    }
+  ]
+}

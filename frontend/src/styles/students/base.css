@@ -1,4 +1,11 @@
 /* Shared base polish */
+
+/* Widen the app shell for student portal (landscape tablet/PC) */
+[data-app="student"].app-shell {
+  max-width: 1080px;
+  padding: 24px 48px;
+}
+
 [data-app="student"] .page-title h1 {
   margin: var(--space-6) 0 var(--space-4);
   letter-spacing: .2px;
@@ -21,9 +28,9 @@
 [data-app="student"] .weakness-row {
   background: #fff;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-1);
-  padding: 1rem 1.25rem;
+  padding: 1.25rem 1.5rem;
   /* moved from fixes.css: prevents content hugging edges */
 }
 
@@ -52,7 +59,7 @@
 
 [data-app="student"] .progress-bar-wrapper {
   height: 18px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, .25);
   border: none;
   overflow: hidden;
@@ -65,7 +72,7 @@
 
 [data-app="student"] .progress-bar-text {
   display: flex;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 700;
   color: #2c3e50;
   text-shadow: 0 0 2px #fff;

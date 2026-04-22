@@ -1,0 +1,1965 @@
+=== LLM CALL LOG ===
+Timestamp: 20260407_202454
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+**ROLE AND GOAL**
+You are an expert AI educational content creator and psychometrician specializing in English vocabulary. Your task is to process a JSON list of words (each with its definition and example sentence) and a target reading level. For EACH word, generate a comprehensive set of **15 practice questions, 3 for each of the 5 mastery levels**. The question types are strictly defined below. The questions are **learning-oriented**, not high-stakes tests. Each question must have its own specific **Lexile score**, a logical and instructive **explanation**, and a unique contextual **example sentence**. Finally, you will package all results into a single, valid JSON object.
+
+---
+
+**INPUT**
+You will be provided with a JSON object containing two main keys:
+* `"words"`: A list of word objects, each with `term`, `part_of_speech`, `definition`, and `example_sentence`.
+* `"target_lexile_level"`: An integer representing the *center point* for the desired Lexile scores (e.g., 800, 1000, 1200).
+
+---
+
+### QUESTION GENERATION
+Generate questions for each word according to the following rules.
+
+**Strict Question Quota**
+Exactly 15 questions per word: **3** at Level 1, **3** at Level 2, **3** at Level 3, **3** at Level 4, **3** at Level 5. *(Note: Where a level has fewer than 3 question types, duplicate one of the types to reach the required 3 questions).*
+
+**Fields required for EACH question**
+1) `lexile_score` — an integer within **target_lexile_level +/- 50**.
+2) `explanation` — logically and instructively explains **why** the correct answer is right and **must include the vocabulary word**. **NOTE: the student is most likely to read this explanation when the student's answer is incorrect.
+3) `example_sentence` — a different, real-world usage of the word, including a natural collocation or context the learner is likely to meet again (not redundant with the explanation).
+
+**Question Types and Mastery Levels (15 Items Total)**
+* **Level 1 – Recognition** (3 items)
+  * `DEFINITION_MC_SINGLE`: The question asks for the primary meaning of the target word. Options are various definitions.
+  * `REVERSE_DEFINITION_MC`: The formal definition is provided in the question stem. The target word is the correct answer among other vocabulary distractors.
+* **Level 2 – Relationships** (3 items)
+  * `SYNONYM_IN_CONTEXT_MC`: A full sentence is provided using the target word. The options are synonyms; the student must pick the one that fits the specific nuance and grammar of that sentence.
+  * `ANTONYM_MC_SINGLE`: A direct question asking for a word with the opposite meaning. (Used for words with clear opposites).
+  * `CONCEPTUAL_ASSOCIATION_MC_SINGLE`: Asks the student to identify which category, broad concept, or related idea best fits the target word.
+  * *Fallback Protocol:* If `ANTONYM_MC_SINGLE` is difficult for a word (e.g., a highly specific noun), generate questions of different type to meet the quota.
+* **Level 3 – Context & Application** (3 items)
+  * `APPLICATION_MC`: The target word is used in the stem to describe a scenario. The options are real-world behaviors, objects, or outcomes.
+  * `REVERSE_ASSOCIATION_MC`: The stem provides 2–3 related concepts, actions, or clues (e.g., "Microscope, evidence, and detailed notes"). The target word is the correct answer.
+* **Level 4 – Nuance & Usage** (3 items)
+  * `WORD_FORM_MC`: Tests grammatical accuracy using same-root minimal pairs (e.g., Analyze vs. Analysis). Only one fits the sentence. *DO NOT generate `WORD_FORM_MC` if the "target_lexile_level" is less than 600.*
+  * `REVERSE_COLLOCATION_MC`: The stem provides typical partner words (e.g., "Which word is commonly paired with data, trends, and evidence?"). The target word is the answer.
+* **Level 5 – Deep Comparison** (3 items)
+  * `ODD_ONE_OUT_MC_SINGLE`: Provides four words in a tight semantic field. The student must identify the one that violates a "latent rule".
+  * `NUANCE_CONTRAST_MC`: A sentence that explicitly contrasts the target word with a near-synonym to test high-level nuance (e.g., "It wasn't just a quick glance; he took hours to _____ every detail"). The target word is the blank.
+
+---
+
+## Distractor Tiers (apply to ALL MC types)
+- **Tier 1 (near-synonym/antonym):** Same part of speech as the key. High semantic similarity, but differs on at least one defining feature in the formal definition.
+- **Tier 2 (collocation foil):** A real word/phrase that commonly collocates with a **neighbor concept** in the same domain, but **not** with the target word (e.g., "wing flap" vs. "propeller pitch").
+- **Tier 3 (orthographic/phonological trap):** Looks/sounds similar but has a different meaning (e.g., propose/propel; manifest/manifesto). Use sparingly and **never** if it changes POS.
+
+**Enforcement**
+- For **all MC items at Levels 3-5**, include **at least one Tier-2** distractor.
+- Do **not** include more than **one Tier-3** distractor in any single item.
+- All distractors must be plausible in context and the **same POS** as the correct answer unless the item purposefully contrasts forms (only in `WORD_FORM_MC`).
+- For collocations, ensure incorrect choices are **genuine collocations with a related neighbor concept** (not nonsense).
+
+---
+
+## Lexile Guardrails
+- Target Lexile per item (including the question, answer text, explanation text, example sentence) = **target_lexile_level +/- 50**.
+
+---
+
+## Nuance Requirements
+- **`APPLICATION_MC` (L3)**: Ensure options describe realistic behaviors, outcomes, or steps. The distractor behaviors should sound plausible but logically fail the specific constraint of the target word.
+- **`WORD_FORM_MC` (L4)**: Use **same-root minimal pairs** differing by POS/meaning (e.g., *propel* (V) vs *propulsion* (N) vs *propulsive* (ADJ) vs *propeller* (N device)). Exactly **one** fits the prompt.
+- **`REVERSE_COLLOCATION_MC` (L4)**: Wrong options (distractors) should be real verbs or adjectives that strongly collocate with a *different* neighbor concept (e.g., if the clues are "data" and "trends", distractors might be words paired with physical objects or speeches, like "assemble" or "recite").
+- **`ODD_ONE_OUT_MC_SINGLE` (L5)**: Keep all options within a **tight semantic field**; the odd one must violate a **latent rule** (e.g., reusability; medium-air/water; building up vs. breaking down). The explanation must **state the rule** clearly.
+- **`NUANCE_CONTRAST_MC` (L5)**: The sentence stem must structurally reject the weaker near-synonym (e.g., using constructions like "Rather than just X, she needed to Y"). 
+
+---
+
+### OUTPUT REQUIREMENTS
+Return a single, valid JSON object. The root object must have one key: `"generated_question_sets"`. Its value is a list; each element contains:
+- `"term"`: the word term (string).
+- `"questions"`: the exactly fifteen question objects for that word.
+
+Do **not** include any text outside the JSON object.
+
+---
+
+### QUALITY GUIDELINES
+- **Lexile adherence:** Always within +/-50 of target; apply Guardrails and revise if needed.
+- **Explanation vs. example:** The explanation is analytical ("why"); the example is contextual ("how"). No redundancy.
+- **Plausible distractors:** Follow **Distractor Tiers**; ensure at least one Tier-2 distractor at L3-L5; <=1 Tier-3 per item.
+- **Avoid tautologies:** The `explanation` must **never** use the root of the term itself to define the word.
+- **Vary sentence structures:** Across the 15 items, vary stems, explanations, examples.
+- **Supportive tone**: avoid grading language; use encouraging, learner-friendly phrasing.
+
+---
+
+### PRE-FLIGHT CHECKLIST (apply to every item before output)
+- [ ] Exactly 15 questions generated (3 per level)?
+- [ ] Lexile proxy **within band** (+/- 50 of target)?
+- [ ] **At least one Tier-2** distractor for **all L3-L5** items; **<=1 Tier-3** per item?
+- [ ] `WORD_FORM_MC` uses **same-root minimal pairs**?
+- [ ] `NUANCE_CONTRAST_MC` has an explicit structural contrast setting up the exact nuance?
+- [ ] `REVERSE_COLLOCATION_MC` uses clues that are real, high-frequency partner words?
+- [ ] `ODD_ONE_OUT_MC_SINGLE` uses a **tight field** and the explanation **states the latent rule**?
+- [ ] `explanation` includes the target word and clarifies the specific reasoning?
+- [ ] `example_sentence` is **different** from the explanation and contextually natural?
+
+---
+**EXAMPLE**
+
+**INPUT:**
+```json
+{
+  "target_lexile_level": 1000,
+  "words": [
+    {
+      "term": "Analyze",
+      "part_of_speech": "verb",
+      "definition": "to study something closely and carefully to learn more about it",
+      "example_sentence": "The scientist needed to analyze the rock samples to determine their age."
+    }
+  ]
+}
+```
+
+**EXPECTED JSON OUTPUT:**
+```json
+{
+  "generated_question_sets": [
+    {
+      "term": "Analyze",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the primary meaning of the verb 'analyze'?",
+          "options": { "choices": ["To examine in detail", "To create something new", "To guess a solution", "To overlook the facts"] },
+          "correct_answers": ["To examine in detail"],
+          "explanation": "To 'analyze' means to study the structure or parts of something carefully. 'Create', 'guess', and 'overlook' do not involve detailed examination.",
+          "example_sentence": "Before making a purchase, he took time to analyze the costs and benefits.",
+          "lexile_score": 980        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "Which word means to study something closely and carefully to learn more about its parts?",
+          "options": { "choices": ["Analyze", "Fabricate", "Disguise", "Promote"] },
+          "correct_answers": ["Analyze"],
+          "explanation": "To 'analyze' is to break a subject down and study it closely. 'Fabricate' means to invent or fake something, while 'disguise' means to hide it.",
+          "example_sentence": "The lab technician will analyze the water sample for any impurities.",
+          "lexile_score": 950
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "If you break a complex topic down into smaller parts to understand it better, which action are you performing?",
+          "options": { "choices": ["Analyzing", "Summarizing", "Ignoring", "Broadcasting"] },
+          "correct_answers": ["Analyzing"],
+          "explanation": "Breaking something down to study its details is the core meaning of 'analyzing'. Summarizing is about making things shorter, not necessarily breaking down parts.",
+          "example_sentence": "We spent the afternoon analyzing the poem to understand its hidden themes.",
+          "lexile_score": 1010        },
+        {
+          "question_type": "SYNONYM_IN_CONTEXT_MC",
+          "question_text": "Read the sentence: 'The detective needed to analyze the evidence found at the scene before drawing conclusions.' Which word best replaces 'analyze' in this sentence?",
+          "options": { "choices": ["Inspect", "Assemble", "Conceal", "Invent"] },
+          "correct_answers": ["Inspect"],
+          "explanation": "In this context, 'inspect' is a strong synonym because both verbs involve looking at something closely. 'Assemble' means putting things together, not studying them.",
+          "example_sentence": "The mechanic had to analyze the engine closely to find the source of the noise.",
+          "lexile_score": 1000        },
+        {
+          "question_type": "ANTONYM_MC_SINGLE",
+          "question_text": "Which word is an antonym for 'analyze'?",
+          "options": { "choices": ["Synthesize", "Investigate", "Scrutinize", "Evaluate"] },
+          "correct_answers": ["Synthesize"],
+          "explanation": "To 'analyze' is to break a whole down into individual parts. To 'synthesize' is to combine parts into a whole, making it the direct opposite action.",
+          "example_sentence": "It is usually easier to analyze a completed project than to synthesize a new plan from scratch.",
+          "lexile_score": 1050        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which broad field or concept is most strongly associated with the action of analyzing?",
+          "options": { "choices": ["Scientific research", "Creative writing", "Physical exercise", "Random guessing"] },
+          "correct_answers": ["Scientific research"],
+          "explanation": "'Scientific research' relies heavily on testing and logically breaking down information, which is what it means to analyze. The other fields rely more on imagination or physical exertion.",
+          "example_sentence": "Analysts in the finance sector analyze market trends to advise their clients.",
+          "lexile_score": 1040        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "If a doctor needs to analyze a patient's unusual symptoms, what is the most likely action she will take?",
+          "options": { "choices": ["Run specific tests and carefully review the results.", "Give the patient a random medicine and hope it works.", "Tell the patient to ignore the symptoms entirely.", "Write a fictional story about the patient's background."] },
+          "correct_answers": ["Run specific tests and carefully review the results."],
+          "explanation": "To 'analyze' means to study something methodically to understand it. Running tests and reviewing results is a methodical way to study symptoms.",
+          "example_sentence": "The coach will analyze the game footage to see where the team can improve.",
+          "lexile_score": 1030        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "When an environmentalist decides to analyze local pollution levels, what outcome are they seeking?",
+          "options": { "choices": ["To discover the precise sources and amounts of the pollutants.", "To plant more trees in a neighboring city.", "To sweep the streets and pick up visible trash.", "To write a song about the beauty of nature."] },
+          "correct_answers": ["To discover the precise sources and amounts of the pollutants."],
+          "explanation": "Analyzing aims to gain deeper understanding. Finding the sources and amounts of pollution is the logical result of studying (analyzing) the environment.",
+          "example_sentence": "Experts analyze traffic patterns to design safer and more efficient roads.",
+          "lexile_score": 1020        },
+        {
+          "question_type": "REVERSE_ASSOCIATION_MC",
+          "question_text": "A microscope, a set of detailed notes, and a complex spreadsheet are clues most closely related to which action?",
+          "options": { "choices": ["Analyze", "Celebrate", "Memorize", "Demolish"] },
+          "correct_answers": ["Analyze"],
+          "explanation": "Microscopes, notes, and spreadsheets are all tools used to examine details and data closely. Therefore, they are strongly associated with the word 'analyze'.",
+          "example_sentence": "The historian used old letters to analyze the daily life of ancient citizens.",
+          "lexile_score": 990        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "Select the correct form of the word to complete the sentence: 'Her detailed _____ of the economic trends deeply impressed the board of directors.'",
+          "options": { "choices": ["analysis", "analyze", "analytical", "analyzing"] },
+          "correct_answers": ["analysis"],
+          "explanation": "The sentence requires a noun to act as the subject modified by the adjective 'detailed'. 'Analysis' is the noun form. 'Analyze' is the verb, and 'analytical' is an adjective.",
+          "example_sentence": "He possessed a highly analytical mind, making him excellent at solving puzzles.",
+          "lexile_score": 1050        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is most commonly paired as a verb with the nouns 'data', 'trends', and 'evidence'?",
+          "options": { "choices": ["Analyze", "Recite", "Fabricate", "Harvest"] },
+          "correct_answers": ["Analyze"],
+          "explanation": "In academic and professional contexts, you typically 'analyze' data, trends, or evidence to understand them. You 'recite' poetry, and you 'harvest' crops.",
+          "example_sentence": "The marketing team must analyze consumer data to create better advertisements.",
+          "lexile_score": 1040        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is frequently paired with 'samples', 'statistics', and 'results' in a laboratory setting?",
+          "options": { "choices": ["Analyze", "Propose", "Memorize", "Deliver"] },
+          "correct_answers": ["Analyze"],
+          "explanation": "A lab setting revolves around studying things closely, so you 'analyze' samples and statistics. You would 'propose' a theory or 'deliver' a speech.",
+          "example_sentence": "It took the computers three days to fully analyze the statistics from the census.",
+          "lexile_score": 1010        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": { "choices": ["Synthesize", "Analyze", "Examine", "Dissect"] },
+          "correct_answers": ["Synthesize"],
+          "explanation": "The latent rule here is 'breaking something down'. 'Analyze', 'examine', and 'dissect' all refer to breaking a subject apart to look at details. 'Synthesize' is the odd one out because it means combining parts to build something up.",
+          "example_sentence": "When you analyze a legal contract, you check every single clause for errors.",
+          "lexile_score": 1040        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'It wasn't enough to just give the document a quick glance; she had to sit down and _____ every single detail to find the error.'",
+          "options": { "choices": ["analyze", "summarize", "mention", "overlook"] },
+          "correct_answers": ["analyze"],
+          "explanation": "The sentence specifically contrasts 'a quick glance' with a much deeper, more rigorous examination. 'Analyze' perfectly captures the deep, methodical study required.",
+          "example_sentence": "Rather than just watching the film for fun, the critics analyze the director's lighting choices.",
+          "lexile_score": 980        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'Rather than simply describing the surface of the problem, the consultant was hired to deeply _____ its root causes.'",
+          "options": { "choices": ["analyze", "narrate", "ignore", "translate"] },
+          "correct_answers": ["analyze"],
+          "explanation": "The phrase 'rather than simply describing' sets up a contrast requiring a word that means digging into the mechanics of 'why' something happened. 'Analyze' is the precise term for investigating root causes.",
+          "example_sentence": "The engineers will analyze the bridge's failure to ensure it never happens again.",
+          "lexile_score": 1040        }
+      ]
+    }
+  ]
+}
+```
+
+**YOUR TASK**
+Now, process the following JSON input according to the rules, make sure the output is a JSON object strictly following the format shown above.
+
+```json
+{
+  "target_lexile_level": 535,
+  "words": [
+    {
+      "term": "adventure",
+      "part_of_speech": "noun",
+      "definition": "an exciting and sometimes dangerous experience or activity.",
+      "example_sentence": "Crawling through the slippery mud felt like a wild adventure."
+    },
+    {
+      "term": "obstacle",
+      "part_of_speech": "noun",
+      "definition": "something that blocks your path or makes it difficult to move forward.",
+      "example_sentence": "The hardest obstacle in the race was a giant slippery wall that we had to climb over."
+    },
+    {
+      "term": "athlete",
+      "part_of_speech": "noun",
+      "definition": "a person who is trained in or good at sports and physical exercises.",
+      "example_sentence": "The athlete trained for months to be strong enough to finish the race."
+    },
+    {
+      "term": "course",
+      "part_of_speech": "noun",
+      "definition": "a path or route that is set up for a race or sport.",
+      "example_sentence": "The race course went through a dark forest and ended in a giant pool of water."
+    },
+    {
+      "term": "theme",
+      "part_of_speech": "noun",
+      "definition": "a main idea or specific subject that an event, party, or story is based on.",
+      "example_sentence": "The race had a pirate theme, so all the runners wore eye patches and bandanas."
+    },
+    {
+      "term": "zombie",
+      "part_of_speech": "noun",
+      "definition": "a scary, imaginary creature from stories that is a dead person walking around.",
+      "example_sentence": "During the Halloween mud run, volunteers dressed up as a zombie to chase the runners."
+    }
+  ]
+}
+```
+
+
+=== USER PROMPT ===
+(empty)
+
+=== RAW RESPONSE ===
+{
+  "generated_question_sets": [
+    {
+      "term": "adventure",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the main meaning of the word 'adventure'?",
+          "options": {
+            "choices": [
+              "An exciting and sometimes dangerous experience",
+              "A quiet nap in a soft bed",
+              "A boring lesson at school",
+              "A heavy box used for moving"
+            ]
+          },
+          "correct_answers": [
+            "An exciting and sometimes dangerous experience"
+          ],
+          "explanation": "An adventure is a thrilling trip or activity that might have some risks. Naps, boring lessons, and heavy boxes are not exciting experiences.",
+          "example_sentence": "Climbing the tall mountain was a great adventure for the brave hikers.",
+          "lexile_score": 520
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "Which word means a fun, wild, and sometimes unsafe experience?",
+          "options": {
+            "choices": [
+              "Adventure",
+              "Routine",
+              "Mistake",
+              "Whisper"
+            ]
+          },
+          "correct_answers": [
+            "Adventure"
+          ],
+          "explanation": "An adventure is a wild and fun trip. A routine is something you do every day, which is the opposite of a wild trip.",
+          "example_sentence": "Sailing across the windy sea was the best adventure of her life.",
+          "lexile_score": 530
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "If you go on a trip full of thrilling events and surprises, what are you having?",
+          "options": {
+            "choices": [
+              "An adventure",
+              "A punishment",
+              "A habit",
+              "A schedule"
+            ]
+          },
+          "correct_answers": [
+            "An adventure"
+          ],
+          "explanation": "Having an adventure means you are doing something bold and full of surprises. Schedules and habits are planned and not usually full of surprises.",
+          "example_sentence": "The children went on a jungle adventure to find the hidden waterfall.",
+          "lexile_score": 510
+        },
+        {
+          "question_type": "SYNONYM_IN_CONTEXT_MC",
+          "question_text": "Read the sentence: 'Exploring the dark, unknown cave was a wonderful adventure for the scouts.' Which word best replaces 'adventure'?",
+          "options": {
+            "choices": [
+              "Quest",
+              "Problem",
+              "Habit",
+              "Chore"
+            ]
+          },
+          "correct_answers": [
+            "Quest"
+          ],
+          "explanation": "A quest is a special journey, which perfectly replaces adventure. A chore is a boring job, and a habit is something you do without thinking.",
+          "example_sentence": "We packed our bags, ready for our next big adventure in the city.",
+          "lexile_score": 540
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which activity fits best with the idea of an 'adventure'?",
+          "options": {
+            "choices": [
+              "Exploring deep in a jungle",
+              "Sitting on a living room couch",
+              "Washing the dirty dishes",
+              "Doing math homework"
+            ]
+          },
+          "correct_answers": [
+            "Exploring deep in a jungle"
+          ],
+          "explanation": "An adventure is all about trying new and thrilling things, like exploring a jungle. The other choices are normal, safe, everyday tasks.",
+          "example_sentence": "Reading the book felt like an adventure in a magical land.",
+          "lexile_score": 500
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Where would you most likely go to have an 'adventure'?",
+          "options": {
+            "choices": [
+              "A wild, unknown island",
+              "A quiet dentist office",
+              "A familiar grocery store",
+              "A small closet"
+            ]
+          },
+          "correct_answers": [
+            "A wild, unknown island"
+          ],
+          "explanation": "An adventure happens in exciting or unknown places. An island fits this best, while a grocery store or dentist office is just part of normal life.",
+          "example_sentence": "They planned an adventure to see the ancient ruins in the desert.",
+          "lexile_score": 510
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "If a girl wants to have an adventure, what will she most likely do?",
+          "options": {
+            "choices": [
+              "Hike a wild mountain trail.",
+              "Visit a quiet history museum.",
+              "Sweep the kitchen floor.",
+              "Take a long, peaceful nap."
+            ]
+          },
+          "correct_answers": [
+            "Hike a wild mountain trail."
+          ],
+          "explanation": "An adventure requires excitement and action. Hiking a wild trail is bold, while visiting a museum or sweeping are calm or everyday activities.",
+          "example_sentence": "Riding the giant roller coaster was a quick but scary adventure.",
+          "lexile_score": 535
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "When a family goes on a wild adventure, what happens?",
+          "options": {
+            "choices": [
+              "They face exciting surprises.",
+              "They book a very safe hotel.",
+              "They eat plain toast at home.",
+              "They wait in a quiet line."
+            ]
+          },
+          "correct_answers": [
+            "They face exciting surprises."
+          ],
+          "explanation": "A true adventure involves surprises and thrills. Booking a safe hotel or eating plain toast is too predictable for a wild trip.",
+          "example_sentence": "The space movie was about a starship crew on a galactic adventure.",
+          "lexile_score": 525
+        },
+        {
+          "question_type": "REVERSE_ASSOCIATION_MC",
+          "question_text": "Treasure maps, wild animals, and brave explorers make you think of which word?",
+          "options": {
+            "choices": [
+              "Adventure",
+              "Schedule",
+              "Sickness",
+              "Recipe"
+            ]
+          },
+          "correct_answers": [
+            "Adventure"
+          ],
+          "explanation": "Explorers use maps to find thrills and face wild animals, which are all parts of an adventure. A schedule is planned and boring.",
+          "example_sentence": "Every day in the forest brought a new adventure for the campers.",
+          "lexile_score": 540
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is often paired with 'epic', 'wild', and 'outdoor'?",
+          "options": {
+            "choices": [
+              "Adventure",
+              "Stadium",
+              "Blanket",
+              "Argument"
+            ]
+          },
+          "correct_answers": [
+            "Adventure"
+          ],
+          "explanation": "We often talk about an 'epic adventure' or a 'wild adventure' outside. A stadium is outdoors, but it is a building, not a wild experience.",
+          "example_sentence": "Their camping trip turned into a wild outdoor adventure when it rained.",
+          "lexile_score": 550
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is often used with 'exciting', 'brave', and 'journey'?",
+          "options": {
+            "choices": [
+              "Adventure",
+              "Safety",
+              "Routine",
+              "Pavement"
+            ]
+          },
+          "correct_answers": [
+            "Adventure"
+          ],
+          "explanation": "An exciting journey where you must be brave is an adventure. Safety and routine are the opposite of taking wild risks.",
+          "example_sentence": "She wrote a story about a brave knight on a magical adventure.",
+          "lexile_score": 545
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Fill in the blank for this common phrase: 'A sense of ____'.",
+          "options": {
+            "choices": [
+              "adventure",
+              "sidewalk",
+              "battery",
+              "container"
+            ]
+          },
+          "correct_answers": [
+            "adventure"
+          ],
+          "explanation": "Having a 'sense of adventure' means you love to try new and risky things. You cannot have a sense of a sidewalk or battery.",
+          "example_sentence": "He jumped into the cold lake to prove his sense of adventure.",
+          "lexile_score": 510
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": {
+            "choices": [
+              "Routine",
+              "Adventure",
+              "Quest",
+              "Journey"
+            ]
+          },
+          "correct_answers": [
+            "Routine"
+          ],
+          "explanation": "The rule is that adventure, quest, and journey are all trips to unknown or exciting places. A routine is doing the same predictable thing every day.",
+          "example_sentence": "We decided to leave our boring routine behind and look for a real adventure.",
+          "lexile_score": 560
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'It was not just a plain walk in the park; the wild trip became a real _____.'",
+          "options": {
+            "choices": [
+              "adventure",
+              "habit",
+              "mistake",
+              "sidewalk"
+            ]
+          },
+          "correct_answers": [
+            "adventure"
+          ],
+          "explanation": "The sentence contrasts a 'plain walk' with something much more exciting. 'Adventure' is the perfect word to describe a wild trip.",
+          "example_sentence": "Getting lost in the giant corn maze was an unexpected adventure.",
+          "lexile_score": 530
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'Rather than staying completely safe at home, she wanted a thrilling _____.'",
+          "options": {
+            "choices": [
+              "adventure",
+              "schedule",
+              "nap",
+              "promise"
+            ]
+          },
+          "correct_answers": [
+            "adventure"
+          ],
+          "explanation": "The phrase 'Rather than staying completely safe' sets up an opposite idea. An adventure provides the thrills she wanted.",
+          "example_sentence": "They packed survival gear to prepare for their mountain adventure.",
+          "lexile_score": 555
+        }
+      ]
+    },
+    {
+      "term": "obstacle",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is an 'obstacle'?",
+          "options": {
+            "choices": [
+              "Something that blocks your path",
+              "A helpful tool for building",
+              "A person who runs very fast",
+              "A soft bed to sleep on"
+            ]
+          },
+          "correct_answers": [
+            "Something that blocks your path"
+          ],
+          "explanation": "An obstacle is a thing that gets in your way and makes it hard to move forward. It is not a helpful tool or a bed.",
+          "example_sentence": "The large branch in the road was a dangerous obstacle for drivers.",
+          "lexile_score": 490
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "Which word means something that makes it difficult to move forward?",
+          "options": {
+            "choices": [
+              "Obstacle",
+              "Reward",
+              "Friend",
+              "Vehicle"
+            ]
+          },
+          "correct_answers": [
+            "Obstacle"
+          ],
+          "explanation": "An obstacle stops you from going ahead. A reward is a prize, and a vehicle helps you move, which is the opposite.",
+          "example_sentence": "Fear can be an obstacle when you try to learn a new skill.",
+          "lexile_score": 510
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "If a large log falls across the road and stops cars, what is the log?",
+          "options": {
+            "choices": [
+              "An obstacle",
+              "A gift",
+              "A passage",
+              "A ticket"
+            ]
+          },
+          "correct_answers": [
+            "An obstacle"
+          ],
+          "explanation": "Because the log blocks the way, it acts as an obstacle. A passage is an open way through, not something that stops you.",
+          "example_sentence": "The locked door was the last obstacle before we could leave.",
+          "lexile_score": 520
+        },
+        {
+          "question_type": "SYNONYM_IN_CONTEXT_MC",
+          "question_text": "Read the sentence: 'The giant rock was an obstacle that blocked the hiking trail.' Which word best replaces 'obstacle'?",
+          "options": {
+            "choices": [
+              "Barrier",
+              "Opening",
+              "Helper",
+              "Present"
+            ]
+          },
+          "correct_answers": [
+            "Barrier"
+          ],
+          "explanation": "A barrier is something that blocks a path, making it a great synonym for an obstacle. An opening lets you through.",
+          "example_sentence": "We had to climb over a wooden obstacle during the fitness test.",
+          "lexile_score": 530
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which idea is most closely tied to an 'obstacle'?",
+          "options": {
+            "choices": [
+              "Blocking a clear path",
+              "Winning a gold prize",
+              "Running very fast",
+              "Eating a big meal"
+            ]
+          },
+          "correct_answers": [
+            "Blocking a clear path"
+          ],
+          "explanation": "An obstacle is known for blocking paths or stopping progress. Winning, running, and eating do not have anything to do with blocking.",
+          "example_sentence": "Not having enough money was a big obstacle for the team's project.",
+          "lexile_score": 515
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "When you face an 'obstacle', what do you usually have to do?",
+          "options": {
+            "choices": [
+              "Find a clever way to get around it",
+              "Put it in your pocket",
+              "Say thank you for it",
+              "Eat it for your lunch"
+            ]
+          },
+          "correct_answers": [
+            "Find a clever way to get around it"
+          ],
+          "explanation": "Because an obstacle is in your way, you must find a way to go over or around it to keep moving.",
+          "example_sentence": "She viewed the hard math problem as an obstacle she could conquer.",
+          "lexile_score": 525
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "If a runner sees a tall obstacle on the track, what must they do?",
+          "options": {
+            "choices": [
+              "Jump over it to keep going.",
+              "Put on a faster pair of shoes.",
+              "Sit down and take a nap.",
+              "Pick it up and carry it."
+            ]
+          },
+          "correct_answers": [
+            "Jump over it to keep going."
+          ],
+          "explanation": "Runners must jump over an obstacle to get past it. Changing shoes will not remove the thing blocking the track.",
+          "example_sentence": "The final obstacle was a wide pit filled with muddy water.",
+          "lexile_score": 535
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "How does a brick wall act as an obstacle?",
+          "options": {
+            "choices": [
+              "It stops you from walking through.",
+              "It acts as a nice decoration.",
+              "It gives you energy to run.",
+              "It holds your drinks safely."
+            ]
+          },
+          "correct_answers": [
+            "It stops you from walking through."
+          ],
+          "explanation": "An obstacle prevents movement. A wall blocks people from walking forward, making it a clear obstacle.",
+          "example_sentence": "The snowdrift became a huge obstacle on our walk to school.",
+          "lexile_score": 540
+        },
+        {
+          "question_type": "REVERSE_ASSOCIATION_MC",
+          "question_text": "A blocked road, a steep wall, and a locked door are examples of what?",
+          "options": {
+            "choices": [
+              "Obstacles",
+              "Prizes",
+              "Friends",
+              "Vehicles"
+            ]
+          },
+          "correct_answers": [
+            "Obstacles"
+          ],
+          "explanation": "Blocked roads and locked doors stop you from moving forward, which means they are obstacles. They are definitely not vehicles or prizes.",
+          "example_sentence": "His poor eyesight was an obstacle he learned to live with.",
+          "lexile_score": 545
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is often used with 'overcome', 'face', and 'major'?",
+          "options": {
+            "choices": [
+              "Obstacle",
+              "Happiness",
+              "Weather",
+              "Sweater"
+            ]
+          },
+          "correct_answers": [
+            "Obstacle"
+          ],
+          "explanation": "You face a 'major obstacle' and try to 'overcome' it. You do not overcome a sweater or weather in the same way.",
+          "example_sentence": "With a lot of hard work, they can overcome any obstacle.",
+          "lexile_score": 555
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is often paired with 'hidden', 'tough', and 'course'?",
+          "options": {
+            "choices": [
+              "Obstacle",
+              "Cloud",
+              "Flavor",
+              "Blanket"
+            ]
+          },
+          "correct_answers": [
+            "Obstacle"
+          ],
+          "explanation": "People often run on a 'tough obstacle course' or trip over a 'hidden obstacle'. Clouds and flavors do not block your way.",
+          "example_sentence": "We built a fun obstacle course in the backyard using old tires.",
+          "lexile_score": 550
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Fill in the blank for this phrase: 'Remove the ____ from the road'.",
+          "options": {
+            "choices": [
+              "obstacle",
+              "whisper",
+              "sunshine",
+              "promise"
+            ]
+          },
+          "correct_answers": [
+            "obstacle"
+          ],
+          "explanation": "You remove an obstacle so that cars can drive through safely. You cannot physically remove a whisper or sunshine from a road.",
+          "example_sentence": "The police arrived to remove the obstacle that was blocking traffic.",
+          "lexile_score": 500
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": {
+            "choices": [
+              "Gateway",
+              "Obstacle",
+              "Barrier",
+              "Hurdle"
+            ]
+          },
+          "correct_answers": [
+            "Gateway"
+          ],
+          "explanation": "An obstacle, barrier, and hurdle all block a path. A gateway is the odd one out because it is an opening that lets you through.",
+          "example_sentence": "Every hurdle on the track was just another obstacle to jump.",
+          "lexile_score": 560
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'The fallen tree wasn't just a small stick; it was a huge _____ that stopped the car.'",
+          "options": {
+            "choices": [
+              "obstacle",
+              "passage",
+              "shadow",
+              "pebble"
+            ]
+          },
+          "correct_answers": [
+            "obstacle"
+          ],
+          "explanation": "The sentence contrasts a small stick with something big that blocks a car. 'Obstacle' perfectly describes the blocking object.",
+          "example_sentence": "A bad internet connection was the main obstacle to finishing his homework.",
+          "lexile_score": 535
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'Rather than an open door that welcomed us, the locked gate was a frustrating _____.'",
+          "options": {
+            "choices": [
+              "obstacle",
+              "invitation",
+              "answer",
+              "opening"
+            ]
+          },
+          "correct_answers": [
+            "obstacle"
+          ],
+          "explanation": "An open door welcomes people, while a locked gate blocks them. An 'obstacle' is the exact opposite of an opening.",
+          "example_sentence": "The deep river proved to be a difficult obstacle for the horses.",
+          "lexile_score": 545
+        }
+      ]
+    },
+    {
+      "term": "athlete",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is an 'athlete'?",
+          "options": {
+            "choices": [
+              "A person trained in sports and exercise",
+              "A doctor who heals sick animals",
+              "A teacher who writes books",
+              "A worker who drives a bus"
+            ]
+          },
+          "correct_answers": [
+            "A person trained in sports and exercise"
+          ],
+          "explanation": "An athlete is someone who plays sports or does physical training. A person who drives a bus or writes books is not an athlete.",
+          "example_sentence": "The tall athlete threw the basketball into the hoop to win the game.",
+          "lexile_score": 520
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "Who is someone that is very good at physical exercise and sports?",
+          "options": {
+            "choices": [
+              "An athlete",
+              "A musician",
+              "A painter",
+              "A pilot"
+            ]
+          },
+          "correct_answers": [
+            "An athlete"
+          ],
+          "explanation": "An athlete trains their body to be good at physical games. Musicians and painters practice art, not sports.",
+          "example_sentence": "She became a famous athlete after winning the gold medal in running.",
+          "lexile_score": 510
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "A person who plays on a sports team and trains hard is called what?",
+          "options": {
+            "choices": [
+              "An athlete",
+              "A dentist",
+              "A scientist",
+              "A viewer"
+            ]
+          },
+          "correct_answers": [
+            "An athlete"
+          ],
+          "explanation": "Playing sports and training hard makes someone an athlete. A viewer just watches the game.",
+          "example_sentence": "Every athlete must stretch their muscles before the big match begins.",
+          "lexile_score": 530
+        },
+        {
+          "question_type": "SYNONYM_IN_CONTEXT_MC",
+          "question_text": "Read the sentence: 'The strong athlete ran the fastest mile in the race.' Which word best replaces 'athlete'?",
+          "options": {
+            "choices": [
+              "Runner",
+              "Doctor",
+              "Teacher",
+              "Singer"
+            ]
+          },
+          "correct_answers": [
+            "Runner"
+          ],
+          "explanation": "A runner is a type of sports player, making it a good synonym for an athlete in this race. Doctors and singers do not fit here.",
+          "example_sentence": "The brave athlete dove into the cold pool for the swimming contest.",
+          "lexile_score": 515
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which activity goes best with an 'athlete'?",
+          "options": {
+            "choices": [
+              "Winning a fast race",
+              "Reading a quiet book",
+              "Cooking a huge meal",
+              "Sleeping all afternoon"
+            ]
+          },
+          "correct_answers": [
+            "Winning a fast race"
+          ],
+          "explanation": "Because athletes play sports, running and winning a fast race is what they do best.",
+          "example_sentence": "The proud athlete held the trophy high in the air.",
+          "lexile_score": 490
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Where would you most likely see an 'athlete'?",
+          "options": {
+            "choices": [
+              "At a large sports stadium",
+              "In a quiet city library",
+              "Working at a grocery store",
+              "Fixing an engine under a car"
+            ]
+          },
+          "correct_answers": [
+            "At a large sports stadium"
+          ],
+          "explanation": "Athletes perform in stadiums, tracks, and fields. Libraries and grocery stores are places for other tasks.",
+          "example_sentence": "Fans cheered for the star athlete as he walked onto the field.",
+          "lexile_score": 525
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "If an athlete wants to win a big game, what will they most likely do?",
+          "options": {
+            "choices": [
+              "Practice every day to get stronger.",
+              "Buy a new whistle to blow.",
+              "Stop playing sports entirely.",
+              "Watch television all weekend."
+            ]
+          },
+          "correct_answers": [
+            "Practice every day to get stronger."
+          ],
+          "explanation": "An athlete must train and practice hard to win. Buying a whistle is something a coach or referee might do, not a player.",
+          "example_sentence": "The dedicated athlete wakes up early to run five miles.",
+          "lexile_score": 540
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "What happens when an athlete trains very hard?",
+          "options": {
+            "choices": [
+              "Their muscles get stronger for the sport.",
+              "They forget how to run fast.",
+              "They immediately turn into a coach.",
+              "They learn how to paint well."
+            ]
+          },
+          "correct_answers": [
+            "Their muscles get stronger for the sport."
+          ],
+          "explanation": "Training makes an athlete's muscles stronger and better at sports. It does not make them a coach or a painter.",
+          "example_sentence": "A good athlete knows that eating healthy food is important.",
+          "lexile_score": 535
+        },
+        {
+          "question_type": "REVERSE_ASSOCIATION_MC",
+          "question_text": "Running shoes, a gold medal, and heavy weights make you think of who?",
+          "options": {
+            "choices": [
+              "An athlete",
+              "A dentist",
+              "A chef",
+              "A driver"
+            ]
+          },
+          "correct_answers": [
+            "An athlete"
+          ],
+          "explanation": "Athletes use running shoes and weights to train for medals. Dentists and chefs use totally different tools.",
+          "example_sentence": "The injured athlete had to rest his knee for two weeks.",
+          "lexile_score": 525
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is often paired with 'professional', 'star', and 'Olympic'?",
+          "options": {
+            "choices": [
+              "Athlete",
+              "Coach",
+              "Planet",
+              "Building"
+            ]
+          },
+          "correct_answers": [
+            "Athlete"
+          ],
+          "explanation": "We call the best players a 'star athlete' or an 'Olympic athlete'. A coach helps the team, but usually does not compete in the Olympics.",
+          "example_sentence": "She dreamed of becoming a professional athlete when she grew up.",
+          "lexile_score": 560
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word pairs nicely with 'strong', 'injured', and 'young'?",
+          "options": {
+            "choices": [
+              "Athlete",
+              "Weather",
+              "Furniture",
+              "Idea"
+            ]
+          },
+          "correct_answers": [
+            "Athlete"
+          ],
+          "explanation": "A person who plays sports can be a 'strong athlete' or an 'injured athlete'. Weather and ideas do not get injured.",
+          "example_sentence": "The young athlete practiced her swings in the backyard.",
+          "lexile_score": 530
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Fill in the blank: 'The famous ____ scored the winning goal.'",
+          "options": {
+            "choices": [
+              "athlete",
+              "stadium",
+              "ticket",
+              "referee"
+            ]
+          },
+          "correct_answers": [
+            "athlete"
+          ],
+          "explanation": "An athlete is the person who plays the game and scores goals. The referee watches the game, and the stadium is the building.",
+          "example_sentence": "Every athlete on the team was happy when they won the championship.",
+          "lexile_score": 545
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": {
+            "choices": [
+              "Fan",
+              "Athlete",
+              "Player",
+              "Gymnast"
+            ]
+          },
+          "correct_answers": [
+            "Fan"
+          ],
+          "explanation": "An athlete, a player, and a gymnast are all people who perform or play sports. A fan just watches from the seats.",
+          "example_sentence": "The skilled athlete performed a perfect flip on the balance beam.",
+          "lexile_score": 555
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'She wasn't just someone who played for fun on weekends; she was a serious _____.'",
+          "options": {
+            "choices": [
+              "athlete",
+              "spectator",
+              "beginner",
+              "hobbyist"
+            ]
+          },
+          "correct_answers": [
+            "athlete"
+          ],
+          "explanation": "The sentence contrasts playing for fun with doing it seriously. 'Athlete' shows that she trains hard and takes the sport seriously.",
+          "example_sentence": "He acts like a true athlete by never giving up during a match.",
+          "lexile_score": 560
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'Rather than watching the game from the stands, the _____ ran onto the field to play.'",
+          "options": {
+            "choices": [
+              "athlete",
+              "fan",
+              "umpire",
+              "announcer"
+            ]
+          },
+          "correct_answers": [
+            "athlete"
+          ],
+          "explanation": "Fans and announcers watch or talk about the game. The athlete is the one who goes onto the field to actually play.",
+          "example_sentence": "The tired athlete drank a whole bottle of water after the race.",
+          "lexile_score": 550
+        }
+      ]
+    },
+    {
+      "term": "course",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is a 'course' in sports?",
+          "options": {
+            "choices": [
+              "A path or route set up for a race",
+              "A loud whistle used by a referee",
+              "A heavy pair of running shoes",
+              "A bright flag held by a fan"
+            ]
+          },
+          "correct_answers": [
+            "A path or route set up for a race"
+          ],
+          "explanation": "A course is the special path that runners or drivers must follow during an event. It is not a whistle, flag, or shoe.",
+          "example_sentence": "The bicycle course was ten miles long and very bumpy.",
+          "lexile_score": 510
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "A path set up for running, driving, or playing a sport is called what?",
+          "options": {
+            "choices": [
+              "A course",
+              "A bridge",
+              "A stadium",
+              "A ticket"
+            ]
+          },
+          "correct_answers": [
+            "A course"
+          ],
+          "explanation": "The specific path you must take in a race is the course. A stadium is a large building where the event is held.",
+          "example_sentence": "They marked the snowy course with orange flags so skiers wouldn't get lost.",
+          "lexile_score": 525
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "What do we call the exact route that runners must follow to finish a race?",
+          "options": {
+            "choices": [
+              "A course",
+              "A boundary",
+              "A mistake",
+              "A shadow"
+            ]
+          },
+          "correct_answers": [
+            "A course"
+          ],
+          "explanation": "A course is a route or path. If runners do not follow the course, they might go the wrong way.",
+          "example_sentence": "The marathon course went straight through the center of the big city.",
+          "lexile_score": 530
+        },
+        {
+          "question_type": "SYNONYM_IN_CONTEXT_MC",
+          "question_text": "Read the sentence: 'The runners followed the dirt course through the thick woods.' Which word best replaces 'course'?",
+          "options": {
+            "choices": [
+              "Path",
+              "Roof",
+              "Cloud",
+              "Wall"
+            ]
+          },
+          "correct_answers": [
+            "Path"
+          ],
+          "explanation": "A path is a track to walk or run on, making it a great synonym for a course. A wall blocks you, and a roof is on a house.",
+          "example_sentence": "The tricky course made everyone slow down to avoid falling.",
+          "lexile_score": 515
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which idea fits best with the word 'course'?",
+          "options": {
+            "choices": [
+              "Following a set path",
+              "Eating a sweet dessert",
+              "Singing a loud song",
+              "Buying a new car"
+            ]
+          },
+          "correct_answers": [
+            "Following a set path"
+          ],
+          "explanation": "A course is meant to be followed from the start line to the finish line. It has nothing to do with cars, songs, or eating.",
+          "example_sentence": "He studied the map of the course before the race started.",
+          "lexile_score": 520
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What do you need to build a race 'course'?",
+          "options": {
+            "choices": [
+              "A long strip of land or road",
+              "A tall wooden bookshelf",
+              "A quiet school classroom",
+              "A hot kitchen stove"
+            ]
+          },
+          "correct_answers": [
+            "A long strip of land or road"
+          ],
+          "explanation": "To make a course, you need land, trails, or roads for people to race on. Bookshelves and stoves do not make a race route.",
+          "example_sentence": "They spent three days clearing branches to make the muddy course.",
+          "lexile_score": 535
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "If you run off the course during a race, what will probably happen?",
+          "options": {
+            "choices": [
+              "You might get lost and not finish.",
+              "You will automatically win the game.",
+              "You will find a shortcut to the moon.",
+              "You will become the referee."
+            ]
+          },
+          "correct_answers": [
+            "You might get lost and not finish."
+          ],
+          "explanation": "The course is the correct way to go. If you leave the path, you could get lost or be disqualified. It does not make you win.",
+          "example_sentence": "The fast driver zipped around the track's curving course.",
+          "lexile_score": 545
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "Why do race directors put bright flags along a course?",
+          "options": {
+            "choices": [
+              "To show runners which way to go.",
+              "To make a nice walking sidewalk.",
+              "To hide the dirt on the ground.",
+              "To block the fast runners."
+            ]
+          },
+          "correct_answers": [
+            "To show runners which way to go."
+          ],
+          "explanation": "A course needs to be clear so people follow the right path. Flags help show the way. A sidewalk is a paved path, not flags.",
+          "example_sentence": "The swimming course was marked by big yellow floating balls.",
+          "lexile_score": 550
+        },
+        {
+          "question_type": "REVERSE_ASSOCIATION_MC",
+          "question_text": "A starting line, winding paths, and a clear finish line belong to what?",
+          "options": {
+            "choices": [
+              "A course",
+              "A meal",
+              "A hospital",
+              "A book"
+            ]
+          },
+          "correct_answers": [
+            "A course"
+          ],
+          "explanation": "A course is a route with a beginning and an end for a race. Hospitals and books do not have starting lines.",
+          "example_sentence": "The cross-country course went up a steep, grassy hill.",
+          "lexile_score": 525
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is often paired with 'golf', 'obstacle', and 'race'?",
+          "options": {
+            "choices": [
+              "Course",
+              "Shoe",
+              "Weather",
+              "Ticket"
+            ]
+          },
+          "correct_answers": [
+            "Course"
+          ],
+          "explanation": "People play on a 'golf course' or run an 'obstacle course'. You cannot run on a golf shoe or an obstacle ticket.",
+          "example_sentence": "Dad likes to play on the green golf course every Saturday.",
+          "lexile_score": 540
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Fill in the blank for this phrase: 'Stay on ____' or 'Complete the ____'.",
+          "options": {
+            "choices": [
+              "course",
+              "engine",
+              "promise",
+              "window"
+            ]
+          },
+          "correct_answers": [
+            "course"
+          ],
+          "explanation": "To 'stay on course' means to keep following the right path. An engine or window is not a path.",
+          "example_sentence": "The boat captain had to steer hard to keep the ship on course.",
+          "lexile_score": 510
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word nicely pairs with 'challenging', 'muddy', and 'run'?",
+          "options": {
+            "choices": [
+              "Course",
+              "Flavor",
+              "Blanket",
+              "Opinion"
+            ]
+          },
+          "correct_answers": [
+            "Course"
+          ],
+          "explanation": "A race path can be a 'muddy course' or a 'challenging course'. A blanket or flavor cannot be a run.",
+          "example_sentence": "Everyone's shoes were ruined after running the muddy course.",
+          "lexile_score": 535
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": {
+            "choices": [
+              "Forest",
+              "Course",
+              "Track",
+              "Path"
+            ]
+          },
+          "correct_answers": [
+            "Forest"
+          ],
+          "explanation": "A course, track, and path are all specific routes to follow. A forest is a large area of trees, not a specific route.",
+          "example_sentence": "The dirt track was the hardest course the team had ever seen.",
+          "lexile_score": 560
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'It wasn't just a random walk in the woods; it was a marked _____ for the big race.'",
+          "options": {
+            "choices": [
+              "course",
+              "garden",
+              "puddle",
+              "shadow"
+            ]
+          },
+          "correct_answers": [
+            "course"
+          ],
+          "explanation": "A 'random walk' is the opposite of a set, marked path. The word 'course' shows that the route was planned for the race.",
+          "example_sentence": "She broke the school record for the fastest time on the new course.",
+          "lexile_score": 545
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'Rather than letting runners go wherever they wanted, the strict rules made them stay on the _____.'",
+          "options": {
+            "choices": [
+              "course",
+              "sideline",
+              "bench",
+              "stadium"
+            ]
+          },
+          "correct_answers": [
+            "course"
+          ],
+          "explanation": "The contrast is between wandering around and following a set path. The 'course' is the strict path they must stay on.",
+          "example_sentence": "If you leave the course, you will not get a shiny medal.",
+          "lexile_score": 555
+        }
+      ]
+    },
+    {
+      "term": "theme",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is a 'theme'?",
+          "options": {
+            "choices": [
+              "A main idea or subject for a party or story",
+              "A type of sweet food eaten at lunch",
+              "A fast song played on the radio",
+              "A heavy coat worn in winter"
+            ]
+          },
+          "correct_answers": [
+            "A main idea or subject for a party or story"
+          ],
+          "explanation": "A theme is the big idea that a whole event or story is based on. It is not food, a coat, or just a song.",
+          "example_sentence": "The book's theme was about being kind to your friends and neighbors.",
+          "lexile_score": 500
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "The main idea or specific subject that a whole event is based on is called a what?",
+          "options": {
+            "choices": [
+              "Theme",
+              "Mistake",
+              "Secret",
+              "Reward"
+            ]
+          },
+          "correct_answers": [
+            "Theme"
+          ],
+          "explanation": "A theme connects everything in an event to one big idea. A secret is hidden, and a theme is usually obvious.",
+          "example_sentence": "The school dance had a bright 1980s theme with neon lights.",
+          "lexile_score": 520
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "If every part of a party is decorated like the ocean, 'the ocean' is the party's what?",
+          "options": {
+            "choices": [
+              "Theme",
+              "Problem",
+              "Schedule",
+              "Distance"
+            ]
+          },
+          "correct_answers": [
+            "Theme"
+          ],
+          "explanation": "Because the whole party focuses on the ocean idea, the ocean is the theme. A schedule just tells you the time.",
+          "example_sentence": "Our classroom has an outer space theme with planets on the walls.",
+          "lexile_score": 530
+        },
+        {
+          "question_type": "SYNONYM_IN_CONTEXT_MC",
+          "question_text": "Read the sentence: 'The birthday party had a superhero theme, so everyone wore capes.' Which word best replaces 'theme'?",
+          "options": {
+            "choices": [
+              "Subject",
+              "Mistake",
+              "Secret",
+              "Problem"
+            ]
+          },
+          "correct_answers": [
+            "Subject"
+          ],
+          "explanation": "The subject is the main idea or topic, making it a great synonym for theme. A problem is something wrong.",
+          "example_sentence": "The main theme of the movie was that honesty is always the best choice.",
+          "lexile_score": 515
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What best matches the idea of a 'theme' at a party?",
+          "options": {
+            "choices": [
+              "Matching decorations and fun costumes",
+              "Sweeping the dirty kitchen floor",
+              "Running very fast outside",
+              "Forgetting a good friend's name"
+            ]
+          },
+          "correct_answers": [
+            "Matching decorations and fun costumes"
+          ],
+          "explanation": "A party theme uses matching items like decorations and costumes to show one big idea. Sweeping the floor is just cleaning.",
+          "example_sentence": "We picked a jungle theme, so we hung green vines from the ceiling.",
+          "lexile_score": 540
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which event usually has a specific 'theme'?",
+          "options": {
+            "choices": [
+              "A school dance or festival",
+              "A hard math test",
+              "A trip to the dentist",
+              "A quick afternoon nap"
+            ]
+          },
+          "correct_answers": [
+            "A school dance or festival"
+          ],
+          "explanation": "Dances and festivals often have fun themes, like 'Winter Wonderland'. Tests and naps do not have fun themes.",
+          "example_sentence": "The art show's theme was 'City Life', showing many tall buildings.",
+          "lexile_score": 525
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "If a dance has a 'winter theme', what will you probably see?",
+          "options": {
+            "choices": [
+              "Fake snow and icy blue colors.",
+              "Nice paper party invitations.",
+              "Scary monster masks and pumpkins.",
+              "Hot sun and bathing suits."
+            ]
+          },
+          "correct_answers": [
+            "Fake snow and icy blue colors."
+          ],
+          "explanation": "A winter theme uses things that look like winter, such as snow and ice. Invitations are part of a party, but do not show the winter idea.",
+          "example_sentence": "The restaurant has a train theme, and toy trains bring you food.",
+          "lexile_score": 535
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "How does a writer use a theme in a story?",
+          "options": {
+            "choices": [
+              "By making the story about one big important idea.",
+              "By tearing out all the bad pages.",
+              "By dropping the heavy book on the floor.",
+              "By using a pencil instead of a pen."
+            ]
+          },
+          "correct_answers": [
+            "By making the story about one big important idea."
+          ],
+          "explanation": "In a story, a theme is the main message or idea the writer wants to share. Using a pencil does not change the story's idea.",
+          "example_sentence": "Friendship is a common theme in many books for children.",
+          "lexile_score": 545
+        },
+        {
+          "question_type": "REVERSE_ASSOCIATION_MC",
+          "question_text": "Matching costumes, special music, and matching decorations are parts of a party's what?",
+          "options": {
+            "choices": [
+              "Theme",
+              "Accident",
+              "Kitchen",
+              "Medicine"
+            ]
+          },
+          "correct_answers": [
+            "Theme"
+          ],
+          "explanation": "Costumes, music, and decorations all work together to create the party's theme. A kitchen is just a room.",
+          "example_sentence": "I need to buy a cowboy hat to fit the western theme tonight.",
+          "lexile_score": 550
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is often paired with 'party', 'common', and 'central'?",
+          "options": {
+            "choices": [
+              "Theme",
+              "Engine",
+              "Doctor",
+              "Weather"
+            ]
+          },
+          "correct_answers": [
+            "Theme"
+          ],
+          "explanation": "A book has a 'central theme', and a celebration can be a 'theme party'. An engine is not central or a party.",
+          "example_sentence": "Love is a very common theme in classic poems.",
+          "lexile_score": 535
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Fill in the blank for this phrase: 'Fit the ____' or 'Explore a ____'.",
+          "options": {
+            "choices": [
+              "theme",
+              "liquid",
+              "muscle",
+              "pocket"
+            ]
+          },
+          "correct_answers": [
+            "theme"
+          ],
+          "explanation": "Costumes 'fit the theme' of a party, and stories 'explore a theme'. You cannot explore a pocket in the same way.",
+          "example_sentence": "Her green dress perfectly fit the forest theme of the dance.",
+          "lexile_score": 510
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word pairs well with 'pirate', 'space', and 'jungle'?",
+          "options": {
+            "choices": [
+              "Theme",
+              "Shape",
+              "Distance",
+              "Number"
+            ]
+          },
+          "correct_answers": [
+            "Theme"
+          ],
+          "explanation": "Pirate, space, and jungle are all popular ideas for a party theme. They are not shapes or distances.",
+          "example_sentence": "The fun park has a pirate theme, complete with a giant ship.",
+          "lexile_score": 525
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": {
+            "choices": [
+              "Detail",
+              "Theme",
+              "Subject",
+              "Topic"
+            ]
+          },
+          "correct_answers": [
+            "Detail"
+          ],
+          "explanation": "A theme, subject, and topic are all big, main ideas. A detail is a tiny, small piece of information, making it the odd one out.",
+          "example_sentence": "Before writing the story, we must agree on a good theme.",
+          "lexile_score": 560
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'The decorations weren't just a messy mix of colors; they all followed a clear _____.'",
+          "options": {
+            "choices": [
+              "theme",
+              "disaster",
+              "pile",
+              "secret"
+            ]
+          },
+          "correct_answers": [
+            "theme"
+          ],
+          "explanation": "The sentence contrasts a messy mix with something planned and organized. A 'theme' means everything is connected by one idea.",
+          "example_sentence": "Even the snacks matched the movie's funny theme.",
+          "lexile_score": 555
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'Rather than just being a random group of games, the fair had a clever wild-west _____.'",
+          "options": {
+            "choices": [
+              "theme",
+              "ticket",
+              "boundary",
+              "schedule"
+            ]
+          },
+          "correct_answers": [
+            "theme"
+          ],
+          "explanation": "The phrase 'Rather than a random group' means it was united by a single subject. The word 'theme' describes this big idea.",
+          "example_sentence": "The wild-west theme made the carnival much more exciting for everyone.",
+          "lexile_score": 565
+        }
+      ]
+    },
+    {
+      "term": "zombie",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is a 'zombie'?",
+          "options": {
+            "choices": [
+              "A scary, imaginary creature that is a dead person walking",
+              "A furry animal that lives in the forest",
+              "A small bug that flies around lights",
+              "A kind doctor who helps sick children"
+            ]
+          },
+          "correct_answers": [
+            "A scary, imaginary creature that is a dead person walking"
+          ],
+          "explanation": "A zombie is a fake monster from stories, usually a dead body that has come back to life. It is not an animal, bug, or doctor.",
+          "example_sentence": "In the spooky movie, a slow zombie chased the teenagers.",
+          "lexile_score": 515
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "Which imaginary monster is a dead body that has come back to life to walk around?",
+          "options": {
+            "choices": [
+              "Zombie",
+              "Unicorn",
+              "Fairy",
+              "Mermaid"
+            ]
+          },
+          "correct_answers": [
+            "Zombie"
+          ],
+          "explanation": "Zombies are known as the walking dead. Unicorns, fairies, and mermaids are magical, but they are not dead bodies walking.",
+          "example_sentence": "He put on green makeup to look like a zombie for the play.",
+          "lexile_score": 530
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "A walking dead creature from scary stories is called a what?",
+          "options": {
+            "choices": [
+              "Zombie",
+              "Robot",
+              "Puppy",
+              "Teacher"
+            ]
+          },
+          "correct_answers": [
+            "Zombie"
+          ],
+          "explanation": "A zombie is a scary undead monster. A robot is a machine, not a dead creature.",
+          "example_sentence": "The little boy wore ripped pants and growled like a zombie.",
+          "lexile_score": 500
+        },
+        {
+          "question_type": "SYNONYM_IN_CONTEXT_MC",
+          "question_text": "Read the sentence: 'The actor dressed up as a scary zombie for the haunted house.' Which word best replaces 'zombie'?",
+          "options": {
+            "choices": [
+              "Monster",
+              "Teacher",
+              "Doctor",
+              "Athlete"
+            ]
+          },
+          "correct_answers": [
+            "Monster"
+          ],
+          "explanation": "A monster is a scary, fake creature, making it the best replacement for zombie. Teachers and doctors are real people.",
+          "example_sentence": "The video game is full of a zombie army that you must defeat.",
+          "lexile_score": 525
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Where do you most often see a 'zombie'?",
+          "options": {
+            "choices": [
+              "In a scary movie or book",
+              "In a science textbook",
+              "At a real sunny farm",
+              "In a quiet math class"
+            ]
+          },
+          "correct_answers": [
+            "In a scary movie or book"
+          ],
+          "explanation": "Because zombies are imaginary monsters, you only see them in scary movies, books, or games. They are not real farm animals.",
+          "example_sentence": "My older brother loves to read zombie comic books.",
+          "lexile_score": 510
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which word best describes a 'zombie'?",
+          "options": {
+            "choices": [
+              "Undead",
+              "Healthy",
+              "Fast",
+              "Cheerful"
+            ]
+          },
+          "correct_answers": [
+            "Undead"
+          ],
+          "explanation": "Zombies are called 'undead' because they are dead bodies that act alive. They are certainly not healthy or cheerful.",
+          "example_sentence": "The undead zombie dragged its feet as it walked through the dirt.",
+          "lexile_score": 520
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "If you want to dress like a zombie for Halloween, what will you most likely do?",
+          "options": {
+            "choices": [
+              "Wear torn clothes and gray face paint.",
+              "Wear a clean suit and a fancy tie.",
+              "Put on a shiny golden crown.",
+              "Dress in a bright, happy clown suit."
+            ]
+          },
+          "correct_answers": [
+            "Wear torn clothes and gray face paint."
+          ],
+          "explanation": "Zombies look messy, dead, and scary. Torn clothes and gray paint match this. A clean suit or a crown belongs to a king.",
+          "example_sentence": "Her zombie costume was so scary that it made me jump.",
+          "lexile_score": 535
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "In a spooky story, how does a typical zombie act?",
+          "options": {
+            "choices": [
+              "It walks slowly and groans loudly.",
+              "It flies quickly through the blue sky.",
+              "It cooks a fancy hot dinner.",
+              "It sings beautiful, happy songs."
+            ]
+          },
+          "correct_answers": [
+            "It walks slowly and groans loudly."
+          ],
+          "explanation": "In stories, a zombie usually drags its feet, walks slowly, and makes groaning noises. It does not fly or sing.",
+          "example_sentence": "We heard the zombie groaning in the dark hallway.",
+          "lexile_score": 540
+        },
+        {
+          "question_type": "REVERSE_ASSOCIATION_MC",
+          "question_text": "A graveyard, a slow walk, and scary groans belong to what creature?",
+          "options": {
+            "choices": [
+              "A zombie",
+              "A unicorn",
+              "A puppy",
+              "A butterfly"
+            ]
+          },
+          "correct_answers": [
+            "A zombie"
+          ],
+          "explanation": "Zombies come from graveyards, walk slowly, and groan. Unicorns and butterflies do not do these things.",
+          "example_sentence": "The zombie stumbled out of the fog toward the dark house.",
+          "lexile_score": 545
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is often paired with 'apocalypse', 'virus', and 'movie'?",
+          "options": {
+            "choices": [
+              "Zombie",
+              "Flower",
+              "Blanket",
+              "Ocean"
+            ]
+          },
+          "correct_answers": [
+            "Zombie"
+          ],
+          "explanation": "Many stories are about a 'zombie apocalypse' or a 'zombie virus' that creates monsters. A blanket apocalypse does not make sense.",
+          "example_sentence": "They stayed up late to watch a scary zombie movie on television.",
+          "lexile_score": 550
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Fill in the blank for this phrase: 'A horde of ____' or 'Flesh-eating ____'.",
+          "options": {
+            "choices": [
+              "zombies",
+              "pencils",
+              "guitars",
+              "sandwiches"
+            ]
+          },
+          "correct_answers": [
+            "zombies"
+          ],
+          "explanation": "A horde is a large group, and in stories, 'flesh-eating zombies' attack in hordes. Sandwiches and guitars do not eat flesh.",
+          "example_sentence": "A huge horde of zombies surrounded the old cabin in the woods.",
+          "lexile_score": 530
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word pairs nicely with 'slow-moving', 'scary', and 'undead'?",
+          "options": {
+            "choices": [
+              "Zombie",
+              "Cloud",
+              "Window",
+              "Machine"
+            ]
+          },
+          "correct_answers": [
+            "Zombie"
+          ],
+          "explanation": "A 'slow-moving zombie' is a common undead monster. A window or a cloud is not alive or undead.",
+          "example_sentence": "The hero had to run away from the slow-moving zombie.",
+          "lexile_score": 525
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": {
+            "choices": [
+              "Human",
+              "Zombie",
+              "Ghost",
+              "Vampire"
+            ]
+          },
+          "correct_answers": [
+            "Human"
+          ],
+          "explanation": "A zombie, ghost, and vampire are all imaginary undead monsters. A human is a real, living person.",
+          "example_sentence": "The human grabbed a heavy stick to defend himself from the zombie.",
+          "lexile_score": 560
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'It wasn't a living person walking toward them; it was a creepy _____ from the graveyard.'",
+          "options": {
+            "choices": [
+              "zombie",
+              "athlete",
+              "citizen",
+              "student"
+            ]
+          },
+          "correct_answers": [
+            "zombie"
+          ],
+          "explanation": "The sentence contrasts a living person with something creepy from a graveyard. 'Zombie' perfectly describes the walking dead.",
+          "example_sentence": "In the game, you use plants to protect your house from a zombie.",
+          "lexile_score": 555
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'Rather than a fast and clever monster, the story featured a slow, brainless _____.'",
+          "options": {
+            "choices": [
+              "zombie",
+              "ghost",
+              "witch",
+              "giant"
+            ]
+          },
+          "correct_answers": [
+            "zombie"
+          ],
+          "explanation": "The contrast is between a fast, clever monster and a slow, brainless one. A 'zombie' is famous for being slow and mindless.",
+          "example_sentence": "The clumsy zombie kept walking into the wall because it could not see.",
+          "lexile_score": 565
+        }
+      ]
+    }
+  ]
+}

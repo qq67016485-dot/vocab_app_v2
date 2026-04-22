@@ -126,7 +126,7 @@ class MasteryLevelFactory(factory.django.DjangoModelFactory):
 
     level_id = 1
     level_name = 'Novice'
-    interval_days = 0
+    interval_days = 1
     points_to_promote = 2
 
 
@@ -138,7 +138,7 @@ class UserWordProgressFactory(factory.django.DjangoModelFactory):
     word = factory.SubFactory(WordFactory)
     level = factory.SubFactory(MasteryLevelFactory)
     mastery_points = 0
-    next_review_date = factory.LazyFunction(date.today)
+    next_review_date = factory.LazyFunction(timezone.localdate)
 
 
 class CurriculumFactory(factory.django.DjangoModelFactory):

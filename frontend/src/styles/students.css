@@ -1,5 +1,6 @@
 /* students.css (ENTRY) — student-only styles, layered & modular */
-@layer tokens, theme, base, components, pages;
+/* legacy = main.css; declared first so it has lowest priority */
+@layer legacy, tokens, theme, base, components, pages;
 
 /* Tokens & theming */
 @import './students/tokens.css' layer(tokens);

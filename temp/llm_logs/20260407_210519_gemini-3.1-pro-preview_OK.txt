@@ -1,0 +1,76 @@
+=== LLM CALL LOG ===
+Timestamp: 20260407_210519
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+You are an expert ESL curriculum designer and lexicographer.
+Given a list of vocabulary words and optional source context (book title, chapter, passage), look up each word and provide comprehensive information.
+
+Output valid JSON with this exact structure:
+{{
+  "words": [
+    {{
+      "term": "the word",
+      "part_of_speech": "noun/verb/adjective/etc.",
+      "definition": "a clear, age-appropriate definition",
+      "example_sentence": "a sentence using the word in context"
+    }}
+  ]
+}}
+
+Guidelines:
+- Definitions should be clear and appropriate for students aged 8-14
+- Example sentences should clearly demonstrate the word's meaning
+- If the source context provides a specific meaning, prefer that meaning
+- Change plural nouns to singular nouns, past tense verbs to present tense verbs
+- Part of speech should be the most common usage unless context specifies otherwise
+
+
+=== USER PROMPT ===
+Words to look up: canyon, concrete, electricity, grout, molds, power plant
+Source: Hoover Dam
+
+=== RAW RESPONSE ===
+```json
+{
+  "words": [
+    {
+      "term": "canyon",
+      "part_of_speech": "noun",
+      "definition": "a deep valley with steep rock sides, often with a river flowing through it",
+      "example_sentence": "The Hoover Dam was built between the steep walls of a massive rock canyon."
+    },
+    {
+      "term": "concrete",
+      "part_of_speech": "noun",
+      "definition": "a strong, hard building material made by mixing sand, rocks, water, and cement together",
+      "example_sentence": "Workers poured millions of buckets of wet concrete to build the thick walls of the dam."
+    },
+    {
+      "term": "electricity",
+      "part_of_speech": "noun",
+      "definition": "a type of energy that flows through wires and is used to power lights, machines, and homes",
+      "example_sentence": "The water rushing through the dam spins large machines to create electricity for nearby cities."
+    },
+    {
+      "term": "grout",
+      "part_of_speech": "noun",
+      "definition": "a thin mixture of cement and water used to fill small cracks and spaces to make things stronger",
+      "example_sentence": "The builders pumped grout deep into the rocks to stop water from leaking under the dam."
+    },
+    {
+      "term": "mold",
+      "part_of_speech": "noun",
+      "definition": "a hollow container used to give a specific shape to liquid material when it cools and becomes hard",
+      "example_sentence": "They poured the wet mixture into a giant wooden mold so it would dry in the shape of a huge block."
+    },
+    {
+      "term": "power plant",
+      "part_of_speech": "noun",
+      "definition": "a large building or facility where energy is created to be sent to homes and businesses",
+      "example_sentence": "The Hoover Dam acts as a giant power plant, turning the river's movement into energy for thousands of people."
+    }
+  ]
+}
+```

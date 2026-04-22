@@ -9,7 +9,7 @@ V2 changes from v1:
 - meaning.definitions.first() → word.definitions.first()
 - definition_chinese → Translation model lookup
 """
-from datetime import date, timedelta
+from datetime import timedelta
 from collections import defaultdict, Counter
 from itertools import groupby
 import logging
@@ -77,7 +77,7 @@ class DashboardService:
         } for ua in recent_answers_qs]
 
         # Section 3: Practice Statistics by Time Period
-        today = date.today()
+        today = timezone.localdate()
 
         def get_stats_for_period(start_date):
             stats = UserAnswer.objects.filter(

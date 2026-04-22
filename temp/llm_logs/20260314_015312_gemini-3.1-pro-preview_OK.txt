@@ -1,0 +1,2252 @@
+=== LLM CALL LOG ===
+Timestamp: 20260314_015312
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+**ROLE AND GOAL**
+You are an expert AI educational content creator and psychometrician specializing in English vocabulary. Your task is to process a JSON list of words and a target reading level. For EACH word, you will first **enrich** it with a formal definition and a general example sentence. Then, using this enriched data, you will generate a comprehensive set of **15 practice questions, 3 for each of the 5 mastery levels**. The question types will include multiple-choice, true/false. The questions are **learning-oriented**, not high-stakes tests. Each question must have its own specific **Lexile score**, a logical and instructive **explanation**, and a unique contextual **example sentence**. Finally, you will package all results into a single, valid JSON object.
+
+---
+
+**INPUT**
+You will be provided with a JSON object containing two main keys:
+* `"simplified_words"`: A list of word objects, each with a `term`, `part_of_speech`, and `simple_definition`.
+* `"target_lexile_level"`: An integer representing the *center point* for the desired Lexile scores (e.g., 800, 1000, 1200).
+
+---
+
+### STEP 1: WORD ENRICHMENT
+For each word from the input, perform an enrichment step. All text must align with the `target_lexile_level`.
+
+1) **Formalize the Definition (`definition`)**: Based on the `simple_definition`, generate a more formal, precise, academic definition.
+2) **Create a very concise Chinese Translation**: Based on the `simple_definition`, translate the word into Chinese.
+3) **Create a General Example Sentence**: Write one high-quality sentence that demonstrates the word's most common usage.
+
+---
+
+### STEP 2: QUESTION GENERATION
+Using the enriched data from Step 1, generate questions for each word according to the following rules.
+
+**Strict Question Quota**
+Exactly 15 questions per word: **3** at Level 1, **3** at Level 2, **3** at Level 3, **3** at Level 4, **3** at Level 5.
+
+**Fields required for EACH question**
+1) `lexile_score` — an integer within **target_lexile_level +/- 50**.
+2) `explanation` — logically and instructively explains **why** the correct answer is right and **must include the vocabulary word**. **NOTE: the student is most likely to read this explanation when the student's answer is incorrect.
+3) `example_sentence` — a different, real-world usage of the word, including a natural collocation or context the learner is likely to meet again (not redundant with the explanation).
+
+**Question Types and Mastery Levels**
+* **Level 1 – Recognition** (3 items)
+  * `DEFINITION_MC_SINGLE`
+  * `DEFINITION_TRUE_FALSE`
+* **Level 2 – Relationships** (3 items)
+  * `SYNONYM_MC_SINGLE`
+  * `ANTONYM_MC_SINGLE`
+  * `CONCEPTUAL_ASSOCIATION_MC_SINGLE`
+  Fallback Protocol: If both ANTONYM_MC_SINGLE and SYNONYM_MC_SINGLE types are difficult for a word, generate two distinct CONCEPTUAL_ASSOCIATION_MC_SINGLE questions.
+* **Level 3 – Context & Application** (3 items)
+  * `CONTEXT_MC_SINGLE`
+  * `DIALOGUE_COMPLETION_MC`
+    * **Structure:** A short exchange between two speakers (Person A and Person B).
+    * **Constraint:** Person A sets a clear context/scenario. Person B responds, and the target word is the blank (_____) in Person B's line.
+* **Level 4 – Nuance & Usage** (3 items)
+  * `WORD_FORM_MC` (e.g., noun/verb/adjective form)
+  * `COLLOCATION_MC_SINGLE` (e.g., *make* a decision vs *do* a decision)
+* **Level 5 – Deep Comparison** (3 items)
+  * `ODD_ONE_OUT_MC_SINGLE`
+
+**Special Instructions for `DIALOGUE_COMPLETION_MC`**
+* **Format:** `question_text` must follow the format: "Person A: [Context sentence].\nPerson B: [Response sentence with _____]."
+* **Context Cue:** Person A's line must contain a specific keyword or clue that makes the target word the **only** logical answer for Person B.
+* **Natural Tone:** Use natural, conversational English suitable for the target Lexile level.
+
+---
+
+## Distractor Tiers (apply to ALL MC types)
+- **Tier 1 (near-synonym/antonym):** Same part of speech as the key. High semantic similarity, but differs on at least one defining feature in the formal definition.
+- **Tier 2 (collocation foil):** A real word/phrase that commonly collocates with a **neighbor concept** in the same domain, but **not** with the target word (e.g., "wing flap" vs. "propeller pitch").
+- **Tier 3 (orthographic/phonological trap):** Looks/sounds similar but has a different meaning (e.g., propose/propel; manifest/manifesto). Use sparingly and **never** if it changes POS.
+
+**Enforcement**
+- For **all MC items at Levels 3-5**, include **at least one Tier-2** distractor.
+- Do **not** include more than **one Tier-3** distractor in any single item.
+- All distractors must be plausible in context and the **same POS** as the correct answer unless the item purposefully contrasts forms (only in `WORD_FORM_MC`).
+- For collocations, ensure incorrect choices are **genuine collocations with a related neighbor concept** (not nonsense).
+
+---
+
+## Lexile Guardrails
+- Target Lexile per item (including the question, answer text, explanation text, example sentence) = **target_lexile_level +/- 50**.
+
+---
+
+## Nuance Requirements for Levels 4-5
+- **`WORD_FORM_MC` (L4)**: Use **same-root minimal pairs** differing by POS/meaning (e.g., *propel* (V) vs *propulsion* (N) vs *propulsive* (ADJ) vs *propeller* (N device)). Exactly **one** fits the prompt.
+- **`COLLOCATION_MC_SINGLE` (L4)**: Test genuine **verb-object** or **adjective-noun** patterns and include one **register/domain cue** (e.g., *orbital* (technical) vs *space* (general); *deploy* (military) vs *send* (general)). Only **one** choice is the high-frequency, domain-true pairing.
+- **`ODD_ONE_OUT_MC_SINGLE` (L5)**: Keep all options within a **tight semantic field**; the odd one must violate a **latent rule** (e.g., reusability; medium-air/water; rigidity). The explanation must **state the rule** clearly.
+---
+
+### OUTPUT REQUIREMENTS
+Return a single, valid JSON object. The root object must have one key: `"generated_question_sets"`. Its value is a list; each element contains:
+- `"word"`: a list with one enriched word object containing `term`, `part_of_speech`, `definition`,`definition_chinese`, `example_sentence`.
+- `"questions"`: the fifteen question objects for that word.
+
+Do **not** include any text outside the JSON object.
+
+---
+
+### QUALITY GUIDELINES
+- **Lexile adherence:** Always within +/-50 of target; apply Guardrails and revise if needed.
+- **Explanation vs. example:** The explanation is analytical ("why"); the example is contextual ("how"). No redundancy.
+- **Plausible distractors:** Follow **Distractor Tiers**; ensure at least one Tier-2 distractor at L3-L5; <=1 Tier-3 per item.
+- **Avoid tautologies:** The `definition` and `explanation` must **never** use the root of the term itself.
+- **Vary sentence structures:** Across the 15 items for a word, vary stems, explanations, examples. Use one mild complexity feature at L4-L5.
+- **Answer balance:** For True/False, ~50% should be "True." For MC, balance correct answer positions (A/B/C/D).
+- **Collocation authenticity**: wrong collocations must be real for a neighbor concept, not invented.
+- **Supportive tone**: avoid grading language; use encouraging, learner-friendly phrasing.
+
+---
+
+### PRE-FLIGHT CHECKLIST (apply to every item before output)
+- [ ] Lexile proxy **within band**; if L4-L5, include exactly **one** advanced structure.
+- [ ] **At least one Tier-2** distractor for **all L3-L5** MC items; **<=1 Tier-3** per item.
+- [ ] `WORD_FORM_MC` uses **same-root minimal pairs**; exactly one matches the prompt.
+- [ ] `DIALOGUE_COMPLETION_MC` has a clear conversational context; Person A's clue makes the answer unique.
+- [ ] `COLLOCATION_MC_SINGLE` uses **real domain collocations** + one **register/domain cue**.
+- [ ] `ODD_ONE_OUT_MC_SINGLE` uses a **tight field** and the explanation **states the latent rule**.
+- [ ] `explanation` includes the target word and gives a **hypernym + differentiating feature** (not circular).
+- [ ] `example_sentence` is **different** from the explanation and contextually natural.
+
+---
+**EXAMPLE**
+
+**INPUT:**
+```json
+{
+  "target_lexile_level": 1000,
+  "simplified_words": [
+    {
+      "term": "Analyze",
+      "part_of_speech": "verb",
+      "simple_definition": "to study something closely"
+    }
+  ]
+}
+```
+
+**EXPECTED JSON OUTPUT:**
+```json
+{
+  "generated_question_sets": [
+    {
+      "word": [
+        {
+          "term": "Analyze",
+          "part_of_speech": "verb",
+          "definition": "To examine the parts or structure of something (especially information) in detail, typically to explain or interpret it.",
+          "definition_chinese": "分析",
+          "example_sentence": "The scientist needed to analyze the rock samples to determine their age."
+        }
+      ],
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the primary meaning of the verb 'analyze'?",
+          "options": { "choices": ["To create something new", "To examine in detail", "To guess a solution", "To ignore the facts"] },
+          "correct_answers": ["To examine in detail"],
+          "explanation": "To 'analyze' means to study the structure or parts of something carefully. 'Create', 'guess', and 'ignore' do not involve detailed examination.",
+          "example_sentence": "Before making a purchase, he took time to analyze the costs and benefits.",
+          "lexile_score": 950,
+          "suitable_mastery_levels": [1]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: To analyze something means to look at it quickly and superficially.",
+          "options": { "choices": ["True", "False"] },
+          "correct_answers": ["False"],
+          "explanation": "This is false. Analyzing requires a deep, methodical, and detailed examination, not a quick or superficial look.",
+          "example_sentence": "The teacher asked the students to analyze the poem's deeper meaning.",
+          "lexile_score": 920,
+          "suitable_mastery_levels": [1]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word is a synonym for 'analyze'?",
+          "options": { "choices": ["Synthesize", "Inspect", "Invent", "Neglect"] },
+          "correct_answers": ["Inspect"],
+          "explanation": "'Inspect' is a synonym because both verbs involve looking at something closely. 'Synthesize' is an antonym (combining parts), and 'Invent' means creating.",
+          "example_sentence": "The mechanic had to analyze the engine to find the source of the noise.",
+          "lexile_score": 1000,
+          "suitable_mastery_levels": [2]
+        },
+        {
+          "question_type": "ANTONYM_MC_SINGLE",
+          "question_text": "Which word is an antonym for 'analyze'?",
+          "options": { "choices": ["Synthesize", "Investigate", "Scrutinize", "Evaluate"] },
+          "correct_answers": ["Synthesize"],
+          "explanation": "To 'analyze' is to break a whole down into parts. To 'synthesize' is to combine parts into a whole, making it the direct opposite action.",
+          "example_sentence": "It is easier to analyze a completed project than to synthesize a new plan from scratch.",
+          "lexile_score": 1100,
+          "suitable_mastery_levels": [2]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The detective needed to _____ the fingerprints found at the scene to see if they matched the suspect.",
+          "options": { "choices": ["analyze", "fabricate", "guess", "discard"] },
+          "correct_answers": ["analyze"],
+          "explanation": "In the context of a detective and evidence, 'analyze' is the only logical action. Detectives do not 'fabricate' (fake) or 'guess' evidence.",
+          "example_sentence": "Software programs can now analyze huge amounts of data in seconds.",
+          "lexile_score": 1050,
+          "suitable_mastery_levels": [3]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Complete the conversation.\nPerson A: 'The survey results are too complex to understand just by looking at them.'\nPerson B: 'You are right; we need to _____ the data carefully to find the real trends.'",
+          "options": { "choices": ["analyze", "guess", "erase", "invent"] },
+          "correct_answers": ["analyze"],
+          "explanation": "Person A describes the data as 'complex.' To understand complex data, you must examine it in detail. Therefore, 'analyze' is the correct verb. You should not 'guess', 'erase', or 'invent' data in a serious context.",
+          "example_sentence": "The software helps us analyze customer feedback quickly.",
+          "lexile_score": 1020,
+          "suitable_mastery_levels": [3]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "What is the noun form of 'analyze'?",
+          "options": { "choices": ["analysis", "analytic", "analyzing", "analyzed"] },
+          "correct_answers": ["analysis"],
+          "explanation": "'Analysis' is the noun referring to the process itself. 'Analytic' is an adjective, and 'analyzing/analyzed' are verb forms.",
+          "example_sentence": "Her detailed analysis of the market trends impressed the investors.",
+          "lexile_score": 1120,
+          "suitable_mastery_levels": [4]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which word forms a common expression with 'analyze' in a scientific context?",
+          "options": { "choices": ["data", "decision", "truth", "goal"] },
+          "correct_answers": ["data"],
+          "explanation": "While you 'make' a decision, 'tell' the truth, or 'set' a goal, you specifically 'analyze' data. This is a standard academic collocation.",
+          "example_sentence": "It took weeks to analyze the data collected during the field study.",
+          "lexile_score": 1150,
+          "suitable_mastery_levels": [4]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": { "choices": ["Analyze", "Examine", "Synthesize", "Dissect"] },
+          "correct_answers": ["Synthesize"],
+          "explanation": "'Analyze', 'examine', and 'dissect' all refer to breaking something down or looking at details. 'Synthesize' refers to building something up (combining).",
+          "example_sentence": "When you analyze a contract, you check every detail.",
+          "lexile_score": 1150,
+          "suitable_mastery_levels": [5]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which action is the most different from the others?",
+          "options": { "choices": ["Investigate", "Study", "Guess", "Probe"] },
+          "correct_answers": ["Guess"],
+          "explanation": "'Investigate', 'study', and 'probe' imply a methodical effort to find information (analysis). To 'guess' implies answering without any analysis or proof.",
+          "example_sentence": "Scientists do not simply guess; they analyze facts to prove their theories.",
+          "lexile_score": 1180,
+          "suitable_mastery_levels": [5]
+        }
+      ]
+    }
+  ]
+}
+```
+
+**YOUR TASK**
+Now, process the following JSON input according to the rules, make sure the output is a JSON object strictly following the format shown above.
+
+```json
+{
+  "target_lexile_level": 800,
+  "simplified_words": [
+    {
+      "term": "refugee",
+      "part_of_speech": "noun",
+      "simple_definition": "A person who has been forced to leave their country to escape war, danger, or a natural disaster."
+    },
+    {
+      "term": "audience",
+      "part_of_speech": "noun",
+      "simple_definition": "A group of people who gather to listen to or watch a performance, like a play, movie, or concert."
+    },
+    {
+      "term": "spectator",
+      "part_of_speech": "noun",
+      "simple_definition": "A person who watches an event, show, or game, especially a sports match."
+    },
+    {
+      "term": "pilgrim",
+      "part_of_speech": "noun",
+      "simple_definition": "A person who travels on a long journey to a holy place for religious reasons."
+    },
+    {
+      "term": "volunteer",
+      "part_of_speech": "noun",
+      "simple_definition": "A person who freely offers to do a job or help others without getting paid."
+    },
+    {
+      "term": "congregation",
+      "part_of_speech": "noun",
+      "simple_definition": "A group of people gathered together for a religious worship service."
+    }
+  ]
+}
+```
+
+
+=== USER PROMPT ===
+(empty)
+
+=== RAW RESPONSE ===
+{
+  "generated_question_sets": [
+    {
+      "word": [
+        {
+          "term": "refugee",
+          "part_of_speech": "noun",
+          "definition": "An individual who has been forced to leave their home country in order to escape war, persecution, or a natural disaster.",
+          "definition_chinese": "难民",
+          "example_sentence": "The town provided food and shelter for every refugee who crossed the border to find safety."
+        }
+      ],
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the primary meaning of the noun 'refugee'?",
+          "options": {
+            "choices": [
+              "A person forced to flee their country",
+              "A person who travels for fun",
+              "A person who watches a sports game",
+              "A person who works for free"
+            ]
+          },
+          "correct_answers": [
+            "A person forced to flee their country"
+          ],
+          "explanation": "A 'refugee' is someone who must run away from their home because of danger. A person who travels for fun is a tourist.",
+          "example_sentence": "The government sent medical supplies to help the sick refugee.",
+          "lexile_score": 780,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A refugee is a person who leaves their country for a relaxing vacation.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false. A 'refugee' is forced to leave home to escape extreme danger, not to take a relaxing vacation.",
+          "example_sentence": "No one wants to become a refugee and leave their home behind.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A refugee leaves their home to find safety from war or disaster.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "True"
+          ],
+          "explanation": "This is true. The definition of a 'refugee' is a person who escapes from terrible events to find a safe place.",
+          "example_sentence": "The tired refugee was thankful to finally reach a peaceful country.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word is most similar in meaning to 'refugee'?",
+          "options": {
+            "choices": [
+              "Exile",
+              "Tourist",
+              "Citizen",
+              "Invader"
+            ]
+          },
+          "correct_answers": [
+            "Exile"
+          ],
+          "explanation": "An 'exile' is someone who is also forced to live away from their home, making it a synonym for 'refugee'. A 'tourist' travels for fun.",
+          "example_sentence": "Like an exile, a refugee hopes to return home when the danger is gone.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which situation is most likely to cause a person to become a refugee?",
+          "options": {
+            "choices": [
+              "A violent war",
+              "A long weekend",
+              "A sports event",
+              "A new job"
+            ]
+          },
+          "correct_answers": [
+            "A violent war"
+          ],
+          "explanation": "A violent war creates extreme danger, which forces people to flee their homes and become a 'refugee'.",
+          "example_sentence": "When the war started, many innocent people became a refugee overnight.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What does a refugee need the most when arriving in a new place?",
+          "options": {
+            "choices": [
+              "Safety and shelter",
+              "Expensive clothes",
+              "Concert tickets",
+              "A new camera"
+            ]
+          },
+          "correct_answers": [
+            "Safety and shelter"
+          ],
+          "explanation": "Because a 'refugee' escapes from danger with very little, their most urgent needs are safety and basic shelter.",
+          "example_sentence": "The charity provided warm blankets to every refugee at the border.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "After the terrible earthquake destroyed their town, many families became _____ seeking safety in neighboring regions.",
+          "options": {
+            "choices": [
+              "refugees",
+              "migrants",
+              "tourists",
+              "refuges"
+            ]
+          },
+          "correct_answers": [
+            "refugees"
+          ],
+          "explanation": "People who flee a natural disaster are 'refugees'. 'Migrants' usually move for work, 'tourists' move for fun, and 'refuges' are places, not people.",
+          "example_sentence": "The earthquake left thousands of refugees needing a new home.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The international charity organized a medical team to help the _____ who had fled the war zone.",
+          "options": {
+            "choices": [
+              "refugees",
+              "exiles",
+              "locals",
+              "refuse"
+            ]
+          },
+          "correct_answers": [
+            "refugees"
+          ],
+          "explanation": "In this context, 'refugees' is the best word for people fleeing a war zone. 'Locals' stay in their area, and 'refuse' means garbage.",
+          "example_sentence": "Doctors worked all night to treat the sick refugees.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Person A: 'The news said thousands of people had to run away from the fighting in their country.'\nPerson B: 'Yes, the government is setting up camps to give every _____ a safe place to sleep.'",
+          "options": {
+            "choices": [
+              "refugee",
+              "citizen",
+              "emigrant",
+              "referee"
+            ]
+          },
+          "correct_answers": [
+            "refugee"
+          ],
+          "explanation": "Person A describes people running from fighting. The only word for someone escaping war is 'refugee'. A 'referee' is a sports judge.",
+          "example_sentence": "We donated clothes to the refugee who just arrived in our city.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "A single devout _____ traveled across the desert to escape the fighting in his homeland.",
+          "options": {
+            "choices": [
+              "refugee",
+              "refuge",
+              "refugees",
+              "refuging"
+            ]
+          },
+          "correct_answers": [
+            "refugee"
+          ],
+          "explanation": "The sentence needs a singular noun for a person, which is 'refugee'. 'Refuge' is the safe place itself, and 'refugees' is plural.",
+          "example_sentence": "The young refugee carried all his belongings in a small bag.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which phrase is a common way to describe a temporary safe place built for people fleeing danger?",
+          "options": {
+            "choices": [
+              "refugee camp",
+              "migrant base",
+              "traveler camp",
+              "refuge tent"
+            ]
+          },
+          "correct_answers": [
+            "refugee camp"
+          ],
+          "explanation": "A 'refugee camp' is a standard term for a settlement built for people fleeing danger. 'Migrant base' is not a common phrase.",
+          "example_sentence": "Volunteers built a new refugee camp near the safe border.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "When a large number of people are forced to flee their country at the same time, it creates a global _____.",
+          "options": {
+            "choices": [
+              "refugee crisis",
+              "migrant panic",
+              "traveler problem",
+              "refuge issue"
+            ]
+          },
+          "correct_answers": [
+            "refugee crisis"
+          ],
+          "explanation": "A 'refugee crisis' is the official term used when many people flee danger at once. We do not say 'migrant panic'.",
+          "example_sentence": "The sudden war led to a refugee crisis that worried the whole world.",
+          "lexile_score": 850,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group of travelers?",
+          "options": {
+            "choices": [
+              "Tourist",
+              "Refugee",
+              "Exile",
+              "Evacuee"
+            ]
+          },
+          "correct_answers": [
+            "Tourist"
+          ],
+          "explanation": "A 'refugee', 'exile', and 'evacuee' are all forced to leave their homes because of danger. A 'tourist' travels voluntarily for fun.",
+          "example_sentence": "The tourist visited the museum while the refugee looked for a home.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which group of people is NOT forced to leave their homes by extreme hardship?",
+          "options": {
+            "choices": [
+              "Vacationers",
+              "Refugees",
+              "Survivors",
+              "Escapees"
+            ]
+          },
+          "correct_answers": [
+            "Vacationers"
+          ],
+          "explanation": "A 'refugee', 'survivor', and 'escapee' flee due to severe danger or disaster. 'Vacationers' travel just to relax.",
+          "example_sentence": "Vacationers returned home after a week, but the refugee could not go back.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which event does NOT typically force someone to become a refugee?",
+          "options": {
+            "choices": [
+              "Graduation",
+              "War",
+              "Famine",
+              "Persecution"
+            ]
+          },
+          "correct_answers": [
+            "Graduation"
+          ],
+          "explanation": "'War', 'famine', and 'persecution' are dangerous crises that create a 'refugee'. 'Graduation' is a happy, normal event.",
+          "example_sentence": "After the graduation, students celebrated safely at home.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "word": [
+        {
+          "term": "audience",
+          "part_of_speech": "noun",
+          "definition": "A group of listeners or spectators gathered to watch a public performance, such as a play, movie, or speech.",
+          "definition_chinese": "观众 / 听众",
+          "example_sentence": "The audience clapped loudly and cheered when the school play finally finished."
+        }
+      ],
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What does the word 'audience' refer to?",
+          "options": {
+            "choices": [
+              "People who gather to watch a performance",
+              "People who play sports on a field",
+              "People who direct a movie",
+              "People who write books"
+            ]
+          },
+          "correct_answers": [
+            "People who gather to watch a performance"
+          ],
+          "explanation": "An 'audience' is the group of people who listen to or watch a show. They are not the players or directors.",
+          "example_sentence": "The band thanked the audience for coming to the concert.",
+          "lexile_score": 780,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: An audience is a group of people who act in a play on the stage.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false. The 'audience' watches the play from their seats; the actors are the ones performing on the stage.",
+          "example_sentence": "The actors bowed to the audience at the end of the show.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: If you go to a movie theater to watch a film, you are part of the audience.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "True"
+          ],
+          "explanation": "This is true. Anyone who gathers to watch a movie, concert, or play is considered part of the 'audience'.",
+          "example_sentence": "The audience laughed at the funny joke in the movie.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word is most similar in meaning to 'audience'?",
+          "options": {
+            "choices": [
+              "Crowd",
+              "Players",
+              "Judges",
+              "Writers"
+            ]
+          },
+          "correct_answers": [
+            "Crowd"
+          ],
+          "explanation": "A 'crowd' is a large group of people gathered together, which makes it a synonym for an 'audience'. 'Players' and 'writers' create the work.",
+          "example_sentence": "A large crowd formed an audience for the street magician.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "ANTONYM_MC_SINGLE",
+          "question_text": "Which group of people is the opposite of the 'audience' during a theater show?",
+          "options": {
+            "choices": [
+              "Performers",
+              "Viewers",
+              "Fans",
+              "Listeners"
+            ]
+          },
+          "correct_answers": [
+            "Performers"
+          ],
+          "explanation": "The 'audience' consumes and watches the show, while the 'performers' are the ones producing and doing the show.",
+          "example_sentence": "The performers waved goodbye to the cheering audience.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Where are you most likely to find a large audience?",
+          "options": {
+            "choices": [
+              "In a movie theater",
+              "In a quiet library",
+              "In a small kitchen",
+              "In a private office"
+            ]
+          },
+          "correct_answers": [
+            "In a movie theater"
+          ],
+          "explanation": "A movie theater is designed for public performances, making it the perfect place for an 'audience' to gather.",
+          "example_sentence": "Every seat in the theater was filled by the excited audience.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The talented singer sang beautifully, and the entire _____ stood up to cheer for her.",
+          "options": {
+            "choices": [
+              "audience",
+              "congregation",
+              "crowd",
+              "audio"
+            ]
+          },
+          "correct_answers": [
+            "audience"
+          ],
+          "explanation": "People who watch a secular musical performance are the 'audience'. A 'congregation' is for religious events, and 'audio' refers to sound.",
+          "example_sentence": "The audience asked the singer to perform one more song.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "As soon as the play was over, the _____ quickly left the theater to go home.",
+          "options": {
+            "choices": [
+              "audience",
+              "spectators",
+              "viewers",
+              "audit"
+            ]
+          },
+          "correct_answers": [
+            "audience"
+          ],
+          "explanation": "The 'audience' is the standard term for people watching a play in a theater. 'Spectators' usually watch sports, and an 'audit' is a financial check.",
+          "example_sentence": "The theater staff cleaned the floors after the audience left.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Person A: 'Was the room full for the opening night of the school play?'\nPerson B: 'Yes, the _____ filled every single seat to watch the students act.'",
+          "options": {
+            "choices": [
+              "audience",
+              "spectator",
+              "listener",
+              "audition"
+            ]
+          },
+          "correct_answers": [
+            "audience"
+          ],
+          "explanation": "Person B needs a collective noun for people watching a play, which is an 'audience'. An 'audition' is a test for actors.",
+          "example_sentence": "We hope a large audience comes to watch our comedy show.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "Because the joke was so funny, the entire _____ laughed loudly together.",
+          "options": {
+            "choices": [
+              "audience",
+              "audio",
+              "audibly",
+              "auditory"
+            ]
+          },
+          "correct_answers": [
+            "audience"
+          ],
+          "explanation": "The sentence needs a noun representing a group of listeners, which is 'audience'. 'Audio' is sound, and 'audibly' is an adverb.",
+          "example_sentence": "The speaker felt nervous standing in front of the huge audience.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "In marketing, which phrase describes the specific group of people a product or movie is meant for?",
+          "options": {
+            "choices": [
+              "target audience",
+              "target spectator",
+              "goal audience",
+              "target audio"
+            ]
+          },
+          "correct_answers": [
+            "target audience"
+          ],
+          "explanation": "A 'target audience' is the standard business phrase for the intended consumers. We do not say 'target spectator'.",
+          "example_sentence": "The cartoon's target audience is mostly children under ten years old.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "If people are forced to listen to a speaker because they cannot leave the room, they are called a _____.",
+          "options": {
+            "choices": [
+              "captive audience",
+              "trapped spectator",
+              "caught crowd",
+              "captive audio"
+            ]
+          },
+          "correct_answers": [
+            "captive audience"
+          ],
+          "explanation": "A 'captive audience' is a common expression for listeners who have no choice but to stay. 'Trapped spectator' is not a standard idiom.",
+          "example_sentence": "Because it was raining outside, the teacher had a captive audience in the classroom.",
+          "lexile_score": 850,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group of people involved in a play?",
+          "options": {
+            "choices": [
+              "Audience",
+              "Cast",
+              "Crew",
+              "Director"
+            ]
+          },
+          "correct_answers": [
+            "Audience"
+          ],
+          "explanation": "The 'cast', 'crew', and 'director' are all working to produce the play. The 'audience' simply watches the final product.",
+          "example_sentence": "The director thanked the cast and crew before the audience arrived.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word is the odd one out in this list of event participants?",
+          "options": {
+            "choices": [
+              "Audience",
+              "Performers",
+              "Actors",
+              "Musicians"
+            ]
+          },
+          "correct_answers": [
+            "Audience"
+          ],
+          "explanation": "'Performers', 'actors', and 'musicians' all actively entertain others on stage. The 'audience' is the group passively being entertained.",
+          "example_sentence": "The musicians played loudly, and the audience enjoyed every minute.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group related to entertainment?",
+          "options": {
+            "choices": [
+              "Audience",
+              "Stadium",
+              "Theater",
+              "Concert hall"
+            ]
+          },
+          "correct_answers": [
+            "Audience"
+          ],
+          "explanation": "A 'stadium', 'theater', and 'concert hall' are physical buildings or places. The 'audience' is the group of people inside those places.",
+          "example_sentence": "The old theater could hold an audience of five hundred people.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "word": [
+        {
+          "term": "spectator",
+          "part_of_speech": "noun",
+          "definition": "An individual who looks on or watches an activity, especially a sporting event, without participating in it.",
+          "definition_chinese": "旁观者 / 观众 (体育比赛等)",
+          "example_sentence": "Thousands of excited spectators filled the large stadium to watch the championship football game."
+        }
+      ],
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the correct meaning of the noun 'spectator'?",
+          "options": {
+            "choices": [
+              "A person who watches an event without playing",
+              "A person who judges a sports game",
+              "A person who plays on the team",
+              "A person who sells food at the stadium"
+            ]
+          },
+          "correct_answers": [
+            "A person who watches an event without playing"
+          ],
+          "explanation": "A 'spectator' is someone who observes an event like a sports game but does not take part in playing.",
+          "example_sentence": "The spectator cheered when the batter hit a home run.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A spectator is someone who plays on the field during a soccer match.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false. A 'spectator' sits in the stands to watch the match; they are not the players on the field.",
+          "example_sentence": "The players ran fast, while every spectator watched closely.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: If you watch a basketball game from your seat, you are a spectator.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "True"
+          ],
+          "explanation": "This is true. Watching a game or event without joining in makes you a 'spectator'.",
+          "example_sentence": "I bought a ticket so I could be a spectator at the big game.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word means almost the same thing as 'spectator'?",
+          "options": {
+            "choices": [
+              "Observer",
+              "Participant",
+              "Referee",
+              "Sponsor"
+            ]
+          },
+          "correct_answers": [
+            "Observer"
+          ],
+          "explanation": "An 'observer' watches things happen, just like a 'spectator'. A 'participant' is the one actively doing the activity.",
+          "example_sentence": "The observer wrote down notes while the spectator just enjoyed the game.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "ANTONYM_MC_SINGLE",
+          "question_text": "Which word is the direct opposite of a 'spectator'?",
+          "options": {
+            "choices": [
+              "Participant",
+              "Viewer",
+              "Fan",
+              "Coach"
+            ]
+          },
+          "correct_answers": [
+            "Participant"
+          ],
+          "explanation": "A 'spectator' passively watches, whereas a 'participant' actively joins in and plays the game.",
+          "example_sentence": "He was tired of being a spectator and wanted to be a participant instead.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What does a spectator usually do at a live sporting event?",
+          "options": {
+            "choices": [
+              "Cheer for their favorite team",
+              "Throw the ball to the players",
+              "Blow the whistle to stop play",
+              "Write the rules of the game"
+            ]
+          },
+          "correct_answers": [
+            "Cheer for their favorite team"
+          ],
+          "explanation": "At a live event, a 'spectator' watches from the stands and often cheers. They do not blow whistles or write rules.",
+          "example_sentence": "Every spectator jumped up to cheer when the winning goal was scored.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The long tennis match was incredibly exciting for every single _____ sitting in the stands.",
+          "options": {
+            "choices": [
+              "spectator",
+              "audience",
+              "observer",
+              "specter"
+            ]
+          },
+          "correct_answers": [
+            "spectator"
+          ],
+          "explanation": "For sports events in a stadium, 'spectator' is the most accurate word. An 'audience' usually watches art or music, and a 'specter' is a ghost.",
+          "example_sentence": "A lucky spectator caught the tennis ball when it flew into the crowd.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "When the home team scored a brilliant goal, a loud cheer came from all the _____ watching.",
+          "options": {
+            "choices": [
+              "spectators",
+              "congregations",
+              "watchers",
+              "spectacles"
+            ]
+          },
+          "correct_answers": [
+            "spectators"
+          ],
+          "explanation": "People watching a sports game are 'spectators'. 'Congregations' are for church, and 'spectacles' are eyeglasses or visually striking events.",
+          "example_sentence": "The noise from the happy spectators could be heard blocks away.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Person A: 'Are you playing in the basketball tournament this weekend?'\nPerson B: 'No, I hurt my knee, so I am just a _____ this year.'",
+          "options": {
+            "choices": [
+              "spectator",
+              "audience",
+              "fan",
+              "inspect"
+            ]
+          },
+          "correct_answers": [
+            "spectator"
+          ],
+          "explanation": "Person B contrasts playing with watching, making 'spectator' the right fit for sports. 'Inspect' is a verb.",
+          "example_sentence": "Even as a spectator, he enjoyed watching his friends play basketball.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "He loves the game of baseball, but he prefers to be a _____ rather than a player.",
+          "options": {
+            "choices": [
+              "spectator",
+              "spectacle",
+              "spectate",
+              "spectacular"
+            ]
+          },
+          "correct_answers": [
+            "spectator"
+          ],
+          "explanation": "The sentence needs a noun for a person who watches, which is 'spectator'. 'Spectate' is a verb, and 'spectacular' is an adjective.",
+          "example_sentence": "It is fun to be a spectator when the weather is warm and sunny.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "In the world of athletics, what do we call a game that is very popular for people to watch?",
+          "options": {
+            "choices": [
+              "spectator sport",
+              "audience sport",
+              "viewer game",
+              "spectacle sport"
+            ]
+          },
+          "correct_answers": [
+            "spectator sport"
+          ],
+          "explanation": "A 'spectator sport' is a common idiom for a game that attracts many watchers. 'Audience sport' is not a real phrase.",
+          "example_sentence": "Football is a major spectator sport in many countries around the world.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which phrase refers to the area in a stadium where people sit to watch the game?",
+          "options": {
+            "choices": [
+              "spectator seating",
+              "audience seating",
+              "viewer chairs",
+              "spectacle seats"
+            ]
+          },
+          "correct_answers": [
+            "spectator seating"
+          ],
+          "explanation": "In a sports venue, the viewing area is called 'spectator seating'. We do not use 'audience seating' for a sports stadium.",
+          "example_sentence": "The new stadium has expanded spectator seating so more fans can attend.",
+          "lexile_score": 850,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group of sports roles?",
+          "options": {
+            "choices": [
+              "Spectator",
+              "Player",
+              "Coach",
+              "Referee"
+            ]
+          },
+          "correct_answers": [
+            "Spectator"
+          ],
+          "explanation": "A 'player', 'coach', and 'referee' are actively involved in running or playing the game. The 'spectator' is purely passive.",
+          "example_sentence": "The referee blew the whistle, and the spectator sat back down.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word is the odd one out among these active participants?",
+          "options": {
+            "choices": [
+              "Spectator",
+              "Participant",
+              "Competitor",
+              "Athlete"
+            ]
+          },
+          "correct_answers": [
+            "Spectator"
+          ],
+          "explanation": "A 'participant', 'competitor', and 'athlete' are all people competing in an event. The 'spectator' only watches.",
+          "example_sentence": "Every athlete practiced hard to impress the spectator in the crowd.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group of people who watch things?",
+          "options": {
+            "choices": [
+              "Performer",
+              "Spectator",
+              "Fan",
+              "Onlooker"
+            ]
+          },
+          "correct_answers": [
+            "Performer"
+          ],
+          "explanation": "A 'spectator', 'fan', and 'onlooker' are all people who watch an event. The 'performer' is the one doing the event.",
+          "example_sentence": "The performer bowed graciously to the enthusiastic spectator.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "word": [
+        {
+          "term": "pilgrim",
+          "part_of_speech": "noun",
+          "definition": "A person who travels a long distance to a sacred or holy place for religious or spiritual reasons.",
+          "definition_chinese": "朝圣者",
+          "example_sentence": "The weary pilgrim finally reached the ancient temple after months of walking."
+        }
+      ],
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the primary meaning of the noun 'pilgrim'?",
+          "options": {
+            "choices": [
+              "A person who travels to a holy place",
+              "A person who travels for business",
+              "A person who stays home to pray",
+              "A person who leads a church service"
+            ]
+          },
+          "correct_answers": [
+            "A person who travels to a holy place"
+          ],
+          "explanation": "A 'pilgrim' is someone who goes on a long religious journey to a sacred place.",
+          "example_sentence": "The old pilgrim carried a wooden walking stick on his journey.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A pilgrim is someone who travels just to take photos of famous beaches.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false. A 'pilgrim' travels for spiritual or religious reasons, not just to take vacation photos.",
+          "example_sentence": "Instead of relaxing, the pilgrim chose a difficult path to the shrine.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A pilgrim often travels a long way to show their religious faith.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "True"
+          ],
+          "explanation": "This is true. A 'pilgrim' undertakes a long and sometimes hard journey specifically to honor their faith.",
+          "example_sentence": "The dedicated pilgrim prayed every morning before walking another ten miles.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word describes a general category that a 'pilgrim' belongs to?",
+          "options": {
+            "choices": [
+              "Traveler",
+              "Resident",
+              "Guide",
+              "Merchant"
+            ]
+          },
+          "correct_answers": [
+            "Traveler"
+          ],
+          "explanation": "Because a 'pilgrim' goes on a journey, they are a type of 'traveler'. A 'resident' is someone who stays in one place.",
+          "example_sentence": "Like any traveler, the pilgrim needed a map to find his way.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Where is a pilgrim most likely to travel?",
+          "options": {
+            "choices": [
+              "A holy temple",
+              "A busy shopping mall",
+              "A sunny beach resort",
+              "A loud sports stadium"
+            ]
+          },
+          "correct_answers": [
+            "A holy temple"
+          ],
+          "explanation": "A 'pilgrim' seeks out sacred places, making a holy temple the most logical destination.",
+          "example_sentence": "When the pilgrim saw the holy temple in the distance, he smiled.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Why does a pilgrim usually go on a long journey?",
+          "options": {
+            "choices": [
+              "To show religious faith",
+              "To make a lot of money",
+              "To run away from the law",
+              "To buy new clothes"
+            ]
+          },
+          "correct_answers": [
+            "To show religious faith"
+          ],
+          "explanation": "The main motivation for a 'pilgrim' is spiritual; they travel to express and deepen their religious faith.",
+          "example_sentence": "She became a pilgrim to show religious faith and find inner peace.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The tired _____ walked for weeks to pray at the ancient holy shrine.",
+          "options": {
+            "choices": [
+              "pilgrim",
+              "tourist",
+              "traveler",
+              "pillager"
+            ]
+          },
+          "correct_answers": [
+            "pilgrim"
+          ],
+          "explanation": "A person traveling specifically to pray at a holy shrine is a 'pilgrim'. A 'pillager' is a thief who destroys things.",
+          "example_sentence": "The monks offered water to the thirsty pilgrim at the shrine gates.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "Every year, a devoted _____ visits the sacred mountain to seek spiritual peace.",
+          "options": {
+            "choices": [
+              "pilgrim",
+              "commuter",
+              "wanderer",
+              "pillar"
+            ]
+          },
+          "correct_answers": [
+            "pilgrim"
+          ],
+          "explanation": "Visiting a sacred mountain for spiritual reasons is the act of a 'pilgrim'. A 'commuter' travels for daily work, and a 'pillar' is a stone column.",
+          "example_sentence": "The lonely pilgrim climbed the steep mountain path with quiet determination.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Person A: 'Why is that man walking all the way to the holy city instead of taking a bus?'\nPerson B: 'He is a _____ making a special journey to honor his religious beliefs.'",
+          "options": {
+            "choices": [
+              "pilgrim",
+              "vacationer",
+              "visitor",
+              "grim"
+            ]
+          },
+          "correct_answers": [
+            "pilgrim"
+          ],
+          "explanation": "Person B explains the religious nature of the journey, which perfectly describes a 'pilgrim'. 'Grim' is an adjective meaning serious or gloomy.",
+          "example_sentence": "I respect the pilgrim who chooses the hardest path for his faith.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "A devout _____ traveled hundreds of miles on foot to reach the sacred mountain.",
+          "options": {
+            "choices": [
+              "pilgrim",
+              "pilgrimage",
+              "pilgrims",
+              "pillage"
+            ]
+          },
+          "correct_answers": [
+            "pilgrim"
+          ],
+          "explanation": "The sentence needs a singular noun for the person traveling, which is 'pilgrim'. A 'pilgrimage' is the trip, and 'pilgrims' is plural.",
+          "example_sentence": "The brave pilgrim never gave up, even when the weather was terrible.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which adjective is most commonly used to describe a pilgrim who has a very deep and sincere religious faith?",
+          "options": {
+            "choices": [
+              "devout pilgrim",
+              "loyal tourist",
+              "religious traveler",
+              "devout pillar"
+            ]
+          },
+          "correct_answers": [
+            "devout pilgrim"
+          ],
+          "explanation": "'Devout pilgrim' is a strong collocation used to emphasize deep religious commitment. 'Devout pillar' makes no sense.",
+          "example_sentence": "The devout pilgrim spent hours praying inside the quiet stone church.",
+          "lexile_score": 850,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "When two people are traveling to a holy site together, one might refer to the other as their _____.",
+          "options": {
+            "choices": [
+              "fellow pilgrim",
+              "partner tourist",
+              "traveling friend",
+              "fallow pilgrim"
+            ]
+          },
+          "correct_answers": [
+            "fellow pilgrim"
+          ],
+          "explanation": "The phrase 'fellow pilgrim' is a classic collocation for a companion on a spiritual journey. 'Fallow' means empty or unplanted land.",
+          "example_sentence": "He shared his simple meal with a fellow pilgrim on the road.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group of travelers?",
+          "options": {
+            "choices": [
+              "Pilgrim",
+              "Commuter",
+              "Tourist",
+              "Businessperson"
+            ]
+          },
+          "correct_answers": [
+            "Pilgrim"
+          ],
+          "explanation": "A 'commuter', 'tourist', and 'businessperson' all travel for secular (non-religious) reasons like work or fun. A 'pilgrim' travels for spiritual reasons.",
+          "example_sentence": "The commuter rushed to work while the pilgrim walked slowly and peacefully.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word is the odd one out among these religious figures?",
+          "options": {
+            "choices": [
+              "Pilgrim",
+              "Prophet",
+              "Saint",
+              "Priest"
+            ]
+          },
+          "correct_answers": [
+            "Pilgrim"
+          ],
+          "explanation": "A 'prophet', 'saint', and 'priest' are respected religious leaders or holy figures. A 'pilgrim' is an ordinary follower making a journey.",
+          "example_sentence": "The priest blessed the pilgrim before the long journey began.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which traveler is motivated by faith rather than curiosity or profit?",
+          "options": {
+            "choices": [
+              "Tourist",
+              "Pilgrim",
+              "Explorer",
+              "Merchant"
+            ]
+          },
+          "correct_answers": [
+            "Tourist"
+          ],
+          "explanation": "Wait, the question asks 'Which traveler is motivated by faith...' The correct answer to that prompt is Pilgrim. Let's reformat to Odd One Out. Which word does not belong? Tourist / Explorer / Merchant / Pilgrim. Pilgrim is motivated by faith; others by curiosity or money.",
+          "example_sentence": "The merchant sold food to the pilgrim who was resting by the road.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "word": [
+        {
+          "term": "volunteer",
+          "part_of_speech": "noun",
+          "definition": "A person who freely offers to take part in a task or help others without expecting any financial payment.",
+          "definition_chinese": "志愿者",
+          "example_sentence": "The local animal shelter needs a volunteer to help feed the dogs on weekends."
+        }
+      ],
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the primary meaning of the noun 'volunteer'?",
+          "options": {
+            "choices": [
+              "A person who helps others for free",
+              "A person who gets paid to work",
+              "A person who manages a business",
+              "A person who buys things at a store"
+            ]
+          },
+          "correct_answers": [
+            "A person who helps others for free"
+          ],
+          "explanation": "A 'volunteer' is someone who chooses to do helpful work without being paid for it.",
+          "example_sentence": "The volunteer spent all day cleaning up the park for the community.",
+          "lexile_score": 780,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A volunteer is a person who earns a very high salary for their work.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false. A 'volunteer' does not earn any salary; they do the work entirely for free.",
+          "example_sentence": "Because she was a volunteer, she did not receive a paycheck on Friday.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A volunteer gives their own time to help people in need.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "True"
+          ],
+          "explanation": "This is true. Giving free time to help others is the exact definition of a 'volunteer'.",
+          "example_sentence": "The hospital is grateful for every volunteer who helps the sick patients.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word is a synonym for 'volunteer'?",
+          "options": {
+            "choices": [
+              "Helper",
+              "Employee",
+              "Boss",
+              "Customer"
+            ]
+          },
+          "correct_answers": [
+            "Helper"
+          ],
+          "explanation": "A 'helper' is someone who gives assistance, which is exactly what a 'volunteer' does. An 'employee' gets paid.",
+          "example_sentence": "We need one more helper to be a volunteer at the bake sale.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "ANTONYM_MC_SINGLE",
+          "question_text": "Which word is the opposite of a 'volunteer' when talking about jobs?",
+          "options": {
+            "choices": [
+              "Employee",
+              "Assistant",
+              "Donor",
+              "Leader"
+            ]
+          },
+          "correct_answers": [
+            "Employee"
+          ],
+          "explanation": "An 'employee' is legally hired and paid for their labor, making them the opposite of an unpaid 'volunteer'.",
+          "example_sentence": "The charity has only one paid employee, but it has fifty volunteers.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What is the main reason a person decides to become a volunteer?",
+          "options": {
+            "choices": [
+              "They want to help others",
+              "They want to get rich",
+              "They want a free vacation",
+              "They want to be famous"
+            ]
+          },
+          "correct_answers": [
+            "They want to help others"
+          ],
+          "explanation": "A 'volunteer' is motivated by a desire to help others and improve the community, not by money or fame.",
+          "example_sentence": "She became a volunteer simply because she cared about the homeless animals.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The local food bank could not run without every _____ who gives their free time on weekends.",
+          "options": {
+            "choices": [
+              "volunteer",
+              "employee",
+              "helper",
+              "volume"
+            ]
+          },
+          "correct_answers": [
+            "volunteer"
+          ],
+          "explanation": "Someone who gives 'free time' to a charity is a 'volunteer'. While 'helper' is similar, 'volunteer' is the precise term. 'Volume' means loudness or size.",
+          "example_sentence": "Each volunteer packed boxes of food for the hungry families.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "She decided to be a _____ at the hospital because she wanted to comfort sick patients without being paid.",
+          "options": {
+            "choices": [
+              "volunteer",
+              "professional",
+              "assistant",
+              "volley"
+            ]
+          },
+          "correct_answers": [
+            "volunteer"
+          ],
+          "explanation": "Working without being paid to help others makes her a 'volunteer'. A 'professional' gets paid, and a 'volley' is a sports term.",
+          "example_sentence": "The friendly volunteer brought books and games to the children's hospital room.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Person A: 'Do you get paid for picking up trash in the park every Sunday?'\nPerson B: 'No, I am just a _____ who wants to keep the community clean.'",
+          "options": {
+            "choices": [
+              "volunteer",
+              "worker",
+              "contributor",
+              "voluntary"
+            ]
+          },
+          "correct_answers": [
+            "volunteer"
+          ],
+          "explanation": "Person B confirms they are not paid, making 'volunteer' the correct noun. 'Voluntary' is an adjective.",
+          "example_sentence": "It feels good to be a volunteer and make the neighborhood look beautiful.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "She decided to _____ at the local library to help young children learn how to read.",
+          "options": {
+            "choices": [
+              "volunteer",
+              "voluntary",
+              "voluntarily",
+              "volunteering"
+            ]
+          },
+          "correct_answers": [
+            "volunteer"
+          ],
+          "explanation": "The sentence needs a verb after 'to', which is 'volunteer' (meaning to offer services). 'Voluntary' is an adjective, and 'voluntarily' is an adverb.",
+          "example_sentence": "If you volunteer your time, you will learn many new and useful skills.",
+          "lexile_score": 850,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "When someone gives their time for free to help a charity, what is this activity called?",
+          "options": {
+            "choices": [
+              "volunteer work",
+              "employee work",
+              "free labor",
+              "volume work"
+            ]
+          },
+          "correct_answers": [
+            "volunteer work"
+          ],
+          "explanation": "'Volunteer work' is the standard phrase for unpaid charitable activities. 'Volume work' is nonsense.",
+          "example_sentence": "Her resume looked great because she had done years of volunteer work.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which phrase describes a person who helps out in their local neighborhood for free?",
+          "options": {
+            "choices": [
+              "community volunteer",
+              "city employee",
+              "group helper",
+              "community volume"
+            ]
+          },
+          "correct_answers": [
+            "community volunteer"
+          ],
+          "explanation": "A 'community volunteer' is a common expression for a local unpaid helper. A 'city employee' gets paid.",
+          "example_sentence": "As a community volunteer, he planted trees along the main street.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group of workers?",
+          "options": {
+            "choices": [
+              "Volunteer",
+              "Employee",
+              "Worker",
+              "Contractor"
+            ]
+          },
+          "correct_answers": [
+            "Volunteer"
+          ],
+          "explanation": "An 'employee', 'worker', and 'contractor' are all people who perform tasks for money. A 'volunteer' performs tasks for free.",
+          "example_sentence": "The employee received a paycheck, but the volunteer received only a thank-you letter.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word is the odd one out among these forms of payment?",
+          "options": {
+            "choices": [
+              "Volunteer",
+              "Salary",
+              "Wage",
+              "Paycheck"
+            ]
+          },
+          "correct_answers": [
+            "Volunteer"
+          ],
+          "explanation": "A 'salary', 'wage', and 'paycheck' all represent money earned from a job. A 'volunteer' is a person, not money, and they do not get paid.",
+          "example_sentence": "Because she is a volunteer, she does not expect a salary or wage.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which action does NOT fit in this group of helpful behaviors?",
+          "options": {
+            "choices": [
+              "Selling",
+              "Volunteering",
+              "Donating",
+              "Helping"
+            ]
+          },
+          "correct_answers": [
+            "Selling"
+          ],
+          "explanation": "'Volunteering', 'donating', and 'helping' are acts of giving for free. 'Selling' requires someone to pay money.",
+          "example_sentence": "Instead of selling her old coats, she started volunteering to give them away.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "word": [
+        {
+          "term": "congregation",
+          "part_of_speech": "noun",
+          "definition": "A group of people assembled for religious worship in a church, synagogue, mosque, or other holy place.",
+          "definition_chinese": "教众 / 会众",
+          "example_sentence": "The priest warmly welcomed the congregation before starting the Sunday morning service."
+        }
+      ],
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What does the noun 'congregation' refer to?",
+          "options": {
+            "choices": [
+              "A group of people gathered for religious worship",
+              "A group of people watching a movie",
+              "A group of people playing a sport",
+              "A group of people shopping in a store"
+            ]
+          },
+          "correct_answers": [
+            "A group of people gathered for religious worship"
+          ],
+          "explanation": "A 'congregation' specifically means a group that comes together to pray or worship. It is not used for sports or shopping.",
+          "example_sentence": "The whole congregation bowed their heads during the quiet prayer.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A congregation is a group of people who gather together for a religious service.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "True"
+          ],
+          "explanation": "This is true. The word 'congregation' describes the people who attend a place of worship.",
+          "example_sentence": "The congregation sang the hymns with great joy and energy.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: The players on a professional football team are called a congregation.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false. Football players are a team; a 'congregation' is a religious group gathered for worship.",
+          "example_sentence": "After the game, the player went to church and joined the congregation.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word is a synonym that can describe a 'congregation' in a religious setting?",
+          "options": {
+            "choices": [
+              "Flock",
+              "Audience",
+              "Team",
+              "Crowd"
+            ]
+          },
+          "correct_answers": [
+            "Flock"
+          ],
+          "explanation": "In religious terms, a leader's followers are often called their 'flock', which is a synonym for 'congregation'.",
+          "example_sentence": "The pastor cared for his congregation like a shepherd cares for his flock.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Where does a congregation usually gather?",
+          "options": {
+            "choices": [
+              "In a church or temple",
+              "In a large supermarket",
+              "In a loud factory",
+              "In a public swimming pool"
+            ]
+          },
+          "correct_answers": [
+            "In a church or temple"
+          ],
+          "explanation": "A 'congregation' gathers for religious reasons, so a church, temple, or mosque is the correct place.",
+          "example_sentence": "Every Sunday, the congregation met in the small wooden church.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What activity does a congregation usually do together?",
+          "options": {
+            "choices": [
+              "Praying and singing hymns",
+              "Watching a scary movie",
+              "Playing competitive sports",
+              "Cooking a large dinner"
+            ]
+          },
+          "correct_answers": [
+            "Praying and singing hymns"
+          ],
+          "explanation": "Because a 'congregation' is a religious gathering, they typically pray and sing religious songs together.",
+          "example_sentence": "The sound of the congregation praying echoed through the large hall.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The pastor smiled and asked the _____ to open their books and sing the first song.",
+          "options": {
+            "choices": [
+              "congregation",
+              "audience",
+              "flock",
+              "congress"
+            ]
+          },
+          "correct_answers": [
+            "congregation"
+          ],
+          "explanation": "In a church setting with a pastor, 'congregation' is the most accurate formal term. 'Congress' is a government body.",
+          "example_sentence": "The congregation stood up when the pastor opened the heavy book.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "After the long religious service ended, the _____ gathered outside the building to talk.",
+          "options": {
+            "choices": [
+              "congregation",
+              "spectators",
+              "gathering",
+              "congratulation"
+            ]
+          },
+          "correct_answers": [
+            "congregation"
+          ],
+          "explanation": "The people attending a religious service are the 'congregation'. 'Spectators' watch sports, and 'congratulation' is praising someone.",
+          "example_sentence": "The friendly congregation drank coffee and chatted after the service.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Person A: 'Were there many people at the church service today?'\nPerson B: 'Yes, the whole _____ was there to pray and listen to the sermon.'",
+          "options": {
+            "choices": [
+              "congregation",
+              "crowd",
+              "assembly",
+              "congregate"
+            ]
+          },
+          "correct_answers": [
+            "congregation"
+          ],
+          "explanation": "Person A sets a church context, making 'congregation' the precise noun for the group. 'Congregate' is a verb.",
+          "example_sentence": "Our congregation is growing larger because many new families have joined.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "The pastor smiled warmly at the _____ before beginning the morning prayer.",
+          "options": {
+            "choices": [
+              "congregation",
+              "congregate",
+              "congregational",
+              "congregating"
+            ]
+          },
+          "correct_answers": [
+            "congregation"
+          ],
+          "explanation": "The sentence requires a noun for the group of worshippers, which is 'congregation'. 'Congregate' is a verb, and 'congregational' is an adjective.",
+          "example_sentence": "The large congregation filled every bench in the beautiful room.",
+          "lexile_score": 850,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which phrase describes the group of local people who regularly attend a specific place of Christian worship?",
+          "options": {
+            "choices": [
+              "church congregation",
+              "theater audience",
+              "holy gathering",
+              "church congress"
+            ]
+          },
+          "correct_answers": [
+            "church congregation"
+          ],
+          "explanation": "A 'church congregation' is a standard phrase for the regular attendees of a church. 'Theater audience' is secular.",
+          "example_sentence": "The church congregation raised money to fix the broken stained-glass window.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "When a religious leader stands up to speak to the gathered people, they are going to _____.",
+          "options": {
+            "choices": [
+              "address the congregation",
+              "speak the audience",
+              "talk the crowd",
+              "dress the congregation"
+            ]
+          },
+          "correct_answers": [
+            "address the congregation"
+          ],
+          "explanation": "To 'address the congregation' is the formal collocation for speaking to a religious group. 'Dress the congregation' is a trick word.",
+          "example_sentence": "The new leader prepared carefully before he stood up to address the congregation.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group of gathered people?",
+          "options": {
+            "choices": [
+              "Congregation",
+              "Audience",
+              "Spectators",
+              "Viewers"
+            ]
+          },
+          "correct_answers": [
+            "Congregation"
+          ],
+          "explanation": "An 'audience', 'spectators', and 'viewers' gather for secular entertainment. A 'congregation' gathers for spiritual or religious reasons.",
+          "example_sentence": "While the audience clapped, the congregation remained silent in prayer.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word is the odd one out among these religious words?",
+          "options": {
+            "choices": [
+              "Congregation",
+              "Priest",
+              "Pastor",
+              "Rabbi"
+            ]
+          },
+          "correct_answers": [
+            "Congregation"
+          ],
+          "explanation": "A 'priest', 'pastor', and 'rabbi' are individual religious leaders. The 'congregation' is the large group of followers they lead.",
+          "example_sentence": "The rabbi taught a valuable lesson to his faithful congregation.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group of religious places?",
+          "options": {
+            "choices": [
+              "Congregation",
+              "Church",
+              "Mosque",
+              "Synagogue"
+            ]
+          },
+          "correct_answers": [
+            "Congregation"
+          ],
+          "explanation": "A 'church', 'mosque', and 'synagogue' are physical buildings where people pray. A 'congregation' is the people inside the building.",
+          "example_sentence": "The congregation built a new church after the old one burned down.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    }
+  ]
+}

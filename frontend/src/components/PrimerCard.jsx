@@ -48,15 +48,21 @@ export default function PrimerCard({ card, index, total, onNext }) {
       <div className="primer-counter">{index + 1} of {total}</div>
 
       <div className="primer-word">
-        {card.term_text}
-        {card.part_of_speech && (
+        <div className="primer-syllable-headline">
+          {card.syllable_text || card.term_text}
+          <TextToSpeechButton textToSpeak={card.term_text} />
+        </div>
+        {card.syllable_text && (
+          <div className="primer-term-sub">
+            {card.term_text}
+            {card.part_of_speech && (
+              <span className="primer-pos">({card.part_of_speech})</span>
+            )}
+          </div>
+        )}
+        {!card.syllable_text && card.part_of_speech && (
           <span className="primer-pos">({card.part_of_speech})</span>
         )}
-      </div>
-
-      <div className="primer-pronunciation">
-        <span className="primer-syllable">{card.syllable_text}</span>
-        <TextToSpeechButton textToSpeak={card.term_text} />
       </div>
 
       <div className="primer-definition-box">

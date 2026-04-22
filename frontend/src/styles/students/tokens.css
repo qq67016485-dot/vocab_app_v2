@@ -1,8 +1,16 @@
 /* Design tokens (student scope) */
 [data-app="student"] {
+  /* typography */
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 20px;
+
   /* spacing, radii, shadows, motion */
-  --space-1: .25rem; --space-2: .5rem; --space-3: .75rem; --space-4: 1rem; --space-6: 1.5rem; --space-8: 2rem;
+  --space-1: .25rem; --space-2: .5rem; --space-3: 1rem; --space-4: 1.25rem; --space-5: 1.5rem; --space-6: 2rem; --space-8: 2.5rem;
   --radius-s: .375rem; --radius-m: .5rem; --radius-l: .75rem; --radius-xl: 1rem;
+  /* standardized radii */
+  --radius-card: 14px;  /* cards, panels */
+  --radius-btn: 12px;   /* buttons, inputs */
+  --radius-pill: 999px; /* chips, pills, progress bars */
   --shadow-1: 0 1px 2px rgba(0,0,0,.06);
   --shadow-2: 0 4px 12px rgba(0,0,0,.08);
   --ease-std: cubic-bezier(.2,.8,.2,1);

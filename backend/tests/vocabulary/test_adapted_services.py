@@ -6,8 +6,9 @@ Tests for the 4 adapted v1 services:
 - instructional_service.py
 """
 import pytest
-from datetime import date, timedelta
+from datetime import timedelta
 from django.contrib.contenttypes.models import ContentType
+from django.utils import timezone
 
 from vocabulary.models import (
     UserWordProgress, MasteryLevel, UserAnswer, Question,
@@ -33,11 +34,11 @@ from tests.factories import (
 def _seed_mastery_levels():
     """Create 5 mastery levels for tests."""
     levels = [
-        (1, 'Novice', 0, 2),
-        (2, 'Familiar', 1, 4),
-        (3, 'Confident', 3, 7),
-        (4, 'Proficient', 7, 10),
-        (5, 'Mastered', 14, 999),
+        (1, 'Novice', 1, 2),
+        (2, 'Familiar', 3, 4),
+        (3, 'Confident', 7, 7),
+        (4, 'Proficient', 10, 10),
+        (5, 'Mastered', 20, 999),
     ]
     for lid, name, interval, pts in levels:
         MasteryLevel.objects.get_or_create(
@@ -81,7 +82,7 @@ class TestPracticeServiceProcessAnswer:
             user=self.student,
             word=self.word,
             level=level1,
-            next_review_date=date.today(),
+            next_review_date=timezone.localdate(),
         )
 
     def test_correct_answer_increments_mastery_points(self):
@@ -149,7 +150,7 @@ class TestPracticeServiceProcessAnswer:
 class TestPracticeServiceStreak:
     def test_streak_increments_on_consecutive_days(self):
         student = StudentUserFactory()
-        student.last_practice_date = date.today() - timedelta(days=1)
+        student.last_practice_date = timezone.localdate() - timedelta(days=1)
         student.current_practice_streak = 2
         student.save()
 
@@ -157,11 +158,11 @@ class TestPracticeServiceStreak:
         student.refresh_from_db()
 
         assert student.current_practice_streak == 3
-        assert student.last_practice_date == date.today()
+        assert student.last_practice_date == timezone.localdate()
 
     def test_streak_resets_on_gap(self):
         student = StudentUserFactory()
-        student.last_practice_date = date.today() - timedelta(days=3)
+        student.last_practice_date = timezone.localdate() - timedelta(days=3)
         student.current_practice_streak = 5
         student.save()
 
@@ -188,7 +189,7 @@ class TestDashboardServiceStudentProgress:
         level1 = MasteryLevel.objects.get(level_id=1)
         UserWordProgress.objects.create(
             user=self.student, word=self.word,
-            level=level1, next_review_date=date.today(),
+            level=level1, next_review_date=timezone.localdate(),
         )
 
     def test_returns_student_username(self):
@@ -443,7 +444,7 @@ class TestInstructionalServiceCompletePack:
         level1 = MasteryLevel.objects.get(level_id=1)
         UserWordProgress.objects.create(
             user=self.student, word=self.word,
-            level=level1, next_review_date=date.today(),
+            level=level1, next_review_date=timezone.localdate(),
             instructional_status='PENDING',
         )
 

@@ -1,0 +1,2207 @@
+=== LLM CALL LOG ===
+Timestamp: 20260324_212404
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+**ROLE AND GOAL**
+You are an expert AI educational content creator and psychometrician specializing in English vocabulary. Your task is to process a JSON list of words (each with its definition and example sentence) and a target reading level. For EACH word, generate a comprehensive set of **15 practice questions, 3 for each of the 5 mastery levels**. The question types will include multiple-choice, true/false. The questions are **learning-oriented**, not high-stakes tests. Each question must have its own specific **Lexile score**, a logical and instructive **explanation**, and a unique contextual **example sentence**. Finally, you will package all results into a single, valid JSON object.
+
+---
+
+**INPUT**
+You will be provided with a JSON object containing two main keys:
+* `"words"`: A list of word objects, each with `term`, `part_of_speech`, `definition`, and `example_sentence`.
+* `"target_lexile_level"`: An integer representing the *center point* for the desired Lexile scores (e.g., 800, 1000, 1200).
+
+---
+
+### QUESTION GENERATION
+Generate questions for each word according to the following rules.
+
+**Strict Question Quota**
+Exactly 15 questions per word: **3** at Level 1, **3** at Level 2, **3** at Level 3, **3** at Level 4, **3** at Level 5.
+
+**Fields required for EACH question**
+1) `lexile_score` — an integer within **target_lexile_level +/- 50**.
+2) `explanation` — logically and instructively explains **why** the correct answer is right and **must include the vocabulary word**. **NOTE: the student is most likely to read this explanation when the student's answer is incorrect.
+3) `example_sentence` — a different, real-world usage of the word, including a natural collocation or context the learner is likely to meet again (not redundant with the explanation).
+
+**Question Types and Mastery Levels**
+* **Level 1 – Recognition** (3 items)
+  * `DEFINITION_MC_SINGLE`
+  * `DEFINITION_TRUE_FALSE`
+* **Level 2 – Relationships** (3 items)
+  * `SYNONYM_MC_SINGLE`
+  * `ANTONYM_MC_SINGLE`
+  * `CONCEPTUAL_ASSOCIATION_MC_SINGLE`
+  Fallback Protocol: If both ANTONYM_MC_SINGLE and SYNONYM_MC_SINGLE types are difficult for a word, generate two distinct CONCEPTUAL_ASSOCIATION_MC_SINGLE questions.
+* **Level 3 – Context & Application** (3 items)
+  * `CONTEXT_MC_SINGLE`
+  * `DIALOGUE_COMPLETION_MC`
+    * **Structure:** A short exchange between two speakers (Person A and Person B).
+    * **Constraint:** Person A sets a clear context/scenario. Person B responds, and the target word is the blank (_____) in Person B's line.
+* **Level 4 – Nuance & Usage** (3 items)
+  * `WORD_FORM_MC` (e.g., noun/verb/adjective form)
+  * `COLLOCATION_MC_SINGLE` (e.g., *make* a decision vs *do* a decision)
+* **Level 5 – Deep Comparison** (3 items)
+  * `ODD_ONE_OUT_MC_SINGLE`
+
+**Special Instructions for `DIALOGUE_COMPLETION_MC`**
+* **Format:** `question_text` must follow the format: "Person A: [Context sentence].\nPerson B: [Response sentence with _____]."
+* **Context Cue:** Person A's line must contain a specific keyword or clue that makes the target word the **only** logical answer for Person B.
+* **Natural Tone:** Use natural, conversational English suitable for the target Lexile level.
+
+---
+
+## Distractor Tiers (apply to ALL MC types)
+- **Tier 1 (near-synonym/antonym):** Same part of speech as the key. High semantic similarity, but differs on at least one defining feature in the formal definition.
+- **Tier 2 (collocation foil):** A real word/phrase that commonly collocates with a **neighbor concept** in the same domain, but **not** with the target word (e.g., "wing flap" vs. "propeller pitch").
+- **Tier 3 (orthographic/phonological trap):** Looks/sounds similar but has a different meaning (e.g., propose/propel; manifest/manifesto). Use sparingly and **never** if it changes POS.
+
+**Enforcement**
+- For **all MC items at Levels 3-5**, include **at least one Tier-2** distractor.
+- Do **not** include more than **one Tier-3** distractor in any single item.
+- All distractors must be plausible in context and the **same POS** as the correct answer unless the item purposefully contrasts forms (only in `WORD_FORM_MC`).
+- For collocations, ensure incorrect choices are **genuine collocations with a related neighbor concept** (not nonsense).
+
+---
+
+## Lexile Guardrails
+- Target Lexile per item (including the question, answer text, explanation text, example sentence) = **target_lexile_level +/- 50**.
+
+---
+
+## Nuance Requirements for Levels 4-5
+- **`WORD_FORM_MC` (L4)**: Use **same-root minimal pairs** differing by POS/meaning (e.g., *propel* (V) vs *propulsion* (N) vs *propulsive* (ADJ) vs *propeller* (N device)). Exactly **one** fits the prompt.
+- **`COLLOCATION_MC_SINGLE` (L4)**: Test genuine **verb-object** or **adjective-noun** patterns and include one **register/domain cue** (e.g., *orbital* (technical) vs *space* (general); *deploy* (military) vs *send* (general)). Only **one** choice is the high-frequency, domain-true pairing.
+- **`ODD_ONE_OUT_MC_SINGLE` (L5)**: Keep all options within a **tight semantic field**; the odd one must violate a **latent rule** (e.g., reusability; medium-air/water; rigidity). The explanation must **state the rule** clearly.
+
+---
+
+### OUTPUT REQUIREMENTS
+Return a single, valid JSON object. The root object must have one key: `"generated_question_sets"`. Its value is a list; each element contains:
+- `"term"`: the word term (string).
+- `"questions"`: the fifteen question objects for that word.
+
+Do **not** include any text outside the JSON object.
+
+---
+
+### QUALITY GUIDELINES
+- **Lexile adherence:** Always within +/-50 of target; apply Guardrails and revise if needed.
+- **Explanation vs. example:** The explanation is analytical ("why"); the example is contextual ("how"). No redundancy.
+- **Plausible distractors:** Follow **Distractor Tiers**; ensure at least one Tier-2 distractor at L3-L5; <=1 Tier-3 per item.
+- **Avoid tautologies:** The `explanation` must **never** use the root of the term itself.
+- **Vary sentence structures:** Across the 15 items for a word, vary stems, explanations, examples. Use one mild complexity feature at L4-L5.
+- **Answer balance:** For True/False, ~50% should be "True." For MC, balance correct answer positions (A/B/C/D).
+- **Collocation authenticity**: wrong collocations must be real for a neighbor concept, not invented.
+- **Supportive tone**: avoid grading language; use encouraging, learner-friendly phrasing.
+
+---
+
+### PRE-FLIGHT CHECKLIST (apply to every item before output)
+- [ ] Lexile proxy **within band**; if L4-L5, include exactly **one** advanced structure.
+- [ ] **At least one Tier-2** distractor for **all L3-L5** MC items; **<=1 Tier-3** per item.
+- [ ] `WORD_FORM_MC` uses **same-root minimal pairs**; exactly one matches the prompt.
+- [ ] `DIALOGUE_COMPLETION_MC` has a clear conversational context; Person A's clue makes the answer unique.
+- [ ] `COLLOCATION_MC_SINGLE` uses **real domain collocations** + one **register/domain cue**.
+- [ ] `ODD_ONE_OUT_MC_SINGLE` uses a **tight field** and the explanation **states the latent rule**.
+- [ ] `explanation` includes the target word and gives a **hypernym + differentiating feature** (not circular).
+- [ ] `example_sentence` is **different** from the explanation and contextually natural.
+
+---
+**EXAMPLE**
+
+**INPUT:**
+```json
+{
+  "target_lexile_level": 1000,
+  "words": [
+    {
+      "term": "Analyze",
+      "part_of_speech": "verb",
+      "definition": "to study something closely and carefully to learn more about it",
+      "example_sentence": "The scientist needed to analyze the rock samples to determine their age."
+    }
+  ]
+}
+```
+
+**EXPECTED JSON OUTPUT:**
+```json
+{
+  "generated_question_sets": [
+    {
+      "term": "Analyze",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the primary meaning of the verb 'analyze'?",
+          "options": { "choices": ["To create something new", "To examine in detail", "To guess a solution", "To ignore the facts"] },
+          "correct_answers": ["To examine in detail"],
+          "explanation": "To 'analyze' means to study the structure or parts of something carefully. 'Create', 'guess', and 'ignore' do not involve detailed examination.",
+          "example_sentence": "Before making a purchase, he took time to analyze the costs and benefits.",
+          "lexile_score": 950,
+          "suitable_mastery_levels": [1]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: To analyze something means to look at it quickly and superficially.",
+          "options": { "choices": ["True", "False"] },
+          "correct_answers": ["False"],
+          "explanation": "This is false. Analyzing requires a deep, methodical, and detailed examination, not a quick or superficial look.",
+          "example_sentence": "The teacher asked the students to analyze the poem's deeper meaning.",
+          "lexile_score": 920,
+          "suitable_mastery_levels": [1]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word is a synonym for 'analyze'?",
+          "options": { "choices": ["Synthesize", "Inspect", "Invent", "Neglect"] },
+          "correct_answers": ["Inspect"],
+          "explanation": "'Inspect' is a synonym because both verbs involve looking at something closely. 'Synthesize' is an antonym (combining parts), and 'Invent' means creating.",
+          "example_sentence": "The mechanic had to analyze the engine to find the source of the noise.",
+          "lexile_score": 1000,
+          "suitable_mastery_levels": [2]
+        },
+        {
+          "question_type": "ANTONYM_MC_SINGLE",
+          "question_text": "Which word is an antonym for 'analyze'?",
+          "options": { "choices": ["Synthesize", "Investigate", "Scrutinize", "Evaluate"] },
+          "correct_answers": ["Synthesize"],
+          "explanation": "To 'analyze' is to break a whole down into parts. To 'synthesize' is to combine parts into a whole, making it the direct opposite action.",
+          "example_sentence": "It is easier to analyze a completed project than to synthesize a new plan from scratch.",
+          "lexile_score": 1100,
+          "suitable_mastery_levels": [2]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The detective needed to _____ the fingerprints found at the scene to see if they matched the suspect.",
+          "options": { "choices": ["analyze", "fabricate", "guess", "discard"] },
+          "correct_answers": ["analyze"],
+          "explanation": "In the context of a detective and evidence, 'analyze' is the only logical action. Detectives do not 'fabricate' (fake) or 'guess' evidence.",
+          "example_sentence": "Software programs can now analyze huge amounts of data in seconds.",
+          "lexile_score": 1050,
+          "suitable_mastery_levels": [3]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Complete the conversation.\nPerson A: 'The survey results are too complex to understand just by looking at them.'\nPerson B: 'You are right; we need to _____ the data carefully to find the real trends.'",
+          "options": { "choices": ["analyze", "guess", "erase", "invent"] },
+          "correct_answers": ["analyze"],
+          "explanation": "Person A describes the data as 'complex.' To understand complex data, you must examine it in detail. Therefore, 'analyze' is the correct verb. You should not 'guess', 'erase', or 'invent' data in a serious context.",
+          "example_sentence": "The software helps us analyze customer feedback quickly.",
+          "lexile_score": 1020,
+          "suitable_mastery_levels": [3]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "What is the noun form of 'analyze'?",
+          "options": { "choices": ["analysis", "analytic", "analyzing", "analyzed"] },
+          "correct_answers": ["analysis"],
+          "explanation": "'Analysis' is the noun referring to the process itself. 'Analytic' is an adjective, and 'analyzing/analyzed' are verb forms.",
+          "example_sentence": "Her detailed analysis of the market trends impressed the investors.",
+          "lexile_score": 1120,
+          "suitable_mastery_levels": [4]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which word forms a common expression with 'analyze' in a scientific context?",
+          "options": { "choices": ["data", "decision", "truth", "goal"] },
+          "correct_answers": ["data"],
+          "explanation": "While you 'make' a decision, 'tell' the truth, or 'set' a goal, you specifically 'analyze' data. This is a standard academic collocation.",
+          "example_sentence": "It took weeks to analyze the data collected during the field study.",
+          "lexile_score": 1150,
+          "suitable_mastery_levels": [4]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": { "choices": ["Analyze", "Examine", "Synthesize", "Dissect"] },
+          "correct_answers": ["Synthesize"],
+          "explanation": "'Analyze', 'examine', and 'dissect' all refer to breaking something down or looking at details. 'Synthesize' refers to building something up (combining).",
+          "example_sentence": "When you analyze a contract, you check every detail.",
+          "lexile_score": 1150,
+          "suitable_mastery_levels": [5]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which action is the most different from the others?",
+          "options": { "choices": ["Investigate", "Study", "Guess", "Probe"] },
+          "correct_answers": ["Guess"],
+          "explanation": "'Investigate', 'study', and 'probe' imply a methodical effort to find information (analysis). To 'guess' implies answering without any analysis or proof.",
+          "example_sentence": "Scientists do not simply guess; they analyze facts to prove their theories.",
+          "lexile_score": 1180,
+          "suitable_mastery_levels": [5]
+        }
+      ]
+    }
+  ]
+}
+```
+
+**YOUR TASK**
+Now, process the following JSON input according to the rules, make sure the output is a JSON object strictly following the format shown above.
+
+```json
+{
+  "target_lexile_level": 650,
+  "words": [
+    {
+      "term": "ceramic",
+      "part_of_speech": "noun",
+      "definition": "an object made of clay that has been permanently hardened by baking it in a very hot oven",
+      "example_sentence": "The artist painted a beautiful pattern on the ceramic before firing it to make a strong bowl."
+    },
+    {
+      "term": "mural",
+      "part_of_speech": "noun",
+      "definition": "a large picture painted directly on a wall or ceiling",
+      "example_sentence": "The students worked together to paint a colorful mural on the side of their school building."
+    },
+    {
+      "term": "glaze",
+      "part_of_speech": "noun",
+      "definition": "a liquid coating painted onto clay that turns into a shiny, glass-like surface when heated",
+      "example_sentence": "She applied a bright blue glaze to her clay pot to make it smooth and waterproof."
+    },
+    {
+      "term": "installation",
+      "part_of_speech": "noun",
+      "definition": "a large piece of art built to fit into a specific room or space, often designed so people can walk around or through it",
+      "example_sentence": "The museum featured an amazing art installation made entirely of thousands of hanging paper butterflies."
+    },
+    {
+      "term": "weaver",
+      "part_of_speech": "noun",
+      "definition": "a person who makes cloth or rugs by crossing threads over and under each other",
+      "example_sentence": "The skilled weaver used many brightly colored yarns to create a beautiful and warm blanket."
+    },
+    {
+      "term": "loom",
+      "part_of_speech": "noun",
+      "definition": "a machine or wooden frame used for weaving thread or yarn into cloth",
+      "example_sentence": "He sat at the large wooden loom and carefully guided the threads to make a scarf."
+    }
+  ]
+}
+```
+
+
+=== USER PROMPT ===
+(empty)
+
+=== RAW RESPONSE ===
+{
+  "generated_question_sets": [
+    {
+      "term": "ceramic",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What does the word 'ceramic' mean?",
+          "options": {
+            "choices": [
+              "An object made of baked clay",
+              "A piece of soft woven cloth",
+              "A shiny metal tool",
+              "A painting on a wet wall"
+            ]
+          },
+          "correct_answers": [
+            "An object made of baked clay"
+          ],
+          "explanation": "A 'ceramic' is a hard item created by shaping clay and baking it in a very hot oven. Cloth, metal, and paintings are made of completely different materials.",
+          "example_sentence": "She poured hot tea into her favorite ceramic mug without worrying that it would melt.",
+          "lexile_score": 620,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A ceramic is an object made of soft clay that never hardens.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false because a 'ceramic' must be baked at high heat, which makes the clay harden permanently so it is no longer soft.",
+          "example_sentence": "The museum displayed a ceramic plate that had survived in the ground for hundreds of years.",
+          "lexile_score": 650,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "Which material is used to create a ceramic?",
+          "options": {
+            "choices": [
+              "Clay that is heated",
+              "Wood that is carved",
+              "Glass that is blown",
+              "Paper that is folded"
+            ]
+          },
+          "correct_answers": [
+            "Clay that is heated"
+          ],
+          "explanation": "To make a 'ceramic', a person shapes wet clay and then uses extreme heat to turn it into a solid, hard object.",
+          "example_sentence": "The heavy ceramic planter kept the large indoor tree from tipping over.",
+          "lexile_score": 630,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word is the best synonym for a 'ceramic' object?",
+          "options": {
+            "choices": [
+              "Pottery",
+              "Plastic",
+              "Fabric",
+              "Metal"
+            ]
+          },
+          "correct_answers": [
+            "Pottery"
+          ],
+          "explanation": "'Pottery' is a synonym because both words refer to objects made from shaped and baked earth or clay. Plastic, fabric, and metal are entirely different substances.",
+          "example_sentence": "He bought a beautifully painted ceramic vase from the local artist.",
+          "lexile_score": 660,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Where must you place clay to turn it into a hard ceramic?",
+          "options": {
+            "choices": [
+              "In a very hot oven",
+              "In a cold freezer",
+              "In a bowl of water",
+              "In a dark box"
+            ]
+          },
+          "correct_answers": [
+            "In a very hot oven"
+          ],
+          "explanation": "Clay only becomes a permanent 'ceramic' when it is baked in a very hot oven called a kiln. Freezing, soaking, or hiding the clay will not harden it permanently.",
+          "example_sentence": "After shaping the bowl, she carefully placed the delicate ceramic into the hot kiln to bake.",
+          "lexile_score": 640,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What happens to wet clay when it successfully becomes a ceramic?",
+          "options": {
+            "choices": [
+              "It hardens permanently",
+              "It melts into a liquid",
+              "It turns totally invisible",
+              "It becomes soft and fluffy"
+            ]
+          },
+          "correct_answers": [
+            "It hardens permanently"
+          ],
+          "explanation": "The process of making a 'ceramic' permanently changes the soft clay into a rigid, hard structure that cannot be made soft again.",
+          "example_sentence": "Because it is a ceramic, the baked dish will hold water without turning back into mud.",
+          "lexile_score": 670,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The artist painted a red flower on the _____ before baking it in the hot oven.",
+          "options": {
+            "choices": [
+              "ceramic",
+              "canvas",
+              "mural",
+              "plastic"
+            ]
+          },
+          "correct_answers": [
+            "ceramic"
+          ],
+          "explanation": "A 'ceramic' is something you bake in an oven to harden. You would not bake a canvas, a wall mural, or plastic, as they would burn or melt.",
+          "example_sentence": "Many old kitchens feature decorative ceramic jars for storing flour and sugar.",
+          "lexile_score": 660,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "If you accidentally drop a heavy _____ bowl on a hard floor, it will likely shatter into many pieces.",
+          "options": {
+            "choices": [
+              "ceramic",
+              "wooden",
+              "fabric",
+              "rubber"
+            ]
+          },
+          "correct_answers": [
+            "ceramic"
+          ],
+          "explanation": "A 'ceramic' object is hard but breakable, so it shatters when dropped. Wooden, fabric, and rubber bowls bounce or dent rather than shatter.",
+          "example_sentence": "We had to sweep the floor carefully after the ceramic plate fell off the table.",
+          "lexile_score": 640,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Complete the conversation.\nPerson A: 'I need a cup that can hold boiling tea without melting or burning my hands.'\nPerson B: 'You should use this thick _____ cup that I baked from clay.'",
+          "options": {
+            "choices": [
+              "ceramic",
+              "plastic",
+              "paper",
+              "metal"
+            ]
+          },
+          "correct_answers": [
+            "ceramic"
+          ],
+          "explanation": "Person B mentions baking the cup from clay, which is the exact definition of a 'ceramic'. Plastic, paper, and metal are not made from baked clay.",
+          "example_sentence": "She drank her morning coffee from a heavy ceramic mug to keep it warm.",
+          "lexile_score": 680,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "Which word is the plural form used to describe multiple objects made of baked clay?",
+          "options": {
+            "choices": [
+              "ceramics",
+              "ceramic",
+              "ceramist",
+              "ceramically"
+            ]
+          },
+          "correct_answers": [
+            "ceramics"
+          ],
+          "explanation": "Adding an 's' makes 'ceramics', which is the plural noun. A 'ceramist' is a person, 'ceramic' is singular, and 'ceramically' is not a common noun form.",
+          "example_sentence": "The gallery featured beautiful ceramics made by local artists.",
+          "lexile_score": 690,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which phrase is a common way to describe a waterproof floor made of baked clay squares?",
+          "options": {
+            "choices": [
+              "ceramic tiles",
+              "ceramic blankets",
+              "ceramic rugs",
+              "ceramic clouds"
+            ]
+          },
+          "correct_answers": [
+            "ceramic tiles"
+          ],
+          "explanation": "Tiles are hard squares used for floors, so 'ceramic tiles' is a common, real-world pairing. Blankets, rugs, and clouds cannot be made of hard baked clay.",
+          "example_sentence": "They washed the ceramic tiles on the bathroom floor until they shined.",
+          "lexile_score": 650,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which kitchen item is most commonly described as being 'ceramic'?",
+          "options": {
+            "choices": [
+              "ceramic bowl",
+              "ceramic towel",
+              "ceramic napkin",
+              "ceramic fork"
+            ]
+          },
+          "correct_answers": [
+            "ceramic bowl"
+          ],
+          "explanation": "A bowl is often made from shaped, baked clay, making 'ceramic bowl' a natural pairing. Towels and napkins are made of cloth, and forks are usually metal or plastic.",
+          "example_sentence": "She mixed the cookie dough in a large, blue ceramic bowl.",
+          "lexile_score": 620,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which object does not belong in this group?",
+          "options": {
+            "choices": [
+              "Ceramic vase",
+              "Cotton towel",
+              "Wool blanket",
+              "Feather pillow"
+            ]
+          },
+          "correct_answers": [
+            "Ceramic vase"
+          ],
+          "explanation": "A towel, a blanket, and a pillow are all soft objects made of fabric or feathers. A 'ceramic' vase is a hard, rigid object made of baked clay, making it the odd one out.",
+          "example_sentence": "Unlike a soft pillow, a ceramic sculpture will hurt if it falls on your foot.",
+          "lexile_score": 680,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which material does not belong?",
+          "options": {
+            "choices": [
+              "Liquid water",
+              "Ceramic",
+              "Metal",
+              "Plastic"
+            ]
+          },
+          "correct_answers": [
+            "Liquid water"
+          ],
+          "explanation": "'Ceramic', metal, and plastic are all solid materials used to build strong objects. Liquid water is not a solid material, making it the odd one out.",
+          "example_sentence": "Engineers choose tough materials like steel and ceramic to build strong engines.",
+          "lexile_score": 670,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which item is made using a completely different process than the others?",
+          "options": {
+            "choices": [
+              "Carved wooden spoon",
+              "Ceramic mug",
+              "Baked clay pot",
+              "Porcelain plate"
+            ]
+          },
+          "correct_answers": [
+            "Carved wooden spoon"
+          ],
+          "explanation": "A 'ceramic' mug, a clay pot, and a porcelain plate are all formed from wet earth and hardened by high heat. A wooden spoon is carved from a tree, so it follows a different rule.",
+          "example_sentence": "Potters craft ceramic dishes with heat, while woodworkers rely on sharp carving tools.",
+          "lexile_score": 700,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "term": "mural",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is a mural?",
+          "options": {
+            "choices": [
+              "A large picture painted on a wall",
+              "A small sketch drawn in a book",
+              "A heavy statue made of rock",
+              "A window made of colored glass"
+            ]
+          },
+          "correct_answers": [
+            "A large picture painted on a wall"
+          ],
+          "explanation": "A 'mural' is specifically a very large painting that is applied directly to a wall or a ceiling. It is not a small sketch, a statue, or a window.",
+          "example_sentence": "We stopped to admire the huge mural painted on the side of the grocery store.",
+          "lexile_score": 630,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A mural is a very small picture that can easily fit inside your pocket.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false because a 'mural' is a large piece of art painted directly onto a big surface, like a building wall or a ceiling.",
+          "example_sentence": "Because the mural covered the entire wall, it took three artists a month to finish.",
+          "lexile_score": 660,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "Where is a mural usually painted?",
+          "options": {
+            "choices": [
+              "Directly on a wall or ceiling",
+              "On a small piece of loose paper",
+              "Under a quiet river",
+              "On the leaves of a tall tree"
+            ]
+          },
+          "correct_answers": [
+            "Directly on a wall or ceiling"
+          ],
+          "explanation": "The defining feature of a 'mural' is its location; it is always painted directly onto a large architectural surface like a wall or ceiling.",
+          "example_sentence": "The school hired a painter to create a beautiful mural on the library ceiling.",
+          "lexile_score": 640,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which phrase is the best synonym for a 'mural'?",
+          "options": {
+            "choices": [
+              "Wall painting",
+              "Clay pot",
+              "Wooden carving",
+              "Woven rug"
+            ]
+          },
+          "correct_answers": [
+            "Wall painting"
+          ],
+          "explanation": "A 'wall painting' is another name for a 'mural' because both describe artwork painted directly onto a large, flat building surface.",
+          "example_sentence": "The famous wall painting was recognized as the most beautiful mural in the city.",
+          "lexile_score": 650,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What do you need the most to create a mural?",
+          "options": {
+            "choices": [
+              "Lots of paint and a large blank wall",
+              "A small pencil and a notebook",
+              "A sharp knife and a piece of wood",
+              "A sewing needle and some thread"
+            ]
+          },
+          "correct_answers": [
+            "Lots of paint and a large blank wall"
+          ],
+          "explanation": "Because a 'mural' is a large wall painting, an artist needs plenty of paint and a broad, flat wall to create one.",
+          "example_sentence": "The artist brought ten buckets of red paint to begin working on the mural.",
+          "lexile_score": 630,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Who is the person that usually creates a large mural?",
+          "options": {
+            "choices": [
+              "A painter",
+              "A writer",
+              "A baker",
+              "A musician"
+            ]
+          },
+          "correct_answers": [
+            "A painter"
+          ],
+          "explanation": "A 'mural' is a painted work of art, so a painter is the person who uses brushes and colors to create it.",
+          "example_sentence": "The talented painter spent all summer creating a colorful mural in the park.",
+          "lexile_score": 650,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The school asked the students to paint a colorful _____ on the side of the plain brick gym.",
+          "options": {
+            "choices": [
+              "mural",
+              "statue",
+              "ceramic",
+              "sculpture"
+            ]
+          },
+          "correct_answers": [
+            "mural"
+          ],
+          "explanation": "A 'mural' is a painting on a wall. A side of a gym is a large wall, making it the perfect place for a painted picture. Statues, ceramics, and sculptures are 3D objects, not wall paintings.",
+          "example_sentence": "We could see the bright mural on the side of the building from a mile away.",
+          "lexile_score": 670,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "To finish the giant _____, the artist had to stand on a tall ladder to reach the top of the wall.",
+          "options": {
+            "choices": [
+              "mural",
+              "photograph",
+              "sketchpad",
+              "diary"
+            ]
+          },
+          "correct_answers": [
+            "mural"
+          ],
+          "explanation": "A 'mural' is painted directly on a wall. Because walls are tall, artists often need ladders to paint the upper parts. Photographs, sketchpads, and diaries are small and held in the hands.",
+          "example_sentence": "The artist washed his brushes after adding the final details to the wall mural.",
+          "lexile_score": 680,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Complete the conversation.\nPerson A: 'This huge, plain wall outside the library looks so boring.'\nPerson B: 'We should hire an artist to paint a bright _____ on it!'",
+          "options": {
+            "choices": [
+              "mural",
+              "moral",
+              "canvas",
+              "book"
+            ]
+          },
+          "correct_answers": [
+            "mural"
+          ],
+          "explanation": "Person A points out a boring wall. A 'mural' is a wall painting, which would solve the problem perfectly. A 'moral' is a lesson, and a canvas or book are separate objects not painted onto walls.",
+          "example_sentence": "The colorful mural transformed the dull wall into a beautiful piece of art.",
+          "lexile_score": 650,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "What do we call the artist whose job is to paint large pictures on walls?",
+          "options": {
+            "choices": [
+              "muralist",
+              "mural",
+              "murals",
+              "murally"
+            ]
+          },
+          "correct_answers": [
+            "muralist"
+          ],
+          "explanation": "A 'muralist' is the noun for a person who paints murals. 'Mural' is the artwork itself, 'murals' is the plural art, and 'murally' is an adverb.",
+          "example_sentence": "The famous muralist traveled the world to paint sides of tall buildings.",
+          "lexile_score": 670,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which phrase forms a common expression about creating wall art?",
+          "options": {
+            "choices": [
+              "paint a mural",
+              "build a mural",
+              "sing a mural",
+              "weave a mural"
+            ]
+          },
+          "correct_answers": [
+            "paint a mural"
+          ],
+          "explanation": "Because a 'mural' is a picture made with colors and brushes, you 'paint' it. You cannot build, sing, or weave a painting.",
+          "example_sentence": "It took the community two weeks to paint a mural that celebrated their town's history.",
+          "lexile_score": 640,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which adjective commonly describes a large wall painting placed outside for everyone in the city to see?",
+          "options": {
+            "choices": [
+              "public mural",
+              "secret mural",
+              "invisible mural",
+              "pocket mural"
+            ]
+          },
+          "correct_answers": [
+            "public mural"
+          ],
+          "explanation": "When art is placed outside where everyone can easily see it, it is 'public'. Therefore, a 'public mural' is a very common pairing.",
+          "example_sentence": "The mayor proudly cut the ribbon to reveal the new public mural in the town square.",
+          "lexile_score": 680,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which piece of art does not belong in this group?",
+          "options": {
+            "choices": [
+              "Mural",
+              "Statue",
+              "Sculpture",
+              "Wood carving"
+            ]
+          },
+          "correct_answers": [
+            "Mural"
+          ],
+          "explanation": "A statue, a sculpture, and a wood carving are all three-dimensional objects. A 'mural' is a flat, two-dimensional painting on a wall, so it follows a different rule.",
+          "example_sentence": "While a statue takes up physical space on the floor, a mural only decorates a flat wall.",
+          "lexile_score": 700,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which item does not belong?",
+          "options": {
+            "choices": [
+              "Mural",
+              "Sketchpad",
+              "Notebook",
+              "Canvas"
+            ]
+          },
+          "correct_answers": [
+            "Mural"
+          ],
+          "explanation": "A sketchpad, notebook, and canvas are small, movable items you can carry with you to draw or paint on. A 'mural' is painted onto a permanent building, making it the odd one out.",
+          "example_sentence": "The artist sketched her ideas in a notebook before starting the giant mural.",
+          "lexile_score": 680,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which artwork is created differently than the others?",
+          "options": {
+            "choices": [
+              "Photograph",
+              "Mural",
+              "Fresco",
+              "Ceiling painting"
+            ]
+          },
+          "correct_answers": [
+            "Photograph"
+          ],
+          "explanation": "A 'mural', a fresco, and a ceiling painting are all artworks created by hand using paint and brushes on walls. A photograph is taken with a camera, making it the odd one out.",
+          "example_sentence": "He took a photograph of the beautiful mural to show his friends back home.",
+          "lexile_score": 690,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "term": "glaze",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is a glaze?",
+          "options": {
+            "choices": [
+              "A liquid coating that turns shiny when heated",
+              "A sharp tool used to cut dry clay",
+              "A type of rough cloth used to clean pots",
+              "A thick mud that stays soft forever"
+            ]
+          },
+          "correct_answers": [
+            "A liquid coating that turns shiny when heated"
+          ],
+          "explanation": "A 'glaze' is a special liquid mixture painted onto pottery. When baked in a hot oven, it melts and turns into a smooth, glass-like surface.",
+          "example_sentence": "The shiny glaze made the clay cup look smooth and colorful.",
+          "lexile_score": 620,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: Glaze is used to make clay look very dull and feel rough.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false because artists add 'glaze' to clay to make it look smooth and shiny, not dull or rough.",
+          "example_sentence": "Without a proper glaze, the clay pot remained rough and powdery to the touch.",
+          "lexile_score": 640,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "Why do potters use glaze on their clay objects?",
+          "options": {
+            "choices": [
+              "To make them shiny and waterproof",
+              "To break them into tiny pieces",
+              "To make them smell like flowers",
+              "To keep them soft and wet"
+            ]
+          },
+          "correct_answers": [
+            "To make them shiny and waterproof"
+          ],
+          "explanation": "When 'glaze' melts in an oven, it seals the clay with a hard, shiny layer that stops water from leaking out.",
+          "example_sentence": "Because of the strong glaze, the bowl could hold soup without leaking.",
+          "lexile_score": 650,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which phrase is the best synonym for 'glaze'?",
+          "options": {
+            "choices": [
+              "Shiny coating",
+              "Heavy stone",
+              "Wooden frame",
+              "Sharp knife"
+            ]
+          },
+          "correct_answers": [
+            "Shiny coating"
+          ],
+          "explanation": "A 'shiny coating' means the same thing as a 'glaze' because both describe a smooth, bright layer added to the surface of an object.",
+          "example_sentence": "The shiny coating was a blue glaze that made the vase look like the ocean.",
+          "lexile_score": 640,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What does a glaze look like after it is heated in a very hot oven?",
+          "options": {
+            "choices": [
+              "It looks shiny like glass",
+              "It looks dry like dirt",
+              "It looks fuzzy like cotton",
+              "It looks rusty like old iron"
+            ]
+          },
+          "correct_answers": [
+            "It looks shiny like glass"
+          ],
+          "explanation": "When extreme heat hits the liquid 'glaze', the ingredients melt together and form a hard, glass-like shine.",
+          "example_sentence": "When she opened the oven, the dull paint had transformed into a bright, glossy glaze.",
+          "lexile_score": 660,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What must you do to a glaze to make it turn shiny and hard?",
+          "options": {
+            "choices": [
+              "Heat it in a very hot oven",
+              "Put it in a cold freezer",
+              "Leave it out in the rain",
+              "Cover it with a thick blanket"
+            ]
+          },
+          "correct_answers": [
+            "Heat it in a very hot oven"
+          ],
+          "explanation": "A 'glaze' requires high temperatures to melt its ingredients into a permanent, shiny surface. Cold or rain will wash it away.",
+          "example_sentence": "The potter painted the glaze onto the mug and then baked it at a high temperature.",
+          "lexile_score": 650,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The artist painted a clear _____ over the clay bowl to make it waterproof.",
+          "options": {
+            "choices": [
+              "glaze",
+              "mural",
+              "dust",
+              "shadow"
+            ]
+          },
+          "correct_answers": [
+            "glaze"
+          ],
+          "explanation": "A 'glaze' is a liquid layer added to clay to make it waterproof. You cannot paint a wall mural, dust, or a shadow to waterproof a bowl.",
+          "example_sentence": "The clear glaze protected the colorful design painted underneath it.",
+          "lexile_score": 670,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "After baking, the dull clay transformed because the blue _____ melted into a beautiful, shiny glass surface.",
+          "options": {
+            "choices": [
+              "glaze",
+              "craze",
+              "thread",
+              "smoke"
+            ]
+          },
+          "correct_answers": [
+            "glaze"
+          ],
+          "explanation": "A 'glaze' melts into a shiny glass surface in an oven. 'Craze' is a sound-alike trap. Thread and smoke do not melt into shiny glass.",
+          "example_sentence": "The heat caused the glaze to flow smoothly over the entire plate.",
+          "lexile_score": 660,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Complete the conversation.\nPerson A: 'My clay cup feels rough, and drinks leak right through the sides.'\nPerson B: 'You need to add a _____ to it and bake it again to seal the surface.'",
+          "options": {
+            "choices": [
+              "glaze",
+              "crack",
+              "handle",
+              "shadow"
+            ]
+          },
+          "correct_answers": [
+            "glaze"
+          ],
+          "explanation": "Person A needs to seal a rough, leaking clay cup. A 'glaze' is used to coat and seal clay. Adding a crack, a handle, or a shadow would not stop liquid from leaking.",
+          "example_sentence": "Adding a thick glaze to the bottom of the pot stopped the water from escaping.",
+          "lexile_score": 680,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "What is the adjective form of 'glaze' used to describe a shiny, finished pot?",
+          "options": {
+            "choices": [
+              "glazed",
+              "glaze",
+              "glazes",
+              "glazing"
+            ]
+          },
+          "correct_answers": [
+            "glazed"
+          ],
+          "explanation": "The word 'glazed' is an adjective that describes an object covered in a shiny layer. 'Glaze' and 'glazes' are nouns or verbs, and 'glazing' is an action.",
+          "example_sentence": "The beautifully glazed teapot sat proudly in the middle of the table.",
+          "lexile_score": 650,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which phrase commonly describes a shiny, glass-like coating specifically put on pottery?",
+          "options": {
+            "choices": [
+              "ceramic glaze",
+              "wooden glaze",
+              "fabric glaze",
+              "metal glaze"
+            ]
+          },
+          "correct_answers": [
+            "ceramic glaze"
+          ],
+          "explanation": "Pottery made of baked clay is called a ceramic. Therefore, a 'ceramic glaze' is the correct term for the shiny coating used in pottery. Wood, fabric, and metal do not use clay glazes.",
+          "example_sentence": "She mixed the ceramic glaze carefully so it would melt perfectly in the hot kiln.",
+          "lexile_score": 690,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which verb is most commonly used when talking about putting a shiny coating onto a clay object?",
+          "options": {
+            "choices": [
+              "apply a glaze",
+              "erase a glaze",
+              "listen to a glaze",
+              "break a glaze"
+            ]
+          },
+          "correct_answers": [
+            "apply a glaze"
+          ],
+          "explanation": "Because a 'glaze' is a liquid painted onto an object, artists 'apply' it with a brush. You cannot erase, listen to, or break a liquid coating.",
+          "example_sentence": "He used a wide brush to apply a glaze evenly across the large bowl.",
+          "lexile_score": 660,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": {
+            "choices": [
+              "Clay",
+              "Glaze",
+              "Varnish",
+              "Paint"
+            ]
+          },
+          "correct_answers": [
+            "Clay"
+          ],
+          "explanation": "A 'glaze', varnish, and paint are all thin liquids applied to the surface of an object to protect or color it. Clay is the solid, thick material used to build the object itself.",
+          "example_sentence": "The artist built the vase out of thick clay before covering it with a shiny glaze.",
+          "lexile_score": 680,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which material is used differently than the others to make things smooth?",
+          "options": {
+            "choices": [
+              "Glaze",
+              "Sandpaper",
+              "Metal file",
+              "Wire brush"
+            ]
+          },
+          "correct_answers": [
+            "Glaze"
+          ],
+          "explanation": "Sandpaper, a metal file, and a wire brush all make things smooth by scraping or rubbing material away. A 'glaze' makes things smooth by melting a shiny liquid over the surface.",
+          "example_sentence": "Instead of rubbing the rough spots with sandpaper, she used a thick glaze to smooth the pot.",
+          "lexile_score": 690,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which finish is different from the others?",
+          "options": {
+            "choices": [
+              "Matte finish",
+              "Shiny glaze",
+              "Glossy enamel",
+              "Clear glass"
+            ]
+          },
+          "correct_answers": [
+            "Matte finish"
+          ],
+          "explanation": "A shiny 'glaze', glossy enamel, and clear glass are all bright, reflective, and shiny surfaces. A matte finish is dull and does not reflect light.",
+          "example_sentence": "Unlike the dull matte finish on the wooden block, the ceramic glaze caught the sunlight beautifully.",
+          "lexile_score": 680,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "term": "installation",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is an art installation?",
+          "options": {
+            "choices": [
+              "A large piece of art built to fit a specific space",
+              "A small painting hung on a flat wall",
+              "A quick sketch drawn in a notebook",
+              "A tiny clay pot baked in an oven"
+            ]
+          },
+          "correct_answers": [
+            "A large piece of art built to fit a specific space"
+          ],
+          "explanation": "An 'installation' is a large art piece created directly inside a specific room or outdoor space. It is usually much larger than a regular painting or pot.",
+          "example_sentence": "The new museum installation used thousands of lights to fill the entire dark room.",
+          "lexile_score": 640,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: An art installation is usually a tiny picture that you can hold in one hand.",
+          "options": {
+            "choices": [
+              "False",
+              "True"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false because an 'installation' is a large-scale artwork that often takes up an entire room, so you cannot hold it in your hand.",
+          "example_sentence": "Because the installation was so massive, it took up three rooms in the gallery.",
+          "lexile_score": 660,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is a special feature of many art installations?",
+          "options": {
+            "choices": [
+              "People can walk around or through them",
+              "They are invisible to the human eye",
+              "They fit neatly inside a pocket",
+              "They are always painted on the ceiling"
+            ]
+          },
+          "correct_answers": [
+            "People can walk around or through them"
+          ],
+          "explanation": "Because an 'installation' is often built into a room, artists design them so that visitors can step inside and explore the art from all angles.",
+          "example_sentence": "The children loved the installation because they could walk through the colorful hanging fabrics.",
+          "lexile_score": 650,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word is the best synonym for an art 'installation'?",
+          "options": {
+            "choices": [
+              "Exhibit",
+              "Pencil",
+              "Frame",
+              "Museum"
+            ]
+          },
+          "correct_answers": [
+            "Exhibit"
+          ],
+          "explanation": "An 'exhibit' is a display of art, which is very similar to an 'installation'. A pencil and frame are tools, and a museum is the building itself.",
+          "example_sentence": "The beautiful flower exhibit was the best installation the garden had ever shown.",
+          "lexile_score": 640,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Where are you most likely to walk through a large art installation?",
+          "options": {
+            "choices": [
+              "In an art gallery",
+              "Inside a small car",
+              "In a kitchen sink",
+              "At a grocery checkout"
+            ]
+          },
+          "correct_answers": [
+            "In an art gallery"
+          ],
+          "explanation": "An 'installation' requires a large, open space designed for viewing art, making an art gallery or museum the perfect location.",
+          "example_sentence": "The art gallery closed early so the workers could build the new installation.",
+          "lexile_score": 620,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What do artists have to do when creating a new installation?",
+          "options": {
+            "choices": [
+              "They build and arrange it within the room",
+              "They bake it in a hot oven",
+              "They weave it on a wooden loom",
+              "They print it out from a computer"
+            ]
+          },
+          "correct_answers": [
+            "They build and arrange it within the room"
+          ],
+          "explanation": "To create an 'installation', an artist must physically arrange and build the materials directly in the chosen room or space.",
+          "example_sentence": "It took the team three days to arrange the heavy rocks for the installation.",
+          "lexile_score": 660,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The museum's new _____ fills the entire room with giant, hanging paper stars.",
+          "options": {
+            "choices": [
+              "installation",
+              "drawing",
+              "portrait",
+              "mural"
+            ]
+          },
+          "correct_answers": [
+            "installation"
+          ],
+          "explanation": "An 'installation' is an artwork that fills a room with objects. A drawing or portrait is a flat picture. A mural is painted on a wall, but does not involve hanging paper objects filling the space.",
+          "example_sentence": "Walking into the paper star installation felt like stepping into a magical forest.",
+          "lexile_score": 680,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "We spent twenty minutes walking around the light _____ and admiring the glowing colors in the center of the gallery.",
+          "options": {
+            "choices": [
+              "installation",
+              "illustration",
+              "ceramic",
+              "inflation"
+            ]
+          },
+          "correct_answers": [
+            "installation"
+          ],
+          "explanation": "An 'installation' is a 3D art piece you can walk around. An illustration is a drawing in a book, and a ceramic is usually a small clay pot. 'Inflation' is a tricky sound-alike word.",
+          "example_sentence": "The light installation was so bright that it completely changed the look of the room.",
+          "lexile_score": 690,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Complete the conversation.\nPerson A: 'I heard the gallery has a new room completely filled with giant floating mirrors.'\nPerson B: 'Yes, that new art _____ is completely amazing to walk through.'",
+          "options": {
+            "choices": [
+              "installation",
+              "painting",
+              "statue",
+              "sketch"
+            ]
+          },
+          "correct_answers": [
+            "installation"
+          ],
+          "explanation": "Person A describes a room filled with giant floating mirrors. An 'installation' is an environment built for people to walk through. Paintings and sketches are flat, and a statue is a single solid object.",
+          "example_sentence": "The floating mirror installation confused my eyes in the best possible way.",
+          "lexile_score": 680,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "What is the verb form of the word 'installation' used to describe the action of setting it up?",
+          "options": {
+            "choices": [
+              "install",
+              "installer",
+              "installing",
+              "installed"
+            ]
+          },
+          "correct_answers": [
+            "install"
+          ],
+          "explanation": "To 'install' is the present-tense verb meaning to set up or place something in position. 'Installer' is a noun, and 'installing'/'installed' are different verb tenses.",
+          "example_sentence": "The artist will arrive tomorrow to install the giant metal sculpture in the park.",
+          "lexile_score": 660,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which phrase is a common way to describe a large piece of art built into a specific room?",
+          "options": {
+            "choices": [
+              "art installation",
+              "food installation",
+              "animal installation",
+              "weather installation"
+            ]
+          },
+          "correct_answers": [
+            "art installation"
+          ],
+          "explanation": "Because an 'installation' usually refers to creative works in a gallery, 'art installation' is the correct and common phrase. We do not use this word for food, animals, or weather.",
+          "example_sentence": "The massive art installation won a prize for its creative use of old car parts.",
+          "lexile_score": 630,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which word commonly describes an installation that people are encouraged to touch, move, or play with?",
+          "options": {
+            "choices": [
+              "interactive installation",
+              "sleeping installation",
+              "angry installation",
+              "invisible installation"
+            ]
+          },
+          "correct_answers": [
+            "interactive installation"
+          ],
+          "explanation": "When visitors can interact with the art by touching or changing it, it is called an 'interactive installation'. Installations cannot be sleeping, angry, or invisible.",
+          "example_sentence": "The interactive installation allowed guests to press buttons that changed the colors of the room.",
+          "lexile_score": 680,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which artwork does not belong in this group?",
+          "options": {
+            "choices": [
+              "Installation",
+              "Sketch",
+              "Drawing",
+              "Doodle"
+            ]
+          },
+          "correct_answers": [
+            "Installation"
+          ],
+          "explanation": "A sketch, a drawing, and a doodle are all flat, two-dimensional images drawn on paper. An 'installation' is a large, three-dimensional environment, making it the odd one out.",
+          "example_sentence": "While a drawing sits quietly on a desk, an installation requires a whole room to exist.",
+          "lexile_score": 700,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which place or object follows a different rule?",
+          "options": {
+            "choices": [
+              "Installation",
+              "Museum",
+              "Gallery",
+              "Theater"
+            ]
+          },
+          "correct_answers": [
+            "Installation"
+          ],
+          "explanation": "A museum, gallery, and theater are all physical buildings or venues where people go to see things. An 'installation' is the art piece itself that is placed inside those buildings.",
+          "example_sentence": "You must travel to a gallery or museum to finally view the installation.",
+          "lexile_score": 680,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which item is completely flat compared to the others?",
+          "options": {
+            "choices": [
+              "Canvas",
+              "Installation",
+              "Sculpture",
+              "Statue"
+            ]
+          },
+          "correct_answers": [
+            "Canvas"
+          ],
+          "explanation": "An 'installation', a sculpture, and a statue are all three-dimensional artworks that take up physical space. A canvas is a flat cloth used for painting, making it the odd one out.",
+          "example_sentence": "An installation takes up an entire room, whereas a blank canvas is totally flat.",
+          "lexile_score": 690,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "term": "weaver",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What does a weaver do?",
+          "options": {
+            "choices": [
+              "Makes cloth by crossing threads over and under each other",
+              "Builds tall walls out of heavy stone and brick",
+              "Paints large colorful pictures directly on ceilings",
+              "Bakes wet clay in an oven to make hard pots"
+            ]
+          },
+          "correct_answers": [
+            "Makes cloth by crossing threads over and under each other"
+          ],
+          "explanation": "A 'weaver' is a person who creates fabric, rugs, or blankets by carefully crossing strands of yarn or thread.",
+          "example_sentence": "The weaver worked quietly, crossing the blue and green threads to finish the rug.",
+          "lexile_score": 630,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A weaver is a person who builds houses out of heavy wood and stone.",
+          "options": {
+            "choices": [
+              "False",
+              "True"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false because a 'weaver' works with soft materials like thread and yarn to make cloth, not hard building materials like wood or stone.",
+          "example_sentence": "Instead of building homes, the weaver created warm blankets to keep people comfortable.",
+          "lexile_score": 640,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What material does a weaver mostly use to do their job?",
+          "options": {
+            "choices": [
+              "Thread and yarn",
+              "Wet clay and mud",
+              "Paint and brushes",
+              "Glass and metal"
+            ]
+          },
+          "correct_answers": [
+            "Thread and yarn"
+          ],
+          "explanation": "To make soft cloth or rugs, a 'weaver' uses flexible materials like thread, string, or yarn.",
+          "example_sentence": "The weaver bought a large basket of red yarn to start making a new scarf.",
+          "lexile_score": 610,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which phrase is the best synonym for a 'weaver'?",
+          "options": {
+            "choices": [
+              "Cloth maker",
+              "Car driver",
+              "Wall painter",
+              "Shoe fixer"
+            ]
+          },
+          "correct_answers": [
+            "Cloth maker"
+          ],
+          "explanation": "A 'weaver' creates fabric by crossing threads, so a 'cloth maker' is a perfect matching synonym.",
+          "example_sentence": "The talented cloth maker was known as the fastest weaver in the entire village.",
+          "lexile_score": 620,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What tool does a weaver sit at to make large pieces of cloth?",
+          "options": {
+            "choices": [
+              "A wooden loom",
+              "A hot oven",
+              "A sharp knife",
+              "A heavy hammer"
+            ]
+          },
+          "correct_answers": [
+            "A wooden loom"
+          ],
+          "explanation": "A 'weaver' uses a machine or frame called a loom to hold the threads tight while they work. Ovens, knives, and hammers are not used to weave soft yarn.",
+          "example_sentence": "The weaver sat comfortably at the wooden loom and began sliding the yarn across.",
+          "lexile_score": 650,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What finished product does a weaver usually make?",
+          "options": {
+            "choices": [
+              "Blankets and rugs",
+              "Cups and bowls",
+              "Statues and paintings",
+              "Doors and windows"
+            ]
+          },
+          "correct_answers": [
+            "Blankets and rugs"
+          ],
+          "explanation": "Because a 'weaver' crosses yarns and threads together, they produce soft items like blankets, rugs, and clothing.",
+          "example_sentence": "After weeks of hard work, the weaver finally completed the warm winter blanket.",
+          "lexile_score": 630,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The skilled _____ worked all day to turn the loose yarn into a thick, warm blanket.",
+          "options": {
+            "choices": [
+              "weaver",
+              "painter",
+              "potter",
+              "weather"
+            ]
+          },
+          "correct_answers": [
+            "weaver"
+          ],
+          "explanation": "A 'weaver' turns loose yarn into blankets. A painter uses paint, and a potter uses clay. 'Weather' is a tricky word that sounds similar but means sunshine or rain.",
+          "example_sentence": "By moving her hands quickly, the weaver turned the pile of yarn into a beautiful scarf.",
+          "lexile_score": 660,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "My grandmother is a talented _____ who crosses brightly colored threads together to make beautiful rugs.",
+          "options": {
+            "choices": [
+              "weaver",
+              "sculptor",
+              "dancer",
+              "driver"
+            ]
+          },
+          "correct_answers": [
+            "weaver"
+          ],
+          "explanation": "A 'weaver' is the artist who crosses threads to make rugs. Sculptors carve hard objects, and dancers or drivers do not make rugs.",
+          "example_sentence": "As a skilled weaver, she knew exactly how to mix the colors of the thread.",
+          "lexile_score": 650,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Complete the conversation.\nPerson A: 'How was this beautiful, complicated rug made?'\nPerson B: 'A talented _____ crossed these thick yarns together by hand.'",
+          "options": {
+            "choices": [
+              "weaver",
+              "baker",
+              "painter",
+              "singer"
+            ]
+          },
+          "correct_answers": [
+            "weaver"
+          ],
+          "explanation": "Person A is asking about a rug made of thick yarns. A 'weaver' is the person who creates rugs by crossing yarns. Bakers, painters, and singers do not make rugs.",
+          "example_sentence": "The rug was so perfect that everyone knew a master weaver had made it.",
+          "lexile_score": 640,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "What is the noun that describes the activity or craft of crossing threads to make cloth?",
+          "options": {
+            "choices": [
+              "weaving",
+              "weaver",
+              "weave",
+              "weaved"
+            ]
+          },
+          "correct_answers": [
+            "weaving"
+          ],
+          "explanation": "The word 'weaving' is the noun form that names the craft itself. A 'weaver' is the person, while 'weave' and 'weaved' are verbs.",
+          "example_sentence": "She signed up for a class to learn traditional weaving on a wooden loom.",
+          "lexile_score": 660,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which phrase commonly describes a weaver who makes sturdy containers out of dried grass or thin wood?",
+          "options": {
+            "choices": [
+              "basket weaver",
+              "metal weaver",
+              "glass weaver",
+              "stone weaver"
+            ]
+          },
+          "correct_answers": [
+            "basket weaver"
+          ],
+          "explanation": "A 'basket weaver' crosses flexible grasses or thin wood to make baskets. Metal, glass, and stone are too rigid to be crossed in this way.",
+          "example_sentence": "The basket weaver worked carefully to build a strong container for carrying fruit.",
+          "lexile_score": 650,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which adjective is most commonly used to describe a weaver who has many years of excellent practice?",
+          "options": {
+            "choices": [
+              "skilled weaver",
+              "loud weaver",
+              "spicy weaver",
+              "heavy weaver"
+            ]
+          },
+          "correct_answers": [
+            "skilled weaver"
+          ],
+          "explanation": "Because making cloth by hand takes talent and practice, a 'skilled weaver' is a very natural pairing. Weavers are not described as spicy, heavy, or loud.",
+          "example_sentence": "Only a skilled weaver could create a pattern with so many tiny details.",
+          "lexile_score": 640,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": {
+            "choices": [
+              "Yarn",
+              "Weaver",
+              "Painter",
+              "Sculptor"
+            ]
+          },
+          "correct_answers": [
+            "Yarn"
+          ],
+          "explanation": "A 'weaver', a painter, and a sculptor are all human artists who create things. Yarn is a raw material used by an artist, making it the odd one out.",
+          "example_sentence": "The painter bought canvas, and the weaver bought yarn to start their new projects.",
+          "lexile_score": 680,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which worker follows a completely different rule from the others?",
+          "options": {
+            "choices": [
+              "Blacksmith",
+              "Weaver",
+              "Tailor",
+              "Seamstress"
+            ]
+          },
+          "correct_answers": [
+            "Blacksmith"
+          ],
+          "explanation": "A 'weaver', tailor, and seamstress all work with soft fabric, thread, and clothing. A blacksmith heats and hammers hard metal, making them the odd one out.",
+          "example_sentence": "While the weaver worked silently with soft yarn, the blacksmith hammered loudly on hot iron.",
+          "lexile_score": 700,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which item does not belong?",
+          "options": {
+            "choices": [
+              "Weaver",
+              "Loom",
+              "Needle",
+              "Thread"
+            ]
+          },
+          "correct_answers": [
+            "Weaver"
+          ],
+          "explanation": "A loom, a needle, and thread are all inanimate tools or materials used to make cloth. A 'weaver' is the living person who uses them.",
+          "example_sentence": "The weaver organized his loom, needle, and thread before beginning his work.",
+          "lexile_score": 660,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "term": "loom",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is a loom?",
+          "options": {
+            "choices": [
+              "A machine or frame used for weaving cloth",
+              "A hot oven used for baking clay pots",
+              "A large brush used for painting walls",
+              "A heavy rock used for breaking glass"
+            ]
+          },
+          "correct_answers": [
+            "A machine or frame used for weaving cloth"
+          ],
+          "explanation": "A 'loom' is a specialized wooden frame or machine that holds threads tightly so a person can weave them into cloth.",
+          "example_sentence": "She pushed the wooden parts of the loom back and forth to weave the heavy blanket.",
+          "lexile_score": 630,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A loom is a hot oven used to bake soft clay into a hard ceramic.",
+          "options": {
+            "choices": [
+              "False",
+              "True"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false because a 'loom' is a machine used to make fabric out of yarn, not an oven used to bake clay.",
+          "example_sentence": "The artist kept his clay in the studio, but he kept his weaving loom in the sewing room.",
+          "lexile_score": 640,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is a loom primarily used to make?",
+          "options": {
+            "choices": [
+              "Cloth and rugs",
+              "Statues and monuments",
+              "Paintings and drawings",
+              "Cups and plates"
+            ]
+          },
+          "correct_answers": [
+            "Cloth and rugs"
+          ],
+          "explanation": "Because a 'loom' holds and crosses threads, its primary purpose is to produce woven goods like cloth, blankets, and rugs.",
+          "example_sentence": "He spent two weeks working at the loom to create a beautiful, striped rug.",
+          "lexile_score": 620,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which phrase is the best synonym for a 'loom'?",
+          "options": {
+            "choices": [
+              "Weaving machine",
+              "Painting brush",
+              "Carving knife",
+              "Baking oven"
+            ]
+          },
+          "correct_answers": [
+            "Weaving machine"
+          ],
+          "explanation": "A 'weaving machine' is an excellent synonym for a 'loom' because it describes exactly what the tool does.",
+          "example_sentence": "The factory replaced the old wooden frame with a massive electric weaving machine, or loom.",
+          "lexile_score": 650,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Who is the person that usually operates a loom?",
+          "options": {
+            "choices": [
+              "A weaver",
+              "A painter",
+              "A baker",
+              "A driver"
+            ]
+          },
+          "correct_answers": [
+            "A weaver"
+          ],
+          "explanation": "A weaver is the artist who makes cloth, so they are the person who operates a 'loom' to cross the threads.",
+          "example_sentence": "The weaver sat proudly at her loom as she finished the colorful blanket.",
+          "lexile_score": 630,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What must you load onto a loom before you begin making fabric?",
+          "options": {
+            "choices": [
+              "Long pieces of yarn or thread",
+              "Buckets of wet paint",
+              "Heavy blocks of clay",
+              "Thick pieces of glass"
+            ]
+          },
+          "correct_answers": [
+            "Long pieces of yarn or thread"
+          ],
+          "explanation": "A 'loom' works by holding threads tight so you can cross them. Therefore, you must string long pieces of yarn onto it to begin.",
+          "example_sentence": "He tied the white yarn to the top of the loom to start his new project.",
+          "lexile_score": 640,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "He sat carefully at the wooden _____ and began to pull the long threads tight to make a scarf.",
+          "options": {
+            "choices": [
+              "loom",
+              "easel",
+              "piano",
+              "oven"
+            ]
+          },
+          "correct_answers": [
+            "loom"
+          ],
+          "explanation": "A 'loom' is a wooden frame used to hold threads for making a scarf. An easel holds a canvas for painting, a piano makes music, and an oven bakes food.",
+          "example_sentence": "The heavy wooden loom stood in the corner of the sunny room, waiting for new yarn.",
+          "lexile_score": 660,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The loud machine known as a power _____ clacked back and forth as it quickly wove the heavy fabric.",
+          "options": {
+            "choices": [
+              "loom",
+              "drill",
+              "tractor",
+              "broom"
+            ]
+          },
+          "correct_answers": [
+            "loom"
+          ],
+          "explanation": "A machine that weaves fabric is called a 'loom'. A drill makes holes, a tractor is for farming, and a 'broom' sounds similar but is used for sweeping.",
+          "example_sentence": "The power loom was so fast that it could make ten blankets in a single day.",
+          "lexile_score": 670,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Complete the conversation.\nPerson A: 'I have all this loose yarn, but I cannot hold all the strings tight by myself.'\nPerson B: 'You should use a wooden _____ to hold them in place while you weave.'",
+          "options": {
+            "choices": [
+              "loom",
+              "kiln",
+              "canvas",
+              "mirror"
+            ]
+          },
+          "correct_answers": [
+            "loom"
+          ],
+          "explanation": "Person A needs to hold yarn tight to weave. A 'loom' is the exact tool designed to do this. A kiln is an oven for clay, and a canvas is a flat cloth for painting.",
+          "example_sentence": "By stretching the threads across the loom, she was able to work much faster.",
+          "lexile_score": 680,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "What is the plural form of the noun 'loom' used when talking about more than one weaving machine?",
+          "options": {
+            "choices": [
+              "looms",
+              "loom",
+              "loomed",
+              "looming"
+            ]
+          },
+          "correct_answers": [
+            "looms"
+          ],
+          "explanation": "Adding an 's' to the end makes 'looms', which means multiple weaving machines. 'Loomed' and 'looming' are verbs that mean to appear as a large shadow.",
+          "example_sentence": "The busy factory had over fifty looms running at the same time.",
+          "lexile_score": 640,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which phrase describes a traditional loom that is powered by a person's physical energy instead of electricity?",
+          "options": {
+            "choices": [
+              "hand loom",
+              "foot loom",
+              "head loom",
+              "eye loom"
+            ]
+          },
+          "correct_answers": [
+            "hand loom"
+          ],
+          "explanation": "A 'hand loom' is a very common term for a weaving frame operated entirely by a person's hands and feet. We do not say foot loom, head loom, or eye loom.",
+          "example_sentence": "Before electricity was invented, every piece of cloth had to be made on a hand loom.",
+          "lexile_score": 660,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which adjective is most commonly paired with 'loom' to describe a basic, old-fashioned weaving frame?",
+          "options": {
+            "choices": [
+              "wooden loom",
+              "liquid loom",
+              "invisible loom",
+              "paper loom"
+            ]
+          },
+          "correct_answers": [
+            "wooden loom"
+          ],
+          "explanation": "Because old-fashioned weaving frames were carved from trees, 'wooden loom' is a very common pairing. A loom cannot be made of liquid, be invisible, or be made of weak paper.",
+          "example_sentence": "She discovered a beautiful, antique wooden loom hidden in her grandmother's attic.",
+          "lexile_score": 630,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which machine does not belong in this group?",
+          "options": {
+            "choices": [
+              "Loom",
+              "Oven",
+              "Kiln",
+              "Stove"
+            ]
+          },
+          "correct_answers": [
+            "Loom"
+          ],
+          "explanation": "An oven, a kiln, and a stove are all machines that generate intense heat for cooking or baking. A 'loom' is a mechanical frame used to cross threads, so it does not use heat.",
+          "example_sentence": "While a kiln uses fire to bake clay, a loom relies on moving parts to weave cloth.",
+          "lexile_score": 680,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which item follows a different rule than the others?",
+          "options": {
+            "choices": [
+              "Loom",
+              "Thread",
+              "Yarn",
+              "String"
+            ]
+          },
+          "correct_answers": [
+            "Loom"
+          ],
+          "explanation": "Thread, yarn, and string are all soft, flexible materials used to make things. A 'loom' is the hard machine or tool used to organize those materials.",
+          "example_sentence": "You cannot make a blanket with just yarn; you need a loom to hold it tight.",
+          "lexile_score": 670,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which tool is used for a completely different purpose?",
+          "options": {
+            "choices": [
+              "Hammer",
+              "Loom",
+              "Spindle",
+              "Spinning wheel"
+            ]
+          },
+          "correct_answers": [
+            "Hammer"
+          ],
+          "explanation": "A 'loom', a spindle, and a spinning wheel are all tools designed for making thread, yarn, or cloth. A hammer is used for hitting nails and building with wood or metal.",
+          "example_sentence": "A carpenter reaches for a hammer, but a weaver reaches for the wooden loom.",
+          "lexile_score": 690,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    }
+  ]
+}

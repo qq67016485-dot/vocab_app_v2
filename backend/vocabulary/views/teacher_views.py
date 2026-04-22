@@ -89,9 +89,15 @@ class CurriculumViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class LevelViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Level.objects.all()
     serializer_class = LevelSerializer
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = Level.objects.all()
+        cid = self.request.query_params.get('curriculum_id')
+        if cid:
+            qs = qs.filter(curriculum_id=cid)
+        return qs
 
 
 class WordSetViewSet(viewsets.ModelViewSet):
@@ -448,6 +454,8 @@ class BulkCreateStudentsView(APIView):
         for i, student_data in enumerate(students_data, 1):
             username = student_data.get('username', '').strip()
             password = student_data.get('password', '').strip()
+            first_name = student_data.get('first_name', '').strip()
+            last_name = student_data.get('last_name', '').strip()
             group_name = student_data.get('group_name', '').strip()
 
             if not username or not password:
@@ -456,6 +464,7 @@ class BulkCreateStudentsView(APIView):
 
             student = CustomUser.objects.create_user(
                 username=username, password=password,
+                first_name=first_name, last_name=last_name,
                 role=CustomUser.Role.STUDENT,
             )
             teacher.students.add(student)

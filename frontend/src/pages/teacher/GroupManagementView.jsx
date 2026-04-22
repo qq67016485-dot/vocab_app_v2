@@ -25,9 +25,7 @@ export default function GroupManagementView() {
     } catch (err) {
       console.error("Error fetching data:", err);
       setError('Failed to load data. Please refresh the page.');
-    } finally {
-      setIsLoading(false);
-    }
+    } finally { setIsLoading(false); }
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
@@ -52,44 +50,38 @@ export default function GroupManagementView() {
 
   const handleDelete = async (groupId) => {
     if (window.confirm('Are you sure you want to delete this group? This action cannot be undone.')) {
-      try {
-        await apiClient.delete(`/groups/${groupId}/`);
-        fetchData();
-      } catch (err) {
-        console.error('Failed to delete group:', err);
-        alert('Could not delete the group.');
-      }
+      try { await apiClient.delete(`/groups/${groupId}/`); fetchData(); }
+      catch (err) { console.error('Failed to delete group:', err); alert('Could not delete the group.'); }
     }
   };
 
   if (isLoading) return <p>Loading groups...</p>;
-  if (error) return <p style={{ color: 'red' }}>{error}</p>;
+  if (error) return <p style={{ color: 'var(--t-danger)' }}>{error}</p>;
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2>Manage Student Groups</h2>
-        <button onClick={handleOpenCreateModal}>+ Create New Group</button>
+      <div className="t-page-header">
+        <h1 className="t-page-title">Student Groups</h1>
+        <button className="t-btn t-btn--primary" onClick={handleOpenCreateModal}>+ Create New Group</button>
       </div>
 
       {groups.length === 0 ? (
-        <div className="practice-card" style={{ marginTop: '20px', textAlign: 'center' }}>
-          <p>You haven't created any groups yet.</p>
-          <p>Click "Create New Group" to get started!</p>
-        </div>
+        <div className="t-empty">You haven't created any groups yet. Click "Create New Group" to get started!</div>
       ) : (
-        <div style={{ marginTop: '20px' }}>
+        <div>
           {groups.map(group => (
-            <div key={group.id} className="practice-card" style={{ marginBottom: '15px' }}>
+            <div key={group.id} className="t-card" style={{ marginBottom: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <h3 style={{ marginTop: 0 }}>{group.name}</h3>
-                  <p style={{ color: '#555' }}>{group.description || <em>No description.</em>}</p>
-                  <p><strong>Students ({group.student_count}):</strong> {group.students.map(s => s.username).join(', ') || 'None'}</p>
+                  <div style={{ fontSize: '1rem', fontWeight: 600 }}>{group.name}</div>
+                  <div className="t-hint" style={{ marginTop: 2 }}>{group.description || 'No description.'}</div>
+                  <div className="t-hint" style={{ marginTop: 4 }}>
+                    <strong>{group.student_count} students:</strong> {group.students.map(s => s.username).join(', ') || 'None'}
+                  </div>
                 </div>
-                <div>
-                  <button className="secondary-button" onClick={() => handleOpenEditModal(group)}>Edit</button>
-                  <button className="danger-button" onClick={() => handleDelete(group.id)} style={{ marginLeft: '10px' }}>Delete</button>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button className="t-btn t-btn--secondary t-btn--sm" onClick={() => handleOpenEditModal(group)}>Edit</button>
+                  <button className="t-btn t-btn--danger t-btn--sm" onClick={() => handleDelete(group.id)}>Delete</button>
                 </div>
               </div>
             </div>
@@ -98,13 +90,7 @@ export default function GroupManagementView() {
       )}
 
       {isModalOpen && (
-        <GroupFormModal
-          isOpen={isModalOpen}
-          onClose={handleCloseModal}
-          onSave={handleSave}
-          group={editingGroup}
-          allStudents={allStudents}
-        />
+        <GroupFormModal isOpen={isModalOpen} onClose={handleCloseModal} onSave={handleSave} group={editingGroup} allStudents={allStudents} />
       )}
     </div>
   );

@@ -29,7 +29,8 @@ class GenerationQueueView(APIView):
             {
                 'id': ws.id,
                 'title': ws.title,
-                'unit_or_chapter': ws.unit_or_chapter,
+                'input_source_title': ws.input_source_title,
+                'input_source_chapter': ws.input_source_chapter,
                 'curriculum': ws.curriculum.name if ws.curriculum else None,
                 'level': ws.level.name if ws.level else None,
                 'word_count': len(ws.input_words) if isinstance(ws.input_words, list) else 0,

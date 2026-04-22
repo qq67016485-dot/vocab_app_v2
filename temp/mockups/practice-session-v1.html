@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Practice Session — Mockup</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+body { max-width: 640px; }
+
+.scenario-tabs { display:flex; gap:6px; margin-bottom:20px; position:sticky; top:0; background:#f5f5f5; padding:8px 0; z-index:10; flex-wrap:wrap; }
+.scenario-tab { flex:1; min-width:90px; padding:10px 8px; border:1px solid #ddd; border-radius:10px; background:#fff; cursor:pointer; text-align:center; font-size:11px; font-weight:600; }
+.scenario-tab.active { background:#4a6cf7; color:#fff; border-color:#4a6cf7; }
+
+.practice-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 16px; background:linear-gradient(135deg,#6a74ff,#6ec5ff); border-radius:12px; margin-bottom:16px; color:#fff; }
+.ph-left { display:flex; align-items:center; gap:10px; flex:1; min-width:0; }
+.ph-back { width:32px; height:32px; border-radius:50%; background:rgba(255,255,255,0.2); border:none; color:#fff; font-size:16px; cursor:pointer; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+.ph-title { font-size:15px; font-weight:700; }
+.ph-progress-wrap { flex:1; min-width:60px; }
+.ph-progress-bg { background:rgba(255,255,255,0.3); border-radius:99px; height:7px; overflow:hidden; }
+.ph-progress-fill { background:#fff; height:100%; border-radius:99px; }
+.ph-count { font-size:12px; opacity:.9; margin-top:3px; }
+.ph-end-btn { padding:6px 14px; background:rgba(255,255,255,0.2); border:1px solid rgba(255,255,255,0.4); border-radius:10px; color:#fff; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap; flex-shrink:0; }
+
+.practice-card { background:#fff; border:1px solid #ddd; border-radius:16px; padding:24px 20px; margin-bottom:16px; }
+
+.reason-pill { display:inline-block; background:#eef2ff; color:#4a6cf7; font-size:11px; font-weight:700; padding:3px 10px; border-radius:99px; margin-bottom:12px; text-transform:uppercase; letter-spacing:0.4px; }
+
+.question-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#888; margin-bottom:6px; }
+.question-text { font-size:17px; font-weight:700; color:#1a1a2e; line-height:1.5; margin-bottom:20px; }
+.word-chip { background:#eef2ff; color:#4a6cf7; border-radius:8px; padding:2px 8px; font-weight:700; }
+
+.mc-options { display:flex; flex-direction:column; gap:10px; margin-bottom:20px; }
+.mc-option { display:flex; align-items:center; gap:12px; padding:13px 16px; border-radius:12px; border:2px solid #e0e4ef; cursor:pointer; font-size:14px; transition:border-color .15s,background .15s; }
+.mc-option:hover { border-color:#7986cb; background:#f3f4fb; }
+.mc-option.selected { border-color:#4a6cf7; background:#eef2ff; }
+.mc-option.correct { border-color:#22c55e; background:#dcfce7; }
+.mc-option.wrong { border-color:#ef4444; background:#fee2e2; }
+.option-letter { font-weight:700; font-size:12px; background:#e8eaf6; border-radius:6px; padding:2px 8px; color:#3949ab; min-width:26px; text-align:center; flex-shrink:0; }
+.mc-option.correct .option-letter { background:#c8e6c9; color:#2e7d32; }
+.mc-option.wrong .option-letter { background:#ffcdd2; color:#c62828; }
+
+.next-btn { display:block; width:100%; padding:14px; background:#4a6cf7; color:#fff; border:none; border-radius:12px; font-size:15px; font-weight:700; cursor:pointer; }
+.next-btn:hover { background:#3b5bdb; }
+
+.feedback-banner { border-radius:12px; padding:14px 16px; margin-bottom:16px; display:flex; align-items:flex-start; gap:12px; }
+.feedback-banner.correct { background:#dcfce7; border:1.5px solid #86efac; }
+.feedback-banner.wrong { background:#fee2e2; border:1.5px solid #fca5a5; }
+.fb-icon { font-size:22px; flex-shrink:0; }
+.fb-title { font-weight:700; font-size:15px; margin-bottom:2px; }
+.feedback-banner.correct .fb-title { color:#166534; }
+.feedback-banner.wrong .fb-title { color:#991b1b; }
+.fb-sub { font-size:13px; color:#555; }
+
+.def-box { background:#f8f9ff; border:1px solid #e0e4ef; border-radius:12px; padding:14px 16px; margin-bottom:16px; }
+.def-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#888; margin-bottom:6px; }
+.def-body { font-size:14px; line-height:1.6; margin-bottom:6px; }
+.def-example { font-size:13px; color:#666; font-style:italic; }
+
+.mnemonic-box { background:#f3e5f5; border-radius:10px; padding:10px 14px; margin-bottom:16px; font-size:13px; color:#6a1b9a; }
+.mnemonic-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.4px; color:#8e24aa; margin-bottom:4px; }
+
+.section-label { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#888; margin:16px 0 8px; }
+
+.reflection-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:16px; }
+.reflection-btn { padding:10px 8px; border:1px solid #ddd; border-radius:10px; background:#fafafa; cursor:pointer; font-size:12px; text-align:center; line-height:1.3; }
+.reflection-btn:hover { border-color:#4a6cf7; background:#eef2ff; }
+.reflection-btn.neutral { border-color:#4a6cf7; background:#eef2ff; color:#4a6cf7; font-weight:600; }
+
+.fib-input { width:100%; padding:13px 14px; border:1.5px solid #ddd; border-radius:12px; font-size:15px; outline:none; margin-bottom:10px; }
+.fib-input:focus { border-color:#4a6cf7; box-shadow:0 0 0 3px rgba(74,108,247,.1); }
+.hint-row { display:flex; align-items:center; gap:8px; margin-bottom:16px; }
+.hint-pill { font-size:11px; background:#fff8e1; color:#f57f17; border-radius:20px; padding:3px 10px; font-weight:700; cursor:pointer; border:none; }
+.hint-cost { font-size:11px; color:#aaa; }
+
+.scramble-attempt-box { min-height:54px; border:2px dashed #c5cae9; border-radius:12px; padding:10px 12px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; background:#f8f9ff; }
+.scramble-placeholder { color:#aaa; font-size:13px; font-style:italic; }
+.scramble-word-bank { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+.scramble-word-tile { background:#e8eaf6; color:#283593; border-radius:8px; padding:8px 14px; font-size:14px; font-weight:600; cursor:pointer; border:2px solid transparent; user-select:none; }
+.scramble-word-tile:hover { background:#c5cae9; border-color:#5c6bc0; }
+.scramble-word-tile.used { opacity:0.3; pointer-events:none; }
+.scramble-attempt-box .scramble-word-tile { background:#4a6cf7; color:#fff; border-color:#3b5bdb; }
+.scramble-controls { display:flex; gap:10px; }
+.reset-btn { padding:12px 20px; border-radius:12px; background:#f3f4fb; color:#4a6cf7; font-size:14px; font-weight:700; border:2px solid #c5cae9; cursor:pointer; }
+
+.summary-hero { text-align:center; padding-bottom:20px; }
+.summary-emoji { font-size:48px; margin-bottom:8px; }
+.summary-hero h3 { font-size:22px; font-weight:800; margin-bottom:4px; }
+.summary-hero p { color:#888; font-size:14px; margin-bottom:18px; }
+.metrics-row { display:flex; gap:10px; justify-content:center; }
+.metric-card { background:#f3f4fb; border-radius:12px; padding:12px 16px; flex:1; text-align:center; }
+.metric-value { font-size:20px; font-weight:800; color:#3949ab; }
+.metric-label { font-size:11px; color:#888; margin-top:2px; }
+.summary-divider { border:none; border-top:1px solid #f0f0f0; margin:18px 0; }
+.xp-breakdown { background:#fefce8; border:1px solid #fde68a; border-radius:12px; padding:14px 16px; margin-bottom:16px; }
+.xp-row { display:flex; justify-content:space-between; font-size:13px; padding:3px 0; }
+.xp-row.total { font-weight:800; border-top:1px solid #fde68a; margin-top:4px; padding-top:8px; }
+.xp-bonus { color:#d97706; font-weight:700; }
+.summary-section { margin-bottom:16px; }
+.summary-section h4 { font-size:12px; text-transform:uppercase; letter-spacing:0.5px; color:#888; margin-bottom:10px; font-weight:700; }
+.chip-list { display:flex; flex-wrap:wrap; gap:8px; }
+.summary-chip { background:#dcfce7; color:#166534; border-radius:20px; padding:5px 14px; font-size:13px; font-weight:600; }
+.weakness-list { list-style:none; display:flex; flex-direction:column; gap:8px; }
+.weakness-row { display:flex; justify-content:space-between; align-items:center; background:#fff8e1; border:1px solid #fde68a; border-radius:10px; padding:10px 14px; font-size:13px; }
+.weakness-left { font-weight:600; }
+.weakness-right { font-size:12px; color:#888; }
+.back-home-btn { width:100%; padding:14px; border-radius:12px; background:#4a6cf7; color:#fff; font-size:15px; font-weight:700; border:none; cursor:pointer; margin-top:4px; }
+</style>
+</head><body>
+
+<div class="scenario-tabs">
+  <div class="scenario-tab active" onclick="show('mc-question')">1. MC Question</div>
+  <div class="scenario-tab" onclick="show('correct-fb')">2. Correct FB</div>
+  <div class="scenario-tab" onclick="show('wrong-fb')">3. Wrong FB</div>
+  <div class="scenario-tab" onclick="show('fill-blank')">4. Fill Blank</div>
+  <div class="scenario-tab" onclick="show('scramble')">5. Scramble</div>
+  <div class="scenario-tab" onclick="show('summary')">6. Summary</div>
+</div>
+
+<div class="practice-header">
+  <div class="ph-left">
+    <button class="ph-back">&#8592;</button>
+    <span class="ph-title">Practice</span>
+    <div class="ph-progress-wrap">
+      <div class="ph-progress-bg"><div class="ph-progress-fill" style="width:35%"></div></div>
+      <div class="ph-count">7 / 20</div>
+    </div>
+  </div>
+  <button class="ph-end-btn">End Session</button>
+</div>
+
+<!-- 1. MC Question -->
+<div id="sc-mc-question">
+  <div class="practice-card">
+    <div class="reason-pill">&#127775; Mastery Check</div>
+    <div class="question-label">Choose the Best Definition</div>
+    <div class="question-text">What does <span class="word-chip">alleviate</span> mean?</div>
+    <div class="mc-options">
+      <div class="mc-option" onclick="selectOpt(this)"><span class="option-letter">A</span>To make a problem or pain less severe</div>
+      <div class="mc-option" onclick="selectOpt(this)"><span class="option-letter">B</span>To completely eliminate a disease</div>
+      <div class="mc-option" onclick="selectOpt(this)"><span class="option-letter">C</span>To increase the intensity of something</div>
+      <div class="mc-option" onclick="selectOpt(this)"><span class="option-letter">D</span>To avoid a difficult situation</div>
+    </div>
+    <button class="next-btn" onclick="show('correct-fb')">Check Answer</button>
+  </div>
+</div>
+
+<!-- 2. Correct Feedback -->
+<div id="sc-correct-fb" style="display:none">
+  <div class="practice-card">
+    <div class="feedback-banner correct">
+      <span class="fb-icon">&#9989;</span>
+      <div><div class="fb-title">Correct! +20 XP</div><div class="fb-sub">Focus streak: 3 &#128293;</div></div>
+    </div>
+    <div class="question-label">The word</div>
+    <div class="question-text"><span class="word-chip">alleviate</span></div>
+    <div class="def-box">
+      <div class="def-label">Definition</div>
+      <div class="def-body">To make suffering, pain, or a problem less severe.</div>
+      <div class="def-example">"Exercise can <em>alleviate</em> symptoms of depression."</div>
+    </div>
+    <div class="mnemonic-box">
+      <div class="mnemonic-label">&#128161; Memory Tip</div>
+      Think "a-LEVI-ate" — like <em>levitating</em> the weight of pain off someone.
+    </div>
+    <div class="section-label">How well did you know this?</div>
+    <div class="reflection-grid">
+      <div class="reflection-btn" onclick="reflect(this)">&#128549; Hard</div>
+      <div class="reflection-btn" onclick="reflect(this)">&#128522; Good</div>
+      <div class="reflection-btn" onclick="reflect(this)">&#128526; Easy</div>
+      <div class="reflection-btn neutral" onclick="reflect(this)">&#9989; Got it</div>
+    </div>
+    <button class="next-btn" onclick="show('wrong-fb')">Next Question &#8594;</button>
+  </div>
+</div>
+
+<!-- 3. Wrong Feedback -->
+<div id="sc-wrong-fb" style="display:none">
+  <div class="practice-card">
+    <div class="feedback-banner wrong">
+      <span class="fb-icon">&#10060;</span>
+      <div><div class="fb-title">Not quite</div><div class="fb-sub">Streak reset — keep going!</div></div>
+    </div>
+    <div class="question-label">The word</div>
+    <div class="question-text"><span class="word-chip">ephemeral</span></div>
+    <div class="wrong-answer-box">
+      <div class="wrong-label">Your answer</div>
+      <div class="wrong-body">Lasting forever; eternal and unchanging.</div>
+    </div>
+    <div class="def-box">
+      <div class="def-label">Correct Definition</div>
+      <div class="def-body">Lasting for a very short time; transitory.</div>
+      <div class="def-example">"The beauty of cherry blossoms is <em>ephemeral</em>."</div>
+    </div>
+    <div class="mnemonic-box">
+      <div class="mnemonic-label">&#128161; Memory Tip</div>
+      Think "e-FEMERAL" — like a fever that burns bright but fades fast.
+    </div>
+    <div class="section-label">How well did you know this?</div>
+    <div class="reflection-grid">
+      <div class="reflection-btn" onclick="reflect(this)">&#128549; Hard</div>
+      <div class="reflection-btn" onclick="reflect(this)">&#128522; Good</div>
+      <div class="reflection-btn" onclick="reflect(this)">&#128526; Easy</div>
+      <div class="reflection-btn neutral" onclick="reflect(this)">&#9989; Got it</div>
+    </div>
+    <button class="next-btn" onclick="show('fill-blank')">Next Question &#8594;</button>
+  </div>
+</div>
+
+<!-- 4. Fill in the Blank -->
+<div id="sc-fill-blank" style="display:none">
+  <div class="practice-card">
+    <div class="reason-pill">&#9997;&#65039; Fill in the Blank</div>
+    <div class="question-label">Complete the sentence</div>
+    <div class="question-text">The doctor prescribed medication to <span class="blank-chip">_______</span> the patient's chronic pain.</div>
+    <input class="fill-input" type="text" placeholder="Type your answer here..." />
+    <div class="hint-row">
+      <span class="hint-label">Hint:</span>
+      <span class="hint-text">Starts with "a", 9 letters</span>
+    </div>
+    <button class="next-btn" onclick="show('scramble')">Check Answer</button>
+  </div>
+</div>
+
+<!-- 5. Word Scramble -->
+<div id="sc-scramble" style="display:none">
+  <div class="practice-card">
+    <div class="reason-pill">&#129527; Word Scramble</div>
+    <div class="question-label">Unscramble the word</div>
+    <div class="question-text">Rearrange the tiles to form the correct vocabulary word.</div>
+    <div class="scramble-def-box">Definition: <em>Present everywhere at the same time.</em></div>
+    <div class="scramble-tiles" id="scramble-tiles">
+      <div class="scramble-word-tile">U</div>
+      <div class="scramble-word-tile">Q</div>
+      <div class="scramble-word-tile">I</div>
+      <div class="scramble-word-tile">T</div>
+      <div class="scramble-word-tile">U</div>
+      <div class="scramble-word-tile">I</div>
+      <div class="scramble-word-tile">O</div>
+      <div class="scramble-word-tile">T</div>
+      <div class="scramble-word-tile">U</div>
+      <div class="scramble-word-tile">S</div>
+    </div>
+    <div class="scramble-answer" id="scramble-answer"></div>
+    <div class="scramble-controls">
+      <button class="reset-btn" onclick="resetScramble()">&#8635; Reset</button>
+      <button class="next-btn" style="flex:1" onclick="show('summary')">Check Answer</button>
+    </div>
+  </div>
+</div>
+
+<!-- 6. Session Summary -->
+<div id="sc-summary" style="display:none">
+  <div class="practice-card">
+    <div class="summary-hero">
+      <div class="summary-emoji">&#127881;</div>
+      <h3>Session Complete!</h3>
+      <p>Great work on today's practice session.</p>
+      <div class="metrics-row">
+        <div class="metric-card"><div class="metric-value">20</div><div class="metric-label">Words Practiced</div></div>
+        <div class="metric-card"><div class="metric-value">85%</div><div class="metric-label">Accuracy</div></div>
+        <div class="metric-card"><div class="metric-value">12</div><div class="metric-label">Streak</div></div>
+      </div>
+    </div>
+    <hr class="summary-divider" />
+    <div class="xp-breakdown">
+      <div class="xp-row"><span>Base XP</span><span>+200 XP</span></div>
+      <div class="xp-row"><span>Accuracy Bonus</span><span class="xp-bonus">+85 XP</span></div>
+      <div class="xp-row"><span>Streak Bonus</span><span class="xp-bonus">+60 XP</span></div>
+      <div class="xp-row total"><span>Total Earned</span><span>+345 XP</span></div>
+    </div>
+    <div class="summary-section">
+      <h4>Words Mastered</h4>
+      <div class="chip-list">
+        <span class="summary-chip">alleviate</span>
+        <span class="summary-chip">ephemeral</span>
+        <span class="summary-chip">ubiquitous</span>
+        <span class="summary-chip">tenacious</span>
+        <span class="summary-chip">lucid</span>
+      </div>
+    </div>
+    <div class="summary-section">
+      <h4>Words to Review</h4>
+      <ul class="weakness-list">
+        <li class="weakness-row"><span class="weakness-left">ephemeral</span><span class="weakness-right">Missed 2x</span></li>
+        <li class="weakness-row"><span class="weakness-left">ubiquitous</span><span class="weakness-right">Missed 1x</span></li>
+      </ul>
+    </div>
+    <button class="back-home-btn" onclick="show('mc-question')">&#127968; Back to Home</button>
+  </div>
+</div>
+
+<script>
+function show(id) {
+  document.querySelectorAll('[id^="sc-"]').forEach(el => el.style.display = 'none');
+  const target = document.getElementById('sc-' + id);
+  if (target) target.style.display = 'block';
+  document.querySelectorAll('.scenario-tab').forEach((tab, i) => {
+    tab.classList.remove('active');
+  });
+  const map = {'mc-question':0,'correct-fb':1,'wrong-fb':2,'fill-blank':3,'scramble':4,'summary':5};
+  if (map[id] !== undefined) document.querySelectorAll('.scenario-tab')[map[id]].classList.add('active');
+}
+
+function selectOpt(el) {
+  document.querySelectorAll('.mc-option').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+function reflect(el) {
+  document.querySelectorAll('.reflection-btn').forEach(b => b.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+function resetScramble() {
+  const tiles = document.querySelectorAll('.scramble-word-tile');
+  tiles.forEach(t => t.style.opacity = '1');
+  document.getElementById('scramble-answer').innerHTML = '';
+}
+
+document.querySelectorAll('.scramble-word-tile').forEach(tile => {
+  tile.addEventListener('click', function() {
+    const answer = document.getElementById('scramble-answer');
+    const clone = this.cloneNode(true);
+    clone.style.background = '#22c55e';
+    clone.style.borderColor = '#16a34a';
+    answer.appendChild(clone);
+    this.style.opacity = '0.3';
+  });
+});
+</script>
+</body></html>

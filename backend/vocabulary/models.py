@@ -251,6 +251,10 @@ class UserAnswer(models.Model):
         default=0,
         help_text='Number of times the user changed their answer before submitting.',
     )
+    retry_count = models.IntegerField(
+        default=0,
+        help_text='Number of scaffolded retry attempts after the initial wrong answer.',
+    )
     answered_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -273,8 +277,13 @@ class Curriculum(models.Model):
 
 
 class Level(models.Model):
+    curriculum = models.ForeignKey(
+        'Curriculum', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='levels',
+        help_text='The program this level belongs to, if any.',
+    )
     name = models.CharField(
-        max_length=100, unique=True,
+        max_length=100,
         help_text='The grade or difficulty level, e.g., "Grade 2".',
     )
     order = models.IntegerField(
@@ -283,6 +292,7 @@ class Level(models.Model):
 
     class Meta:
         ordering = ['order', 'name']
+        unique_together = [('curriculum', 'name')]
 
     def __str__(self):
         return self.name
@@ -335,8 +345,6 @@ class WordSet(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        if self.unit_or_chapter:
-            return f"'{self.title} - {self.unit_or_chapter}' by {self.creator.username}"
         return f"'{self.title}' by {self.creator.username}"
 
 

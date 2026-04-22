@@ -1,12 +1,15 @@
 import React from 'react';
 import { Outlet } from 'react-router-dom';
 import Navbar from '../Navbar.jsx';
+import '../../styles/teacher.css';
 
 export default function TeacherLayout() {
   return (
-    <div className="cc-shell">
+    <div className="teacher-portal">
       <Navbar />
-      <Outlet />
+      <div className="t-shell">
+        <Outlet />
+      </div>
     </div>
   );
 }

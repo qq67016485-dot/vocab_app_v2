@@ -53,7 +53,7 @@
   background: var(--primary) !important;
   border: 1px solid var(--primary) !important;
   color: var(--primary-contrast) !important;
-  border-radius: 12px;
+  border-radius: var(--radius-btn);
   font-weight: 700;
   box-shadow: var(--shadow-1);
 }
@@ -67,7 +67,7 @@
   background: #fff !important;
   color: var(--primary) !important;
   border: 1px solid var(--primary) !important;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-weight: 700;
 }
 [data-app="student"] .patterns-callout :is(.callout-cta, .btn):hover {
@@ -81,7 +81,7 @@
   background: #fff !important;
   color: var(--primary) !important;
   border: 1px solid var(--primary) !important;
-  border-radius: 12px;
+  border-radius: var(--radius-btn);
   font-weight: 700;
 }
 
@@ -114,14 +114,25 @@
   outline: 2px solid color-mix(in oklab, var(--primary) 35%, #fff) !important;
 }
 
+/* Correct answer highlight after scaffolded retry */
+[data-app="student"] .mc-option-button.correct-answer {
+  background: #f0fdf4 !important;
+  border-color: #86efac !important;
+  color: #166534 !important;
+  box-shadow: inset 3px 0 0 var(--success, #16a34a) !important;
+}
+
 /* Submit button (practice) → filled CTA */
 [data-app="student"] .practice-card :is(button[type="submit"], .btn-primary, .submit, .btn.btn-primary) {
   background: var(--primary) !important;
   border: 1px solid var(--primary) !important;
   color: var(--primary-contrast) !important;
   border-radius: 12px;
+  font-size: 19px;
   font-weight: 700;
+  padding: .75rem 1rem;
 }
+
 
 /* Question "note" above the title */
 [data-app="student"] .question-heading {
@@ -154,11 +165,21 @@
   background: var(--primary) !important;
   border: 1px solid var(--primary) !important;
   color: var(--primary-contrast) !important;
-  border-radius: 12px !important;
-  font-weight: 700 !important;
+  border-radius: var(--radius-btn);
+  font-weight: 700;
 }
 [data-app="student"] :is(.next-question, .feedback-actions .btn-primary):hover {
   background: color-mix(in oklab, var(--primary) 88%, #fff) !important;
+}
+
+/* "I read the explanation" → themed outline */
+[data-app="student"] .read-explanation {
+  background: #fff !important;
+  color: var(--primary) !important;
+  border: 1px solid var(--primary) !important;
+}
+[data-app="student"] .read-explanation:hover {
+  background: color-mix(in oklab, var(--primary) 10%, #fff) !important;
 }
 
 /* ========== SESSION SUMMARY ========== */
@@ -166,121 +187,96 @@
 [data-app="student"] .summary-hero {
   background: color-mix(in oklab, var(--primary) 6%, #f7f9ff) !important;
   border: 1px solid #e7eaf3 !important;
-  border-radius: 18px !important;
-  padding: 1.25rem 1.5rem !important;
+  border-radius: var(--radius-card);
+  padding: 1.5rem 1.75rem;
   box-shadow: var(--shadow-1);
 }
 
 [data-app="student"] .metrics-row {
-  display: grid !important;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-  gap: var(--space-4) !important;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
 }
 
 [data-app="student"] .metric-card {
   background: #fff !important;
   border: 1px solid #e7eaf3 !important;
-  border-radius: 14px !important;
-  padding: 1rem 1.25rem !important;
+  border-radius: var(--radius-card);
+  padding: 1.25rem 1.5rem;
   box-shadow: var(--shadow-1);
 }
-[data-app="student"] .metric-value { font-size: 1.6rem !important; font-weight: 800 !important; letter-spacing: .2px; }
-[data-app="student"] .metric-label { color: var(--muted) !important; margin-top: .35rem !important; font-weight: 600 !important; }
+[data-app="student"] .metric-value { font-size: 1.85rem; font-weight: 800; letter-spacing: .2px; }
+[data-app="student"] .metric-label { color: var(--muted) !important; margin-top: .35rem; font-weight: 600; }
 
-[data-app="student"] .chip-list { gap: .45rem !important; }
+[data-app="student"] .chip-list { gap: .45rem; }
 
-[data-app="student"] .weakness-list { gap: .8rem !important; }
+[data-app="student"] .weakness-list { gap: .8rem; }
 [data-app="student"] .weakness-row {
   background: #fff !important;
   border: 1px solid #e7eaf3 !important;
-  border-radius: 12px !important;
-  padding: 1rem 1.25rem !important;
+  border-radius: var(--radius-btn);
+  padding: 1.25rem 1.5rem;
   box-shadow: var(--shadow-1);
 }
-[data-app="student"] .weakness-left .word-and-tts { gap: .5rem !important; }
-[data-app="student"] .weakness-left .word-and-tts strong { font-weight: 700 !important; }
+[data-app="student"] .weakness-left .word-and-tts { gap: .5rem; }
+[data-app="student"] .weakness-left .word-and-tts strong { font-weight: 700; }
 
 /* Back to Home – themed full-width pill */
 [data-app="student"] :is(.back-home, .btn-primary.back-home) {
   background: var(--primary) !important;
   border: 1px solid var(--primary) !important;
   color: var(--primary-contrast) !important;
-  border-radius: 999px !important;
-  padding: .85rem 1rem !important;
-  font-weight: 700 !important;
+  border-radius: var(--radius-pill);
+  padding: .85rem 1rem;
+  font-weight: 700;
   box-shadow: var(--shadow-1);
 }
 
 /* Inner spacing/gaps inside the summary container */
-[data-app="student"] .session-summary .summary-section { padding: 1rem 1.25rem !important; }
+[data-app="student"] .session-summary .summary-section { padding: 1.25rem 1.5rem; }
 [data-app="student"] .session-summary .summary-section.chips {
-  padding-block: .75rem !important;
-  padding-inline: 1.25rem !important;
+  padding-block: 1rem;
+  padding-inline: 1.5rem;
 }
-[data-app="student"] .session-summary .weakness-list { padding-left: 0 !important; margin: 0 !important; gap: .8rem !important; }
-[data-app="student"] .session-summary .weakness-row { padding: 1rem 1.25rem !important; border-radius: 12px !important; }
-[data-app="student"] .session-summary .word-and-tts { gap: .6rem !important; }
-[data-app="student"] .session-summary .tts-button { margin-right: .05rem !important; }
+[data-app="student"] .session-summary .weakness-list { padding-left: 0; margin: 0; gap: 1rem; }
+[data-app="student"] .session-summary .weakness-row { padding: 1.25rem 1.5rem; border-radius: var(--radius-btn); }
+[data-app="student"] .session-summary .word-and-tts { gap: .6rem; }
+[data-app="student"] .session-summary .tts-button { margin-right: .05rem; }
 
 /* ========== LEARNING PATTERNS: skill tag on its own line ========== */
 
 [data-app="student"] .lp-card .focus-item .word-and-tts {
-  display: flex !important;
+  display: flex;
   align-items: center;
   gap: .5rem;
-  flex-wrap: wrap !important;
+  flex-wrap: wrap;
 }
 /* force a break before the chip but keep the chip auto-width */
 [data-app="student"] .lp-card .focus-item .word-and-tts::after {
-  content: "" !important;
-  order: 9 !important;
-  flex-basis: 100% !important;
+  content: "";
+  order: 9;
+  flex-basis: 100%;
 }
 [data-app="student"] .lp-card .focus-item .word-and-tts .pattern-chip {
-  order: 10 !important;
-  flex: 0 0 auto !important;
-  width: auto !important;
-  max-width: max-content !important;
-  align-self: flex-start !important;
-  margin-top: .3rem !important;
+  order: 10;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: max-content;
+  align-self: flex-start;
+  margin-top: .3rem;
 }
 
-/* ========== PRACTICE HEADER (COMPACT) – match "green" mock ========== */
+/* ========== PRACTICE HEADER (COMPACT) ========== */
 
-[data-app="student"] .practice-header.compact {
-  display: grid;
-  grid-template-columns: auto 1fr auto;  /* title | progress | button */
-  align-items: center;
-  gap: var(--space-4);
-  padding: .5rem .75rem;
-  background: #f7f9fc;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-}
-[data-app="student"] .practice-header.compact h2 {
-  margin: 0;
-  white-space: nowrap;
-}
-/* count to the right of the bar */
-[data-app="student"] .practice-header.compact .session-progress-count {
-  font-size: .9rem;
-  color: var(--muted);
-}
-/* compact header uses a SMALL filled CTA for End Session */
+/* End Session button in compact header */
 [data-app="student"] .practice-header.compact .end-session {
   background: var(--primary) !important;
   color: var(--primary-contrast) !important;
   border: 1px solid var(--primary) !important;
-  border-radius: 8px;
-  padding: .4rem .65rem;
+  border-radius: var(--radius-btn);
+  padding: .5rem .8rem;
   font-weight: 700;
   line-height: 1;
-}
-/* bar look in compact header */
-[data-app="student"] .practice-header.compact .session-progress {
-  height: 10px;
-  border-radius: 999px;
-  background: #ddd;
 }
 
 /* Title row: keep heading and switcher on one line */
@@ -299,7 +295,7 @@
 [data-app="student"] .theme-button-wrap.compact .theme-trigger {
   padding: .35rem .7rem;
   border: 1px solid var(--primary);
-  border-radius: 12px;
+  border-radius: var(--radius-btn);
   font-weight: 700;
   line-height: 1;
   color: var(--primary);
@@ -323,7 +319,7 @@
 
 /* Utility for hidden labels (kept here if you ever use the visible select fallback) */
 [data-app="student"] .sr-only {
-  position: absolute !important;
+  position: absolute;
   width: 1px; height: 1px;
   overflow: hidden; clip: rect(0 0 0 0);
   white-space: nowrap;

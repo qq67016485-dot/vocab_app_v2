@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Set B — Mission Board</title>
+<link rel="stylesheet" href="../shared.css">
+<style>
+.daily-ring-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.ring-label { font-size: 13px; }
+.mission-card { cursor: pointer; transition: box-shadow 0.15s; }
+.mission-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+</style>
+</head><body>
+
+<!-- Top bar -->
+<div class="top-bar">
+  <span>Hi, <strong>Emma</strong></span>
+  <div style="display:flex; align-items:center; gap:10px;">
+    <span class="badge">Lv 12</span>
+    <span>🔥 7</span>
+  </div>
+</div>
+
+<!-- Daily progress ring -->
+<div class="daily-ring-row">
+  <div class="progress-ring filled-60">3/5</div>
+  <div>
+    <div style="font-weight:600;">Today's Missions</div>
+    <div class="ring-label text-muted">3 of 5 completed · +45 XP earned</div>
+  </div>
+</div>
+
+<!-- Available Missions -->
+<div class="section-title">Available Missions</div>
+
+<!-- Mission 1: Learn -->
+<a href="mission-learn.html" style="text-decoration:none; color:inherit;">
+<div class="card mission-card">
+  <div class="mission-info" style="display:flex; gap:12px; align-items:flex-start;">
+    <div class="mission-icon">📚</div>
+    <div>
+      <div class="card-header" style="font-size:15px; margin-bottom:2px;">Learn Ocean Words</div>
+      <div class="card-sub">5 new words from Science Set — Pack 3</div>
+      <div class="mission-meta">
+        <span>~5 min</span>
+        <span>+25 XP</span>
+        <span class="chip chip-blue" style="font-size:10px;">Learn</span>
+      </div>
+    </div>
+  </div>
+</div>
+</a>
+
+<!-- Mission 2: Review -->
+<a href="mission-review.html" style="text-decoration:none; color:inherit;">
+<div class="card mission-card">
+  <div class="mission-info" style="display:flex; gap:12px; align-items:flex-start;">
+    <div class="mission-icon">🧠</div>
+    <div>
+      <div class="card-header" style="font-size:15px; margin-bottom:2px;">Review 6 Due Words</div>
+      <div class="card-sub">These words are ready for their next review</div>
+      <div class="mission-meta">
+        <span>~3 min</span>
+        <span>+30 XP</span>
+        <span class="chip chip-green" style="font-size:10px;">Review</span>
+      </div>
+    </div>
+  </div>
+</div>
+</a>
+
+<!-- Mission 3: Challenge -->
+<a href="mission-challenge.html" style="text-decoration:none; color:inherit;">
+<div class="card mission-card">
+  <div class="mission-info" style="display:flex; gap:12px; align-items:flex-start;">
+    <div class="mission-icon">🎯</div>
+    <div>
+      <div class="card-header" style="font-size:15px; margin-bottom:2px;">Collocation Challenge</div>
+      <div class="card-sub">Practice your trickiest skill: word partners</div>
+      <div class="mission-meta">
+        <span>~4 min</span>
+        <span>+20 XP</span>
+        <span class="chip chip-orange" style="font-size:10px;">Challenge</span>
+      </div>
+    </div>
+  </div>
+</div>
+</a>
+
+<!-- Mission 4: Mastery (locked until review done) -->
+<div class="card mission-card" style="opacity: 0.5;">
+  <div class="mission-info" style="display:flex; gap:12px; align-items:flex-start;">
+    <div class="mission-icon">⬆️</div>
+    <div>
+      <div class="card-header" style="font-size:15px; margin-bottom:2px;">Level Up: "habitat"</div>
+      <div class="card-sub">1 point away from Advanced! Answer 1 question correctly.</div>
+      <div class="mission-meta">
+        <span>~1 min</span>
+        <span>+15 XP</span>
+        <span class="chip chip-purple" style="font-size:10px;">Mastery</span>
+      </div>
+    </div>
+  </div>
+  <p class="text-muted" style="font-size:11px; margin-top:6px;">Unlocks after Review mission</p>
+</div>
+
+<!-- Completed missions -->
+<div class="section-title">Completed Today</div>
+
+<div class="card" style="opacity:0.6;">
+  <div class="mission-info" style="display:flex; gap:12px; align-items:flex-start;">
+    <div class="mission-icon" style="background:#dcfce7;">✅</div>
+    <div>
+      <div style="font-weight:600; font-size:14px; text-decoration:line-through;">Learn Weather Words</div>
+      <div class="text-muted" style="font-size:12px;">+25 XP · 5/5 words learned</div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="opacity:0.6;">
+  <div class="mission-info" style="display:flex; gap:12px; align-items:flex-start;">
+    <div class="mission-icon" style="background:#dcfce7;">✅</div>
+    <div>
+      <div style="font-weight:600; font-size:14px; text-decoration:line-through;">Review 5 Due Words</div>
+      <div class="text-muted" style="font-size:12px;">+20 XP · 4/5 correct</div>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="opacity:0.6;">
+  <div class="mission-info" style="display:flex; gap:12px; align-items:flex-start;">
+    <div class="mission-icon" style="background:#dcfce7;">✅</div>
+    <div>
+      <div style="font-weight:600; font-size:14px; text-decoration:line-through;">Spelling Bee</div>
+      <div class="text-muted" style="font-size:12px;">+15 XP · 3/3 correct</div>
+    </div>
+  </div>
+</div>
+
+<!-- Collapsible progress section -->
+<details style="margin-top:16px;">
+  <summary class="section-title" style="cursor:pointer;">My Progress ▾</summary>
+  <div class="stats-row mt-8">
+    <div class="stat-box"><div class="stat-value">47</div><div class="stat-label">Total Words</div></div>
+    <div class="stat-box"><div class="stat-value">7</div><div class="stat-label">Day Streak</div></div>
+    <div class="stat-box"><div class="stat-value">2,450</div><div class="stat-label">XP</div></div>
+  </div>
+  <a href="#" class="nav-link">View Learning Patterns →</a>
+</details>
+
+<!-- Flow indicator -->
+<hr class="divider">
+<p class="text-muted text-center" style="font-size:11px;">
+  FLOW: <strong>Mission Board</strong> → Pick Mission → Complete → Back to Board → All Done
+</p>
+<p class="nav-link"><a href="../index.html">← Back to all mockups</a></p>
+
+</body></html>

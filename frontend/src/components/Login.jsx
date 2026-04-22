@@ -29,7 +29,7 @@ export default function Login() {
   };
 
   return (
-    <div className="app-shell">
+    <div className="app-shell login-page">
       <h2>Login</h2>
       <form onSubmit={handleSubmit}>
         <div className="form-group">

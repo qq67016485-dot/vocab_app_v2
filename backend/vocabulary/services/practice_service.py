@@ -7,13 +7,13 @@ V2 changes from v1:
 - UserMeaningMastery → UserWordProgress
 - definition_chinese → Translation model lookup
 """
-from datetime import date, timedelta
+from datetime import timedelta
 import string
 import logging
 
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 
 from users.models import CustomUser
@@ -53,7 +53,7 @@ class PracticeService:
 
     @staticmethod
     def update_practice_streak(user):
-        today = date.today()
+        today = timezone.localdate()
         if user.last_practice_date == today:
             return
         yesterday = today - timedelta(days=1)
@@ -112,9 +112,10 @@ class PracticeService:
             return ''
 
     @classmethod
-    def process_answer(cls, user, question_id, user_answer, duration_seconds, answer_switches):
+    def process_answer(cls, user, question_id, user_answer, duration_seconds, answer_switches, is_retry=False):
         with transaction.atomic():
-            cls.update_practice_streak(user)
+            if not is_retry:
+                cls.update_practice_streak(user)
 
             try:
                 question = Question.objects.select_related('word').get(id=question_id)
@@ -158,67 +159,74 @@ class PracticeService:
 
             current_mastery_level_before_update = mastery_record.level
             did_level_up_word = False
+            did_level_up_user = False
             xp_earned = 0
             bonus_info = {}
 
-            if is_correct:
-                mastery_record.mastery_points += 1
-                if mastery_record.mastery_points >= current_mastery_level_before_update.points_to_promote:
-                    try:
-                        next_level = MasteryLevel.objects.get(
-                            level_id=current_mastery_level_before_update.level_id + 1,
-                        )
-                        mastery_record.level = next_level
-                        did_level_up_word = True
-                        if current_mastery_level_before_update.level_id == 1:
-                            xp_earned += 2
-                            bonus_info['new_word_mastery'] = 2
-                    except MasteryLevel.DoesNotExist:
-                        pass
-            else:
-                mastery_record.mastery_points = max(0, mastery_record.mastery_points - 2)
-                if current_mastery_level_before_update.level_id > 1:
-                    try:
-                        previous_level = MasteryLevel.objects.get(
-                            level_id=current_mastery_level_before_update.level_id - 1,
-                        )
-                        if mastery_record.mastery_points < previous_level.points_to_promote:
-                            mastery_record.level = previous_level
-                    except MasteryLevel.DoesNotExist:
-                        pass
+            if not is_retry:
+                if is_correct:
+                    mastery_record.mastery_points += 1
+                    if mastery_record.mastery_points >= current_mastery_level_before_update.points_to_promote:
+                        try:
+                            next_level = MasteryLevel.objects.get(
+                                level_id=current_mastery_level_before_update.level_id + 1,
+                            )
+                            mastery_record.level = next_level
+                            did_level_up_word = True
+                            if current_mastery_level_before_update.level_id == 1:
+                                xp_earned += 2
+                                bonus_info['new_word_mastery'] = 2
+                        except MasteryLevel.DoesNotExist:
+                            pass
+                else:
+                    mastery_record.mastery_points = max(0, mastery_record.mastery_points - 2)
+                    if current_mastery_level_before_update.level_id > 1:
+                        try:
+                            previous_level = MasteryLevel.objects.get(
+                                level_id=current_mastery_level_before_update.level_id - 1,
+                            )
+                            if mastery_record.mastery_points < previous_level.points_to_promote:
+                                mastery_record.level = previous_level
+                        except MasteryLevel.DoesNotExist:
+                            pass
 
-            if mastery_record.level != level_before:
-                MasteryLevelLog.objects.create(
+                if mastery_record.level != level_before:
+                    MasteryLevelLog.objects.create(
+                        user=user,
+                        word=question.word,
+                        old_level=level_before,
+                        new_level=mastery_record.level,
+                    )
+
+                if is_correct:
+                    xp_earned += 5
+                    if current_mastery_level_before_update.level_id >= 4:
+                        xp_earned += 5
+                        bonus_info['good_old_memory'] = 5
+
+                mastery_record.next_review_date = timezone.localdate() + timedelta(
+                    days=mastery_record.level.interval_days,
+                )
+                mastery_record.last_reviewed_at = timezone.now()
+                mastery_record.save()
+
+                UserAnswer.objects.create(
                     user=user,
-                    word=question.word,
-                    old_level=level_before,
-                    new_level=mastery_record.level,
+                    question=question,
+                    user_answer=user_answer,
+                    is_correct=is_correct,
+                    duration_seconds=duration_seconds,
+                    answer_switches=answer_switches,
                 )
 
-            if is_correct:
-                xp_earned += 5
-                if current_mastery_level_before_update.level_id >= 4:
-                    xp_earned += 5
-                    bonus_info['good_old_memory'] = 5
-
-            mastery_record.next_review_date = date.today() + timedelta(
-                days=mastery_record.level.interval_days,
-            )
-            mastery_record.last_reviewed_at = timezone.now()
-            mastery_record.save()
-
-            UserAnswer.objects.create(
-                user=user,
-                question=question,
-                user_answer=user_answer,
-                is_correct=is_correct,
-                duration_seconds=duration_seconds,
-                answer_switches=answer_switches,
-            )
-
-            did_level_up_user = False
-            if xp_earned > 0:
-                did_level_up_user = cls.update_xp_and_level(user, xp_earned)
+                if xp_earned > 0:
+                    did_level_up_user = cls.update_xp_and_level(user, xp_earned)
+            else:
+                UserAnswer.objects.filter(
+                    user=user, question=question,
+                ).order_by('-answered_at').update(
+                    retry_count=models.F('retry_count') + 1,
+                )
 
             remediation_feedback = {}
             if not is_correct:
@@ -229,17 +237,26 @@ class PracticeService:
                     'translation': translation,
                 }
 
-            return {
+            response = {
                 "is_correct": is_correct,
-                "correct_answer": question.correct_answers[0],
+                "is_retry": is_retry,
                 "explanation": question.explanation,
                 "example_sentence": question.example_sentence,
-                "mastery_points": mastery_record.mastery_points,
-                "points_to_promote": mastery_record.level.points_to_promote,
-                "current_level_name": mastery_record.level.level_name,
-                "did_level_up_word": did_level_up_word,
-                "xp_earned": xp_earned,
-                "bonus_info": bonus_info,
-                "did_level_up_user": did_level_up_user,
                 **remediation_feedback,
             }
+
+            if is_correct:
+                response["correct_answer"] = question.correct_answers[0]
+
+            if not is_retry:
+                response.update({
+                    "mastery_points": mastery_record.mastery_points,
+                    "points_to_promote": mastery_record.level.points_to_promote,
+                    "current_level_name": mastery_record.level.level_name,
+                    "did_level_up_word": did_level_up_word,
+                    "xp_earned": xp_earned,
+                    "bonus_info": bonus_info,
+                    "did_level_up_user": did_level_up_user,
+                })
+
+            return response

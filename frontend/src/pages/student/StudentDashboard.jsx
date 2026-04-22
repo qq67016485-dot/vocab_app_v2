@@ -15,6 +15,8 @@ export default function StudentDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showFreezeInfo, setShowFreezeInfo] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [welcomeHasGoalAdjust, setWelcomeHasGoalAdjust] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -45,6 +47,50 @@ export default function StudentDashboard() {
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
   }, []);
+
+  const welcomeMessages = [
+    "Every word you learn opens a new door.",
+    "Your effort yesterday is today's progress.",
+    "Small steps, big growth. Let's go!",
+    "You're building something amazing, one word at a time.",
+    "Showing up is the hardest part — and you're here.",
+  ];
+
+  useEffect(() => {
+    if (!dashboardData) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const lastPrompt = dashboardData.last_goal_prompt_date;
+    const alreadyShownToday = lastPrompt === today;
+    if (alreadyShownToday) return;
+
+    const daysSincePrompt = lastPrompt
+      ? Math.floor((new Date(today) - new Date(lastPrompt)) / 86400000)
+      : Infinity;
+
+    const canAdjust =
+      dashboardData.daily_question_limit >= 30 &&
+      dashboardData.session_goal_total >= dashboardData.daily_question_limit &&
+      dashboardData.practice_streak >= 3 &&
+      daysSincePrompt >= 3;
+
+    setWelcomeHasGoalAdjust(canAdjust);
+    setShowWelcome(true);
+  }, [dashboardData]);
+
+  const dismissWelcome = async (adjustment) => {
+    setShowWelcome(false);
+    if (adjustment !== 0) {
+      const newGoal = Math.max(
+        dashboardData.daily_goal_min,
+        Math.min(dashboardData.daily_question_limit + adjustment, dashboardData.daily_goal_max),
+      );
+      const today = new Date().toISOString().slice(0, 10);
+      sessionStorage.setItem('daily_goal_override', JSON.stringify({ value: newGoal, date: today }));
+    }
+    if (welcomeHasGoalAdjust) {
+      try { await apiClient.post('/student/goal-prompt-shown/'); } catch (e) { /* best-effort */ }
+    }
+  };
 
   if (isLoading) return <p>Loading your dashboard...</p>;
   if (!dashboardData) return <p>Could not load your dashboard data.</p>;
@@ -86,7 +132,7 @@ export default function StudentDashboard() {
     <div className="student-dashboard-v2">
       {/* Hero Navbar */}
       <StudentNavbar
-        username={user?.username}
+        username={user?.first_name || user?.username}
         level={level}
         tierName={tierName}
         xpCurrent={xpCurrent}
@@ -116,9 +162,6 @@ export default function StudentDashboard() {
               {dashboardData.words_due_today > 0 && (
                 <section className="review-card">
                   <h3 className="review-card-title">Review Due Words</h3>
-                  <p className="review-card-desc">
-                    These words are ready for their next review
-                  </p>
                   <div className="review-card-count-row">
                     <span className="review-count">{dashboardData.words_due_today}</span>
                     <span className="review-count-label">words due today</span>
@@ -288,6 +331,56 @@ export default function StudentDashboard() {
           </div>
         </div>
       )}
+      {showWelcome && (
+        <div
+          className="settings-overlay welcome-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Daily Welcome"
+        >
+          <div className="welcome-panel" role="document">
+            <p className="welcome-message">
+              {welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)]}
+            </p>
+            {welcomeHasGoalAdjust ? (
+              <>
+                <p className="welcome-goal-info">
+                  Today's goal: <strong>{dashboardData.daily_question_limit}</strong> questions
+                </p>
+                <div className="welcome-actions">
+                  <button
+                    className="btn-secondary welcome-btn"
+                    type="button"
+                    onClick={() => dismissWelcome(-10)}
+                  >
+                    I'm busy today (-10)
+                  </button>
+                  <button
+                    className="btn-primary welcome-btn"
+                    type="button"
+                    onClick={() => dismissWelcome(0)}
+                  >
+                    Keep my goal
+                  </button>
+                  <button
+                    className="btn-secondary welcome-btn welcome-btn-strong"
+                    type="button"
+                    onClick={() => dismissWelcome(10)}
+                  >
+                    Feeling strong (+10)
+                  </button>
+                </div>
+              </>
+            ) : (
+              <button
+                className="btn-primary welcome-btn"
+                type="button"
+                onClick={() => dismissWelcome(0)}
+              >
+                Let's go!
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </div>
-  );
-}

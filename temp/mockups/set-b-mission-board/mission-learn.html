@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Set B — Learn Mission</title>
+<link rel="stylesheet" href="../shared.css">
+<style>
+.step-indicator { display: flex; gap: 4px; margin-bottom: 16px; }
+.step-dot { flex: 1; height: 4px; border-radius: 99px; background: #e5e5e5; }
+.step-dot.active { background: #4a6cf7; }
+.step-dot.done { background: #22c55e; }
+</style>
+</head><body>
+
+<!-- Mission header -->
+<div class="top-bar">
+  <div>
+    <span class="chip chip-blue">Learn</span>
+    <strong style="margin-left:6px;">Ocean Words</strong>
+  </div>
+  <a href="mission-board.html" class="btn btn-small" style="font-size:11px;">Exit</a>
+</div>
+
+<!-- Step indicator: Primer → Story → Cloze -->
+<div class="step-indicator">
+  <div class="step-dot active"></div>
+  <div class="step-dot active"></div>
+  <div class="step-dot active"></div>
+  <div class="step-dot"></div>
+  <div class="step-dot"></div>
+  <div class="step-dot"></div>
+  <div class="step-dot"></div>
+</div>
+<p class="text-muted text-center mb-16" style="font-size:12px;">Step: Learn Words (3 of 5) → Read Story → Quiz</p>
+
+<!-- Primer Card -->
+<div class="card">
+  <p class="text-muted" style="font-size:12px;">Word 3 of 5</p>
+  <div class="card-header" style="font-size:26px; margin: 8px 0;">habitat 🔊</div>
+  <p class="text-muted mb-8">hab · i · tat</p>
+
+  <div class="placeholder-img">[image of a forest habitat]</div>
+
+  <p style="margin: 12px 0;"><strong>What it means:</strong> The natural home where an animal or plant lives and grows.</p>
+
+  <p class="text-muted" style="font-style:italic;">"The rainforest is a habitat for thousands of different species."</p>
+
+  <p class="mt-8"><a href="#" style="font-size:12px;">Show Translation (中文)</a></p>
+</div>
+
+<a href="#story" class="btn btn-primary btn-big" onclick="document.getElementById('story').style.display='block'; this.style.display='none'; return false;">I got it! Next Word →</a>
+
+<!-- Story phase (shown after primer) -->
+<div id="story" style="display:none;">
+  <div class="card">
+    <p class="text-muted" style="font-size:12px;">Read the Story</p>
+    <div class="card-header mb-8">Ocean Pack — Story</div>
+    <p style="line-height:1.8;">
+      Deep beneath the waves, a colorful <span class="highlight">ecosystem</span> thrives.
+      Tiny fish dart between the coral while a <span class="highlight">predator</span> lurks nearby.
+      The <span class="highlight">habitat</span> provides shelter for hundreds of <span class="highlight">species</span>.
+      Without clean water, this <span class="highlight">biodiversity</span> would disappear.
+    </p>
+    <p class="text-muted mt-8" style="font-size:12px;">Tap highlighted words for definitions</p>
+  </div>
+
+  <a href="#quiz" class="btn btn-primary btn-big" onclick="document.getElementById('quiz').style.display='block'; this.style.display='none'; return false;">I'm Done Reading →</a>
+</div>
+
+<!-- Cloze quiz phase -->
+<div id="quiz" style="display:none;">
+  <div class="card">
+    <p class="text-muted" style="font-size:12px;">Quiz — 1 of 3</p>
+    <p style="font-size:16px; margin: 12px 0;">
+      The rainforest is a _______ for thousands of different species.
+    </p>
+    <div class="options-grid">
+      <div class="option-btn">ecosystem</div>
+      <div class="option-btn">predator</div>
+      <div class="option-btn">habitat</div>
+      <div class="option-btn">species</div>
+    </div>
+  </div>
+  <a href="mission-complete.html" class="btn btn-primary btn-big">Submit →</a>
+</div>
+
+<!-- Flow indicator -->
+<hr class="divider">
+<p class="text-muted text-center" style="font-size:11px;">
+  FLOW: Mission Board → <strong>Learn Mission</strong> (Primer → Story → Cloze) → Mission Complete
+</p>
+<p class="nav-link"><a href="../index.html">← Back to all mockups</a></p>
+
+</body></html>

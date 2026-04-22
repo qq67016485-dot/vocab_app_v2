@@ -107,7 +107,7 @@ class LevelAdmin(admin.ModelAdmin):
 
 @admin.register(WordSet)
 class WordSetAdmin(admin.ModelAdmin):
-    list_display = ('title', 'unit_or_chapter', 'creator', 'is_public', 'created_at')
+    list_display = ('title', 'creator', 'is_public', 'created_at')
     list_filter = ('is_public', 'curriculum', 'level')
     search_fields = ('title', 'creator__username')
     filter_horizontal = ('words',)

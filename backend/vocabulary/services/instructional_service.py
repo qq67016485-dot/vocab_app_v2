@@ -9,11 +9,11 @@ V2 changes from v1:
 - UserMeaningMastery → UserWordProgress
 - meaning_id → word_id
 """
-from datetime import date
 import logging
 
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Prefetch
+from django.utils import timezone
 
 from vocabulary.models import (
     WordPack, WordPackItem, PrimerCardContent, MicroStory, ClozeItem,
@@ -151,7 +151,7 @@ class InstructionalService:
             instructional_status='PENDING',
         ).update(
             instructional_status='READY',
-            next_review_date=date.today(),
+            next_review_date=timezone.localdate(),
         )
 
         return True

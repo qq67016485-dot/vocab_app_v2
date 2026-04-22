@@ -19,8 +19,20 @@ class CustomUser(AbstractUser):
     )
 
     daily_question_limit = models.IntegerField(
+        default=30,
+        help_text='Teacher-set baseline daily practice goal for the student.',
+    )
+    daily_goal_min = models.IntegerField(
         default=20,
-        help_text='The maximum number of questions a student can answer per day.',
+        help_text='Teacher-set minimum for the student daily goal.',
+    )
+    daily_goal_max = models.IntegerField(
+        default=50,
+        help_text='Teacher-set maximum for the student daily goal.',
+    )
+    last_goal_prompt_date = models.DateField(
+        null=True, blank=True,
+        help_text='Date the daily goal adjustment prompt was last shown.',
     )
 
     lexile_min = models.IntegerField(

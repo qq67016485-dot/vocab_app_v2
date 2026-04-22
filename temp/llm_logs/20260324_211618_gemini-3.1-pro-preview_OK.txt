@@ -1,0 +1,80 @@
+=== LLM CALL LOG ===
+Timestamp: 20260324_211618
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+You are an expert ESL curriculum designer and lexicographer.
+Given a list of vocabulary words and optional source context (book title, chapter, passage), look up each word and provide comprehensive information.
+
+Output valid JSON with this exact structure:
+{{
+  "words": [
+    {{
+      "term": "the word",
+      "part_of_speech": "noun/verb/adjective/etc.",
+      "definition": "a clear, age-appropriate definition",
+      "example_sentence": "a sentence using the word in context"
+    }}
+  ]
+}}
+
+Guidelines:
+- Definitions should be clear and appropriate for students aged 8-14
+- Example sentences should clearly demonstrate the word's meaning
+- If the source context provides a specific meaning, prefer that meaning
+- Change plural nouns to singular nouns, past tense verbs to present tense verbs
+- Part of speech should be the most common usage unless context specifies otherwise
+
+
+=== USER PROMPT ===
+Words to look up: ceramic, mural, glaze, installation, weavers, loom, sculpture
+Source: Art Around Us
+
+=== RAW RESPONSE ===
+{
+  "words": [
+    {
+      "term": "ceramic",
+      "part_of_speech": "noun",
+      "definition": "an object made of clay that has been permanently hardened by baking it in a very hot oven",
+      "example_sentence": "The artist painted a beautiful pattern on the ceramic before firing it to make a strong bowl."
+    },
+    {
+      "term": "mural",
+      "part_of_speech": "noun",
+      "definition": "a large picture painted directly on a wall or ceiling",
+      "example_sentence": "The students worked together to paint a colorful mural on the side of their school building."
+    },
+    {
+      "term": "glaze",
+      "part_of_speech": "noun",
+      "definition": "a liquid coating painted onto clay that turns into a shiny, glass-like surface when heated",
+      "example_sentence": "She applied a bright blue glaze to her clay pot to make it smooth and waterproof."
+    },
+    {
+      "term": "installation",
+      "part_of_speech": "noun",
+      "definition": "a large piece of art built to fit into a specific room or space, often designed so people can walk around or through it",
+      "example_sentence": "The museum featured an amazing art installation made entirely of thousands of hanging paper butterflies."
+    },
+    {
+      "term": "weaver",
+      "part_of_speech": "noun",
+      "definition": "a person who makes cloth or rugs by crossing threads over and under each other",
+      "example_sentence": "The skilled weaver used many brightly colored yarns to create a beautiful and warm blanket."
+    },
+    {
+      "term": "loom",
+      "part_of_speech": "noun",
+      "definition": "a machine or wooden frame used for weaving thread or yarn into cloth",
+      "example_sentence": "He sat at the large wooden loom and carefully guided the threads to make a scarf."
+    },
+    {
+      "term": "sculpture",
+      "part_of_speech": "noun",
+      "definition": "a piece of three-dimensional art made by carving, molding, or combining materials like clay, stone, metal, or wood",
+      "example_sentence": "In the middle of the city park, there is a giant bronze sculpture of a soaring eagle."
+    }
+  ]
+}

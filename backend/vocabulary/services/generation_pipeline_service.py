@@ -99,9 +99,25 @@ def _reconstruct_context(job):
     return words, words_data, packs
 
 
+def _is_retryable_error(exc):
+    """Check if the exception is a transient API error worth retrying."""
+    msg = str(exc)
+    return 'bad_response_body' in msg or 'unexpected end of JSON input' in msg
+
+
 def _run_step(job, step, words, words_data, packs):
-    """Dispatch a single pipeline step. Returns updated (words, words_data, packs)."""
+    """Dispatch a single pipeline step. Retries once on transient API errors."""
     S = GenerationJobLog.Step
+    try:
+        return _execute_step(job, step, words, words_data, packs, S)
+    except Exception as exc:
+        if _is_retryable_error(exc):
+            logger.warning("Retryable error on step %s, retrying once: %s", step, exc)
+            return _execute_step(job, step, words, words_data, packs, S)
+        raise
+
+
+def _execute_step(job, step, words, words_data, packs, S):
     if step == S.WORD_LOOKUP:
         words_data = _step_word_lookup(job)
     elif step == S.DEDUP:
@@ -1060,7 +1076,7 @@ def _step_generate_picture_match_questions(job, words, packs):
             correct_answers=[word.text],
             explanation=f"The image shows '{word.text}', which means: {definition_text}",
             example_sentence='',
-            lexile_score=None,
+            lexile_score=_content_lexile(job),
             generation_job=job,
         )
 

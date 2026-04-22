@@ -35,6 +35,7 @@ urlpatterns = [
 
     # Student Dashboard
     path('student/dashboard/', dashboard_views.StudentDashboardView.as_view(), name='student-dashboard'),
+    path('student/goal-prompt-shown/', dashboard_views.StudentGoalPromptView.as_view(), name='student-goal-prompt-shown'),
     path('student/words-by-level/<int:level_id>/', dashboard_views.WordsByLevelView.as_view(), name='words-by-level'),
     path('student/learning-patterns/', dashboard_views.LearningPatternsView.as_view(), name='student-learning-patterns'),
     path('student/assigned-sets/', instructional_views.StudentAssignedSetsView.as_view(), name='student-assigned-sets'),

@@ -1,7 +1,11 @@
 /* ============================
    frontend/src/styles/main.css
-   Base styles for the application
+   Base styles — wrapped in @layer legacy so student
+   portal layers (tokens, theme, base, components, pages)
+   always win without needing !important.
    ============================ */
+
+@layer legacy {
 
 /* ---------- Base & Shared Component Styles ---------- */
 body {
@@ -43,6 +47,8 @@ button:disabled { background-color: #bdc3c7; cursor: not-allowed; }
 
 input[type="text"],
 input[type="password"],
+input[type="number"],
+input:not([type]),
 textarea,
 select {
   width: 100%;
@@ -445,3 +451,14 @@ button.ws-bookmark-btn:hover { background-color: transparent; color: #f59e0b; }
   color: #555;
   font-size: 0.95rem;
 }
+
+/* ── Login page — bump all sizes +4px ── */
+.login-page { font-size: 20px; }
+.login-page h2 { font-size: 30px; }
+.login-page label { font-size: 20px; }
+.login-page input[type="text"],
+.login-page input[type="password"] { font-size: 20px; padding: 14px; }
+.login-page button { font-size: 20px; padding: 12px 18px; }
+.login-page p { font-size: 18px; }
+
+} /* end @layer legacy */

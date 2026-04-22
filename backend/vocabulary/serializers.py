@@ -32,10 +32,11 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = [
-            'id', 'username', 'role', 'level', 'xp_points',
+            'id', 'username', 'first_name', 'role', 'level', 'xp_points',
             'tier_info', 'xp_in_current_level', 'xp_for_next_level',
             'lexile_min', 'lexile_max',
             'native_language',
+            'daily_question_limit', 'daily_goal_min', 'daily_goal_max',
         ]
 
     def get_tier_info(self, obj):
@@ -188,7 +189,7 @@ class WordSetSerializer(serializers.ModelSerializer):
     class Meta:
         model = WordSet
         fields = [
-            'id', 'title', 'unit_or_chapter', 'description',
+            'id', 'title', 'description',
             'curriculum', 'level', 'creator_username', 'is_public', 'word_count',
             'target_lexile', 'generation_status', 'input_words',
             'input_source_title', 'input_source_chapter', 'is_bookmarked',
@@ -217,14 +218,44 @@ class WordSetFormSerializer(serializers.ModelSerializer):
         queryset=Level.objects.all(), source='level',
         write_only=True, required=False, allow_null=True,
     )
+    curriculum_name = serializers.CharField(
+        write_only=True, required=False, allow_blank=True,
+    )
+    level_name = serializers.CharField(
+        write_only=True, required=False, allow_blank=True,
+    )
 
     class Meta:
         model = WordSet
         fields = [
-            'title', 'unit_or_chapter', 'description', 'is_public',
+            'title', 'description', 'is_public',
             'curriculum_id', 'level_id', 'target_lexile',
             'input_words', 'input_source_title', 'input_source_chapter',
+            'curriculum_name', 'level_name',
         ]
+
+    def _resolve_curriculum(self, validated_data: dict) -> None:
+        name = validated_data.pop('curriculum_name', None)
+        if name:
+            obj, _ = Curriculum.objects.get_or_create(name=name)
+            validated_data['curriculum'] = obj
+
+    def _resolve_level(self, validated_data: dict) -> None:
+        name = validated_data.pop('level_name', None)
+        if name:
+            curriculum = validated_data.get('curriculum')
+            obj, _ = Level.objects.get_or_create(name=name, curriculum=curriculum)
+            validated_data['level'] = obj
+
+    def create(self, validated_data: dict) -> WordSet:
+        self._resolve_curriculum(validated_data)
+        self._resolve_level(validated_data)
+        return super().create(validated_data)
+
+    def update(self, instance: WordSet, validated_data: dict) -> WordSet:
+        self._resolve_curriculum(validated_data)
+        self._resolve_level(validated_data)
+        return super().update(instance, validated_data)
 
 
 # =============================================================================
@@ -282,7 +313,8 @@ class TeacherStudentSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = [
-            'id', 'username', 'daily_question_limit',
+            'id', 'username', 'first_name', 'last_name',
+            'daily_question_limit', 'daily_goal_min', 'daily_goal_max',
             'lexile_min', 'lexile_max',
         ]
 
@@ -296,12 +328,13 @@ class StudentCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
         fields = [
-            'id', 'username', 'password',
-            'daily_question_limit', 'lexile_min', 'lexile_max',
+            'id', 'username', 'password', 'first_name', 'last_name',
+            'daily_question_limit', 'daily_goal_min', 'daily_goal_max',
+            'lexile_min', 'lexile_max',
         ]
         read_only_fields = ['id']
 
-    def validate(self, data):
+    def validate(self, data: dict) -> dict:
         min_score = data.get('lexile_min')
         max_score = data.get('lexile_max')
         if self.instance:
@@ -313,19 +346,50 @@ class StudentCreateUpdateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"lexile_scores": "Lexile min cannot be greater than Lexile max."}
             )
+
+        goal_min = data.get('daily_goal_min')
+        goal_limit = data.get('daily_question_limit')
+        goal_max = data.get('daily_goal_max')
+        if self.instance:
+            if goal_min is None:
+                goal_min = self.instance.daily_goal_min
+            if goal_limit is None:
+                goal_limit = self.instance.daily_question_limit
+            if goal_max is None:
+                goal_max = self.instance.daily_goal_max
+        if goal_min is not None and goal_min < 10:
+            raise serializers.ValidationError(
+                {"daily_goal_min": "Goal minimum must be at least 10."}
+            )
+        if (goal_min is not None and goal_max is not None and goal_min > goal_max):
+            raise serializers.ValidationError(
+                {"daily_goal_bounds": "Goal min cannot be greater than goal max."}
+            )
+        if (goal_min is not None and goal_limit is not None and goal_limit < goal_min):
+            raise serializers.ValidationError(
+                {"daily_question_limit": "Daily question limit cannot be less than goal min."}
+            )
+        if (goal_max is not None and goal_limit is not None and goal_limit > goal_max):
+            raise serializers.ValidationError(
+                {"daily_question_limit": "Daily question limit cannot be greater than goal max."}
+            )
         return data
 
-    def create(self, validated_data):
+    def create(self, validated_data: dict) -> CustomUser:
         return CustomUser.objects.create_user(
             username=validated_data['username'],
             password=validated_data.get('password'),
             role=CustomUser.Role.STUDENT,
-            daily_question_limit=validated_data.get('daily_question_limit', 20),
+            first_name=validated_data.get('first_name', ''),
+            last_name=validated_data.get('last_name', ''),
+            daily_question_limit=validated_data.get('daily_question_limit', 30),
+            daily_goal_min=validated_data.get('daily_goal_min', 20),
+            daily_goal_max=validated_data.get('daily_goal_max', 50),
             lexile_min=validated_data.get('lexile_min', 0),
             lexile_max=validated_data.get('lexile_max', 2000),
         )
 
-    def update(self, instance, validated_data):
+    def update(self, instance: CustomUser, validated_data: dict) -> CustomUser:
         password = validated_data.pop('password', None)
         if password:
             instance.set_password(password)
@@ -361,7 +425,9 @@ class RosterStudentSerializer(serializers.ModelSerializer):
         model = CustomUser
         fields = [
             'id', 'username', 'activity_3d', 'snapshot',
-            'daily_question_limit', 'lexile_min', 'lexile_max',
+            'first_name', 'last_name',
+            'daily_question_limit', 'daily_goal_min', 'daily_goal_max',
+            'lexile_min', 'lexile_max',
         ]
 
 

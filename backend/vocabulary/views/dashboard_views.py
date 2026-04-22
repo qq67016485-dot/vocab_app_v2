@@ -7,7 +7,7 @@ Changes from v1:
 - meaning.term.term_text → word.text
 - teacher role check allows ADMIN too
 """
-from datetime import date, timedelta
+from datetime import timedelta
 
 from django.db.models import Count, Q
 from django.utils import timezone
@@ -28,7 +28,7 @@ class StudentDashboardView(APIView):
 
     def get(self, request, *args, **kwargs):
         student = request.user
-        today = date.today()
+        today = timezone.localdate()
 
         lexile_filter = Q(
             word__questions__lexile_score__gte=student.lexile_min,
@@ -118,8 +118,21 @@ class StudentDashboardView(APIView):
             "mastery_breakdown": mastery_breakdown,
             "questions_answered_today": questions_answered_today,
             "daily_question_limit": student.daily_question_limit,
+            "daily_goal_min": student.daily_goal_min,
+            "daily_goal_max": student.daily_goal_max,
+            "last_goal_prompt_date": student.last_goal_prompt_date,
             "session_goal_total": session_goal_total,
         })
+
+
+class StudentGoalPromptView(APIView):
+    permission_classes = [IsAuthenticated, IsStudent]
+
+    def post(self, request, *args, **kwargs) -> Response:
+        student = request.user
+        student.last_goal_prompt_date = timezone.localdate()
+        student.save(update_fields=['last_goal_prompt_date'])
+        return Response({"recorded": True})
 
 
 class StudentProgressDashboardView(APIView):

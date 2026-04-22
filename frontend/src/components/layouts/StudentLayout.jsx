@@ -26,7 +26,7 @@ export default function StudentLayout() {
     <div className="app-shell" data-app="student" data-theme={theme}>
       {isDashboard ? null : isPractice ? (
         <StudentNavbar
-          username={user?.username}
+          username={user?.first_name || user?.username}
           level={level}
           tierName={tierName}
           xpCurrent={xpCurrent}

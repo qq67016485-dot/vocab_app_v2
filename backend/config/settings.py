@@ -140,6 +140,10 @@ ANTHROPIC_BASE_URL = env('ANTHROPIC_BASE_URL', default='')
 GEMINI_API_KEY = env('GEMINI_API_KEY', default='')
 GEMINI_BASE_URL = env('GEMINI_BASE_URL', default='')
 
+# Image generation API (defaults to Gemini credentials if not set)
+IMAGE_API_KEY = env('IMAGE_API_KEY', default='')
+IMAGE_BASE_URL = env('IMAGE_BASE_URL', default='')
+
 # Embedding API (SiliconFlow — Qwen3-Embedding-8B)
 QWEN_API_KEY = env('QWEN_API_KEY', default='')
 QWEN_BASE_URL = env('QWEN_BASE_URL', default='https://api.siliconflow.cn/v1/embeddings')

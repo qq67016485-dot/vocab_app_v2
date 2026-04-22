@@ -1,8 +1,15 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import TextToSpeechButton from './TextToSpeechButton.jsx';
 
 export default function MicroStoryView({ story, primerCards, onDone }) {
   const [activeTooltip, setActiveTooltip] = useState(null);
+
+  useEffect(() => {
+    if (activeTooltip === null) return;
+    const close = () => setActiveTooltip(null);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [activeTooltip]);
 
   const wordLookup = useMemo(() => {
     const map = {};
@@ -32,7 +39,8 @@ export default function MicroStoryView({ story, primerCards, onDone }) {
     return result;
   }, [story]);
 
-  const handleHighlightClick = (index) => {
+  const handleHighlightClick = (e, index) => {
+    e.stopPropagation();
     setActiveTooltip(activeTooltip === index ? null : index);
   };
 
@@ -48,10 +56,10 @@ export default function MicroStoryView({ story, primerCards, onDone }) {
             <span
               key={i}
               className="story-highlight"
-              onClick={() => handleHighlightClick(i)}
+              onClick={(e) => handleHighlightClick(e, i)}
               role="button"
               tabIndex={0}
-              onKeyDown={(e) => e.key === 'Enter' && handleHighlightClick(i)}
+              onKeyDown={(e) => e.key === 'Enter' && handleHighlightClick(e, i)}
             >
               {part.content}
               {activeTooltip === i && cardData && (

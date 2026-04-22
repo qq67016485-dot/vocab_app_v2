@@ -1,0 +1,119 @@
+=== LLM CALL LOG ===
+Timestamp: 20260407_211218
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+You are an expert ESL curriculum designer and a master writer for Middle Grade audiences (ages 10-14). You specialize in writing both thrilling fiction and fascinating narrative non-fiction (like National Geographic Kids).
+
+TASK:
+You will be given a list of target vocabulary words (with definitions), a Target Lexile level, a Pack Label (theme), and a Text Type ("fiction" or "narrative_nonfiction").
+Your goal is to write a highly engaging micro-passage (80-150 words) and a set of cloze (fill-in-the-blank) quiz items.
+
+PASSAGE WRITING CONSTRAINTS:
+1. Scenario Invention: Use the provided "Pack Label" to invent a highly specific, engaging scenario. Do not write a generic summary; write a specific moment in time.
+2. Adapt to the Text Type:
+   - If "fiction": Write a single, high-stakes, "show-don't-tell" scene. Drop the reader right into the action (e.g., a sci-fi mystery, survival thriller, or fantasy quest).
+   - If "narrative_nonfiction": Write a fascinating hook for an article, historical profile, or nature documentary. Make the academic or scientific context sound mysterious, cool, and highly relevant.
+3. Natural Word Flow (Crucial): Do NOT force the words unnaturally or create robotic dialogue just to use them. Integrate them smoothly into the narrative context. Wrap each target word exactly in **double asterisks**.
+4. Reading Level: Target the specified Lexile level strictly by controlling sentence length and non-target vocabulary complexity.
+5. Ensure target vocabulary words are used in their most natural and common grammatical form.
+
+CLOZE QUIZ CONSTRAINTS:
+1. The quiz sentences must be 100% DIFFERENT from the passage (new contexts).
+2. Distractors must be the exact same part of speech as the correct answer.
+3. Distractors should be plausible but logically incorrect for the sentence context.
+
+Output valid JSON with this exact structure:
+{
+  "micro_passage": {
+    "text": "The 80-150 word passage with target words wrapped in **word** markers",
+    "reading_level": 552
+  },
+  "cloze_items": [
+    {
+      "term": "the target word",
+      "sentence_text": "A sentence with _______ where the word goes",
+      "correct_answer": "the target word",
+      "distractors": ["wrong1", "wrong2"]
+    }
+  ]
+}
+
+
+=== USER PROMPT ===
+Pack Label: Building the Canyon Dam
+Text Type: narrative_nonfiction
+Target Lexile: 552
+
+Target words:
+- canyon (noun): a deep valley with steep rock sides, often with a river flowing through it
+- concrete (noun): a strong, hard building material made by mixing sand, rocks, water, and cement together
+- electricity (noun): a type of energy that flows through wires and is used to power lights, machines, and homes
+- grout (noun): a thin mixture of cement and water used to fill small cracks and spaces to make things stronger
+- mold (noun): a hollow container used to give a specific shape to liquid material when it cools and becomes hard
+- power plant (noun): a large building or facility where energy is created to be sent to homes and businesses
+
+=== RAW RESPONSE ===
+{
+  "micro_passage": {
+    "text": "Imagine standing at the edge of a massive **canyon**. Below you, workers are building a giant wall. This wall is made of thick **concrete**. To make it, they pour the liquid mix into a giant wooden **mold**. This gives the wall its curved shape. As the wall grows, workers look for tiny cracks in the stone. They use a wet mix called **grout** to fill these spaces and keep the dam strong. Why do we build such huge walls? Behind the dam, the water moves through a massive **power plant**. Here, the spinning water creates **electricity**. This energy travels through long wires to light up your house at night. It is a work of pure strength and science.",
+    "reading_level": 552
+  },
+  "cloze_items": [
+    {
+      "term": "canyon",
+      "sentence_text": "The hikers looked down from the top of the deep _______ at the river below.",
+      "correct_answer": "canyon",
+      "distractors": [
+        "ocean",
+        "forest"
+      ]
+    },
+    {
+      "term": "concrete",
+      "sentence_text": "The sidewalk is made of hard _______ so it does not break when cars drive over it.",
+      "correct_answer": "concrete",
+      "distractors": [
+        "paper",
+        "glass"
+      ]
+    },
+    {
+      "term": "electricity",
+      "sentence_text": "When the storm hit, the _______ went out and all the lights turned off.",
+      "correct_answer": "electricity",
+      "distractors": [
+        "gravity",
+        "weather"
+      ]
+    },
+    {
+      "term": "grout",
+      "sentence_text": "The worker used _______ to fill the small gaps between the floor tiles.",
+      "correct_answer": "grout",
+      "distractors": [
+        "paint",
+        "dust"
+      ]
+    },
+    {
+      "term": "mold",
+      "sentence_text": "The artist poured the liquid metal into a heart-shaped _______ to make a statue.",
+      "correct_answer": "mold",
+      "distractors": [
+        "brush",
+        "hammer"
+      ]
+    },
+    {
+      "term": "power plant",
+      "sentence_text": "The large _______ near the river provides energy for the whole city.",
+      "correct_answer": "power plant",
+      "distractors": [
+        "grocery store",
+        "police station"
+      ]
+    }
+  ]
+}

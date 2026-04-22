@@ -4,7 +4,7 @@
 .instructional-shell {
   background: #fdf8f0;
   min-height: 100vh;
-  padding: var(--space-4);
+  padding: var(--space-6);
 }
 
 .instructional-header {
@@ -50,7 +50,7 @@
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-2);
   padding: var(--space-8);
-  max-width: 520px;
+  max-width: 580px;
   margin: 0 auto;
 }
 
@@ -62,12 +62,26 @@
 }
 
 .primer-word {
+  margin-bottom: var(--space-3);
+  text-align: center;
+}
+
+.primer-syllable-headline {
   font-size: 2.2rem;
   font-weight: 800;
-  color: var(--text);
-  margin-bottom: var(--space-1);
-  letter-spacing: 0.02em;
-  text-align: center;
+  color: var(--accent, #d97706);
+  letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.primer-term-sub {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--muted);
+  margin-top: var(--space-1);
 }
 
 .primer-pos {
@@ -208,7 +222,7 @@
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-2);
   padding: var(--space-8);
-  max-width: 640px;
+  max-width: 700px;
   margin: 0 auto;
 }
 
@@ -280,7 +294,7 @@
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-2);
   padding: var(--space-8);
-  max-width: 520px;
+  max-width: 580px;
   margin: 0 auto;
   text-align: center;
 }
@@ -366,7 +380,7 @@
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-2);
   padding: var(--space-8);
-  max-width: 480px;
+  max-width: 540px;
   margin: 0 auto;
   text-align: center;
 }

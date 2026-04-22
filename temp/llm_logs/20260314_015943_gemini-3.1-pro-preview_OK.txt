@@ -1,0 +1,86 @@
+=== LLM CALL LOG ===
+Timestamp: 20260314_015943
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+You are an expert ESL curriculum designer for young learners (ages 8-14).
+Given a list of vocabulary words and a target Lexile level, generate:
+1. A short micro story (80-150 words) that naturally uses ALL the target words
+2. Cloze (fill-in-the-blank) quiz items for each word
+
+Output valid JSON with this exact structure:
+{
+  "micro_story": {
+    "story_text": "The story text with target words wrapped in **word** markers",
+    "reading_level": 800
+  },
+  "cloze_items": [
+    {
+      "term": "the word",
+      "sentence_text": "A sentence with _______ where the word goes",
+      "correct_answer": "the word",
+      "distractors": ["wrong1", "wrong2"]
+    }
+  ]
+}
+
+Guidelines:
+- The story should be engaging and age-appropriate
+- Wrap each target word in **double asterisks** in the story text
+- Each cloze sentence should be DIFFERENT from the story (not copied)
+- Distractors should be plausible but clearly wrong for the context
+- Distractors should be the same part of speech as the correct answer
+- Target the specified Lexile reading level
+- The story should have a clear beginning, middle, and end
+
+
+=== USER PROMPT ===
+Target words: audience, spectator, congregation, pilgrim
+Target Lexile: 800
+
+=== RAW RESPONSE ===
+{
+  "micro_story": {
+    "story_text": "Leo sat on the stone wall, watching the bustling town prepare for the grand summer festival. Early in the morning, he saw a weary **pilgrim** arrive, having walked a hundred miles to visit the ancient mountain shrine. Inside the nearby chapel, a quiet **congregation** gathered to sing beautiful morning hymns. Later, the town square completely transformed. A massive wooden stage was built, and an excited **audience** cheered as the traveling musicians played a lively tune. Finally, the late afternoon brought the famous local foot races. Leo found a seat near the dusty track, becoming just another eager **spectator** waiting for the runners to dash by. From quiet prayers to roaring cheers, the town was alive with people sharing unforgettable moments.",
+    "reading_level": 800
+  },
+  "cloze_items": [
+    {
+      "term": "audience",
+      "sentence_text": "The magician pulled a rabbit out of his hat, and the _______ clapped loudly in amazement.",
+      "correct_answer": "audience",
+      "distractors": [
+        "orchestra",
+        "committee"
+      ]
+    },
+    {
+      "term": "spectator",
+      "sentence_text": "Even though she did not play in the championship soccer match, she was a happy _______ cheering from the bleachers.",
+      "correct_answer": "spectator",
+      "distractors": [
+        "referee",
+        "competitor"
+      ]
+    },
+    {
+      "term": "congregation",
+      "sentence_text": "Every Sunday, the friendly pastor greets the _______ at the wooden doors after the morning service ends.",
+      "correct_answer": "congregation",
+      "distractors": [
+        "government",
+        "parade"
+      ]
+    },
+    {
+      "term": "pilgrim",
+      "sentence_text": "The exhausted _______ finally reached the holy temple after traveling across the harsh desert for many weeks.",
+      "correct_answer": "pilgrim",
+      "distractors": [
+        "merchant",
+        "soldier"
+      ]
+    }
+  ]
+}

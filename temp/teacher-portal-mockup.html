@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Teacher Portal — Design Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ── RESET ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── TOKENS ── */
+:root {
+  --t-bg: #f8f9fb;
+  --t-surface: #ffffff;
+  --t-primary: #1a56db;
+  --t-primary-hover: #1648b0;
+  --t-primary-light: rgba(26, 86, 219, 0.08);
+  --t-accent: #0d9488;
+  --t-accent-light: rgba(13, 148, 136, 0.08);
+  --t-danger: #dc2626;
+  --t-danger-light: rgba(220, 38, 38, 0.08);
+  --t-warning: #d97706;
+  --t-success: #059669;
+  --t-text: #111827;
+  --t-text-secondary: #6b7280;
+  --t-text-tertiary: #9ca3af;
+  --t-border: #e2e8f0;
+  --t-border-light: #f1f5f9;
+  --t-radius: 8px;
+  --t-radius-sm: 6px;
+  --t-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
+  --t-shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --t-shadow-lg: 0 10px 40px rgba(0,0,0,0.12);
+  --t-font: 'DM Sans', sans-serif;
+  --t-font-mono: 'JetBrains Mono', monospace;
+}
+
+body {
+  font-family: var(--t-font);
+  font-size: 125%;
+  background: var(--t-bg);
+  color: var(--t-text);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── NAVBAR ── */
+.t-navbar {
+  background: #111827;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  gap: 8px;
+}
+.t-navbar-brand {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: #fff;
+  margin-right: 24px;
+  letter-spacing: -0.02em;
+}
+.t-navbar-brand span { color: var(--t-primary); }
+.t-nav-link {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  font-family: var(--t-font);
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: var(--t-radius-sm);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.t-nav-link:hover { color: #e5e7eb; background: rgba(255,255,255,0.06); }
+.t-nav-link--active { color: #fff; background: rgba(255,255,255,0.1); }
+.t-navbar-spacer { flex: 1; }
+.t-navbar-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #9ca3af;
+  font-size: 0.85rem;
+}
+.t-navbar-queue {
+  position: relative;
+  background: none;
+  border: 1px solid rgba(255,255,255,0.15);
+  color: #d1d5db;
+  font-family: var(--t-font);
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 5px 10px;
+  border-radius: var(--t-radius-sm);
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.t-navbar-queue:hover { border-color: rgba(255,255,255,0.3); color: #fff; }
+.t-queue-badge {
+  position: absolute;
+  top: -6px; right: -6px;
+  background: var(--t-danger);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+}
+.t-navbar-logout {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.15);
+  color: #9ca3af;
+  font-family: var(--t-font);
+  font-size: 0.8rem;
+  padding: 5px 12px;
+  border-radius: var(--t-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.t-navbar-logout:hover { border-color: #ef4444; color: #ef4444; }
+
+/* ── LAYOUT ── */
+.t-shell { padding: 24px 32px; max-width: 1400px; margin: 0 auto; }
+
+/* ── PAGE HEADER ── */
+.t-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+.t-page-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--t-text);
+  letter-spacing: -0.02em;
+}
+
+/* ── BUTTONS ── */
+.t-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--t-font);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: var(--t-radius-sm);
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.t-btn:hover { transform: translateY(-1px); }
+.t-btn:active { transform: translateY(0); }
+.t-btn--primary { background: var(--t-primary); color: #fff; }
+.t-btn--primary:hover { background: var(--t-primary-hover); box-shadow: 0 2px 8px rgba(26,86,219,0.25); }
+.t-btn--secondary {
+  background: var(--t-surface);
+  color: var(--t-text);
+  border: 1px solid var(--t-border);
+}
+.t-btn--secondary:hover { border-color: #cbd5e1; background: #f8fafc; }
+.t-btn--danger { background: var(--t-danger-light); color: var(--t-danger); border: 1px solid transparent; }
+.t-btn--danger:hover { background: #fef2f2; border-color: #fecaca; }
+.t-btn--ghost { background: none; color: var(--t-text-secondary); }
+.t-btn--ghost:hover { background: var(--t-border-light); color: var(--t-text); }
+.t-btn--accent { background: var(--t-accent); color: #fff; }
+.t-btn--accent:hover { background: #0f766e; box-shadow: 0 2px 8px rgba(13,148,136,0.25); }
+.t-btn--sm { font-size: 0.8rem; padding: 5px 10px; }
+.t-btn--sm:hover { transform: translateY(0); }
+
+/* ── TABS ── */
+.t-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--t-border);
+  margin-bottom: 16px;
+}
+.t-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  padding: 10px 16px;
+  font-family: var(--t-font);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--t-text-secondary);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.t-tab:hover { color: var(--t-text); }
+.t-tab--active {
+  color: var(--t-primary);
+  border-bottom-color: var(--t-primary);
+  font-weight: 600;
+}
+
+/* ── FILTER BAR ── */
+.t-filter-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.t-input, .t-select {
+  font-family: var(--t-font);
+  font-size: 0.85rem;
+  padding: 7px 12px;
+  border: 1px solid var(--t-border);
+  border-radius: var(--t-radius-sm);
+  background: var(--t-surface);
+  color: var(--t-text);
+  transition: border-color 0.15s;
+  outline: none;
+}
+.t-input:focus, .t-select:focus { border-color: var(--t-primary); box-shadow: 0 0 0 3px var(--t-primary-light); }
+.t-input--search { flex: 1; min-width: 200px; }
+
+/* ── CARDS ── */
+.t-card {
+  background: var(--t-surface);
+  border: 1px solid var(--t-border);
+  border-radius: var(--t-radius);
+  padding: 16px 20px;
+  box-shadow: var(--t-shadow);
+  transition: border-color 0.15s, box-shadow 0.15s;
+  position: relative;
+}
+.t-card:hover { border-color: #cbd5e1; box-shadow: var(--t-shadow-md); }
+.t-card + .t-card { margin-top: 10px; }
+
+/* ── BADGE ── */
+.t-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.t-badge--draft { background: #f1f5f9; color: #64748b; }
+.t-badge--requested { background: #fef3c7; color: #92400e; }
+.t-badge--generating { background: #dbeafe; color: #1e40af; }
+.t-badge--generated { background: #d1fae5; color: #065f46; }
+.t-badge--public { background: var(--t-accent-light); color: var(--t-accent); }
+
+/* ── WORD SET CARD LAYOUT ── */
+.ws-card-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--t-primary);
+  cursor: pointer;
+  padding-right: 80px;
+}
+.ws-card-title:hover { text-decoration: underline; }
+.ws-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 0.8rem;
+  color: var(--t-text-secondary);
+  flex-wrap: wrap;
+}
+.ws-card-meta .sep { color: var(--t-border); }
+.ws-card-source {
+  font-size: 0.8rem;
+  color: var(--t-text-tertiary);
+  font-style: italic;
+  margin-top: 2px;
+}
+.ws-card-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.ws-bookmark {
+  position: absolute;
+  top: 14px; right: 16px;
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  cursor: pointer;
+  color: var(--t-text-tertiary);
+  transition: color 0.15s;
+  padding: 0;
+  line-height: 1;
+}
+.ws-bookmark:hover { color: #f59e0b; }
+.ws-bookmark--active { color: #f59e0b; }
+.ws-word-count {
+  font-family: var(--t-font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* ── MODAL ── */
+.t-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.t-modal {
+  background: var(--t-surface);
+  border-radius: 12px;
+  box-shadow: var(--t-shadow-lg);
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 28px 32px;
+}
+.t-modal-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-bottom: 20px;
+  letter-spacing: -0.01em;
+}
+.t-form-group { margin-bottom: 14px; }
+.t-form-label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--t-text-secondary);
+  margin-bottom: 5px;
+}
+.t-form-input, .t-form-select, .t-form-textarea {
+  width: 100%;
+  font-family: var(--t-font);
+  font-size: 0.875rem;
+  padding: 8px 12px;
+  border: 1px solid var(--t-border);
+  border-radius: var(--t-radius-sm);
+  background: var(--t-surface);
+  color: var(--t-text);
+  transition: border-color 0.15s;
+  outline: none;
+}
+.t-form-input:focus, .t-form-select:focus, .t-form-textarea:focus {
+  border-color: var(--t-primary);
+  box-shadow: 0 0 0 3px var(--t-primary-light);
+}
+.t-form-textarea { resize: vertical; }
+.t-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.t-form-hint {
+  font-size: 0.75rem;
+  color: var(--t-text-tertiary);
+  margin-top: 3px;
+}
+.t-form-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--t-text-secondary);
+  margin: 16px 0;
+}
+.t-form-checkbox input[type="checkbox"] {
+  width: 16px; height: 16px;
+  accent-color: var(--t-primary);
+}
+.t-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--t-border-light);
+}
+
+/* ── TOAST ── */
+.t-toast {
+  position: fixed;
+  top: 16px; right: 16px;
+  z-index: 2000;
+  padding: 10px 18px;
+  border-radius: var(--t-radius-sm);
+  font-size: 0.85rem;
+  font-weight: 500;
+  box-shadow: var(--t-shadow-md);
+  animation: t-toast-in 0.25s ease;
+}
+.t-toast--success { background: #065f46; color: #d1fae5; }
+.t-toast--error { background: #991b1b; color: #fef2f2; }
+@keyframes t-toast-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── TABLE ── */
+.t-table { width: 100%; border-collapse: collapse; }
+.t-table th {
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--t-text-secondary);
+  border-bottom: 2px solid var(--t-border);
+}
+.t-table td {
+  padding: 10px 12px;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--t-border-light);
+}
+.t-table tbody tr:hover td { background: #f8fafc; }
+
+/* ── COMMAND CENTER ── */
+.cc-layout {
+  display: flex;
+  gap: 24px;
+  overflow-y: auto;
+}
+.cc-main {
+  flex: 1;
+  display: flex;
+  gap: 24px;
+  overflow-y: auto;
+}
+.cc-roster { flex: 1.3; }
+.cc-details { flex: 1; }
+.cc-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--t-border);
+}
+.cc-panel-title { font-size: 1.1rem; font-weight: 600; }
+.cc-detail-card {
+  background: var(--t-surface);
+  border: 1px solid var(--t-border);
+  border-radius: var(--t-radius);
+  padding: 16px;
+  box-shadow: var(--t-shadow);
+  border-top: 3px solid #111827;
+}
+.cc-detail-card + .cc-detail-card { margin-top: 12px; }
+.cc-detail-card h4 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--t-border-light);
+}
+.cc-detail-list {
+  list-style: none;
+  columns: 2;
+  column-gap: 16px;
+}
+.cc-detail-list li {
+  font-size: 0.85rem;
+  padding: 3px 0;
+  color: var(--t-text-secondary);
+  background: none;
+  border: none;
+}
+.cc-detail-list li::before {
+  content: '›';
+  margin-right: 6px;
+  color: var(--t-primary);
+  font-weight: 700;
+}
+.cc-due-count {
+  font-family: var(--t-font-mono);
+  font-size: 2.2rem;
+  font-weight: 700;
+  text-align: center;
+  color: #111827;
+  padding: 12px 0;
+}
+.cc-activity-badge {
+  display: inline-block;
+  font-family: var(--t-font-mono);
+  font-size: 0.78rem;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: var(--t-text-secondary);
+}
+.cc-activity-badge--low { background: #fef3c7; color: #92400e; }
+
+/* ── GROUP CARDS ── */
+.group-students {
+  font-size: 0.8rem;
+  color: var(--t-text-secondary);
+  margin-top: 4px;
+}
+
+/* ── GENERATION WIZARD ── */
+.gen-steps {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.gen-step {
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.gen-step--active { background: var(--t-primary); color: #fff; }
+.gen-step--done { background: var(--t-success); color: #fff; }
+.gen-step--pending { background: #f1f5f9; color: var(--t-text-tertiary); }
+
+/* ── PIPELINE STATUS ── */
+.pipeline-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: var(--t-radius-sm);
+  font-size: 0.85rem;
+}
+.pipeline-step--running { background: #eff6ff; }
+.pipeline-step--failed { background: #fef2f2; }
+.pipeline-icon {
+  font-size: 1rem;
+  font-weight: 700;
+  width: 20px;
+  text-align: center;
+}
+.pipeline-icon--done { color: var(--t-success); }
+.pipeline-icon--running { color: var(--t-primary); animation: pulse 1.5s infinite; }
+.pipeline-icon--failed { color: var(--t-danger); }
+.pipeline-icon--pending { color: var(--t-text-tertiary); }
+.pipeline-duration {
+  font-family: var(--t-font-mono);
+  font-size: 0.75rem;
+  color: var(--t-text-tertiary);
+  margin-left: auto;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* ── EMPTY STATE ── */
+.t-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--t-text-tertiary);
+  font-size: 0.9rem;
+}
+
+/* ── DEMO CONTROLS ── */
+.demo-nav {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  background: #111827;
+  padding: 8px 12px;
+  border-radius: 12px;
+  box-shadow: var(--t-shadow-lg);
+  z-index: 3000;
+}
+.demo-btn {
+  font-family: var(--t-font);
+  font-size: 0.78rem;
+  font-weight: 500;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  background: rgba(255,255,255,0.08);
+  color: #9ca3af;
+  transition: all 0.15s;
+}
+.demo-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
+.demo-btn--active { background: var(--t-primary); color: #fff; }
+
+.page { display: none; }
+.page--active { display: block; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ NAVBAR ═══════════ -->
+<nav class="t-navbar">
+  <div class="t-navbar-brand">Vocab<span>App</span></div>
+  <button class="t-nav-link" onclick="showPage('cc')">Command Center</button>
+  <button class="t-nav-link t-nav-link--active" id="nav-ws" onclick="showPage('ws')">Word Sets</button>
+  <button class="t-nav-link" onclick="showPage('groups')">Groups</button>
+  <div class="t-navbar-spacer"></div>
+  <div class="t-navbar-user">
+    <button class="t-navbar-queue" onclick="showPage('queue')">
+      Gen Queue
+      <span class="t-queue-badge">3</span>
+    </button>
+    <span>admin</span>
+    <button class="t-navbar-logout">Logout</button>
+  </div>
+</nav>
+
+<!-- ═══════════ TOAST (demo) ═══════════ -->
+<div class="t-toast t-toast--success" id="toast" style="display:none">
+  Word set assigned to 4 students.
+</div>
+
+<!-- ═══════════ PAGE: WORD SET LIST ═══════════ -->
+<div class="t-shell page page--active" id="page-ws">
+  <div class="t-page-header">
+    <h1 class="t-page-title">Word Sets</h1>
+    <button class="t-btn t-btn--primary" onclick="toggleModal(true)">+ Create New Set</button>
+  </div>
+
+  <div class="t-tabs">
+    <button class="t-tab t-tab--active">My Sets</button>
+    <button class="t-tab">Bookmarked</button>
+    <button class="t-tab">Public</button>
+    <button class="t-tab">All</button>
+  </div>
+
+  <div class="t-filter-bar">
+    <input class="t-input t-input--search" type="text" placeholder="Search by title...">
+    <select class="t-select">
+      <option>All Curriculums</option>
+      <option>Reading A to Z</option>
+      <option>NGSS</option>
+    </select>
+    <select class="t-select">
+      <option>All Levels</option>
+      <option>Level Q</option>
+      <option>Grade 4</option>
+    </select>
+  </div>
+
+  <!-- Card 1 -->
+  <div class="t-card">
+    <button class="ws-bookmark ws-bookmark--active">&#9733;</button>
+    <div class="ws-card-title">Hoover Dam</div>
+    <div class="ws-card-meta">
+      <span>Reading A to Z</span>
+      <span class="sep">&middot;</span>
+      <span>Level Q</span>
+      <span class="sep">&middot;</span>
+      <span class="ws-word-count">6 words</span>
+      <span class="t-badge t-badge--generated">Generated</span>
+      <span class="t-badge t-badge--public">Public</span>
+    </div>
+    <div class="ws-card-source">Charlotte's Web &mdash; Chapter 3</div>
+    <div class="ws-card-actions">
+      <button class="t-btn t-btn--accent t-btn--sm">Assign</button>
+      <button class="t-btn t-btn--secondary t-btn--sm">Manage Words</button>
+      <button class="t-btn t-btn--secondary t-btn--sm">Edit Details</button>
+      <button class="t-btn t-btn--danger t-btn--sm">Delete</button>
+    </div>
+  </div>
+
+  <!-- Card 2 -->
+  <div class="t-card">
+    <button class="ws-bookmark">&#9734;</button>
+    <div class="ws-card-title">Science Vocab Unit 5</div>
+    <div class="ws-card-meta">
+      <span>NGSS</span>
+      <span class="sep">&middot;</span>
+      <span>Grade 4</span>
+      <span class="sep">&middot;</span>
+      <span class="ws-word-count">12 words</span>
+      <span class="t-badge t-badge--requested">Requested</span>
+    </div>
+    <div class="ws-card-meta" style="margin-top:2px">
+      <span style="font-size:0.78rem;color:var(--t-text-tertiary)">Created by: teacher2</span>
+    </div>
+    <div class="ws-card-actions">
+      <button class="t-btn t-btn--accent t-btn--sm">Assign</button>
+    </div>
+  </div>
+
+  <!-- Card 3 -->
+  <div class="t-card">
+    <button class="ws-bookmark">&#9734;</button>
+    <div class="ws-card-title">Ancient Civilizations</div>
+    <div class="ws-card-meta">
+      <span>Social Studies</span>
+      <span class="sep">&middot;</span>
+      <span>Grade 5</span>
+      <span class="sep">&middot;</span>
+      <span class="ws-word-count">8 words</span>
+      <span class="t-badge t-badge--draft">Draft</span>
+    </div>
+    <div class="ws-card-actions">
+      <button class="t-btn t-btn--accent t-btn--sm">Assign</button>
+      <button class="t-btn t-btn--secondary t-btn--sm">Manage Words</button>
+      <button class="t-btn t-btn--secondary t-btn--sm">Edit Details</button>
+      <button class="t-btn t-btn--danger t-btn--sm">Delete</button>
+    </div>
+  </div>
+
+  <!-- Card 4 -->
+  <div class="t-card">
+    <button class="ws-bookmark">&#9734;</button>
+    <div class="ws-card-title">Weather Patterns</div>
+    <div class="ws-card-meta">
+      <span>NGSS</span>
+      <span class="sep">&middot;</span>
+      <span>Grade 3</span>
+      <span class="sep">&middot;</span>
+      <span class="ws-word-count">10 words</span>
+      <span class="t-badge t-badge--generating">Generating</span>
+    </div>
+    <div class="ws-card-actions">
+      <button class="t-btn t-btn--accent t-btn--sm">Assign</button>
+      <button class="t-btn t-btn--secondary t-btn--sm">Manage Words</button>
+      <button class="t-btn t-btn--secondary t-btn--sm">Edit Details</button>
+      <button class="t-btn t-btn--danger t-btn--sm">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ MODAL: CREATE/EDIT WORD SET ═══════════ -->
+<div class="t-modal-backdrop" id="modal" style="display:none" onclick="if(event.target===this)toggleModal(false)">
+  <div class="t-modal">
+    <div class="t-modal-title">Create New Word Set</div>
+    <div class="t-form-group">
+      <label class="t-form-label">Word Set Name *</label>
+      <input class="t-form-input" value="Hoover Dam">
+    </div>
+    <div class="t-form-row">
+      <div class="t-form-group">
+        <label class="t-form-label">Target Lexile *</label>
+        <input class="t-form-input" type="number" value="650">
+      </div>
+      <div class="t-form-group">
+        <label class="t-form-label">Source Book Title</label>
+        <input class="t-form-input" placeholder="e.g., Charlotte's Web">
+      </div>
+    </div>
+    <div class="t-form-row">
+      <div class="t-form-group">
+        <label class="t-form-label">Source Book Chapter</label>
+        <input class="t-form-input" placeholder="e.g., Chapter 3">
+      </div>
+      <div class="t-form-group">
+        <label class="t-form-label">Curriculum</label>
+        <select class="t-form-select">
+          <option>-- Select --</option>
+          <option selected>Reading A to Z</option>
+          <option>NGSS</option>
+        </select>
+      </div>
+    </div>
+    <div class="t-form-group">
+      <label class="t-form-label">Level</label>
+      <select class="t-form-select">
+        <option>-- Select --</option>
+        <option selected>Level Q</option>
+      </select>
+    </div>
+    <div class="t-form-group">
+      <label class="t-form-label">Words (one per line or comma-separated)</label>
+      <textarea class="t-form-textarea" rows="5" placeholder="campaign&#10;philosophy&#10;dedicate">canyon
+concrete
+electricity
+grout
+molds
+power plant</textarea>
+      <div class="t-form-hint">6 word(s)</div>
+    </div>
+    <div class="t-form-group">
+      <label class="t-form-label">Teacher's Notes</label>
+      <textarea class="t-form-textarea" rows="2" placeholder="e.g., Focus on academic vocabulary from the science unit."></textarea>
+    </div>
+    <label class="t-form-checkbox">
+      <input type="checkbox" checked> Make this set public (share with other teachers)
+    </label>
+    <div class="t-modal-actions">
+      <button class="t-btn t-btn--secondary" onclick="toggleModal(false)">Cancel</button>
+      <button class="t-btn t-btn--primary">Create Set</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ PAGE: COMMAND CENTER ═══════════ -->
+<div class="t-shell page" id="page-cc">
+  <div class="t-page-header">
+    <h1 class="t-page-title">Command Center</h1>
+  </div>
+  <div class="cc-layout">
+    <main class="cc-main">
+      <div class="cc-roster">
+        <div class="cc-panel-header">
+          <span class="cc-panel-title">Class Roster</span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="t-btn t-btn--secondary t-btn--sm">+ Add Multiple</button>
+            <button class="t-btn t-btn--primary t-btn--sm">+ Add Student</button>
+            <select class="t-select" style="font-size:0.8rem;padding:5px 8px">
+              <option>All Students</option>
+              <option>Group A</option>
+            </select>
+          </div>
+        </div>
+        <table class="t-table">
+          <thead>
+            <tr>
+              <th>Student Name</th>
+              <th>Activity (3 days)</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="background:var(--t-primary-light)">
+              <td style="font-weight:600;color:var(--t-primary)">alice_s</td>
+              <td><span class="cc-activity-badge">24 questions (88%)</span></td>
+              <td><button class="t-btn t-btn--ghost t-btn--sm">Edit</button></td>
+            </tr>
+            <tr>
+              <td>bob_t</td>
+              <td><span class="cc-activity-badge cc-activity-badge--low">0 questions (0%)</span></td>
+              <td><button class="t-btn t-btn--ghost t-btn--sm">Edit</button></td>
+            </tr>
+            <tr>
+              <td>charlie_u</td>
+              <td><span class="cc-activity-badge">15 questions (73%)</span></td>
+              <td><button class="t-btn t-btn--ghost t-btn--sm">Edit</button></td>
+            </tr>
+            <tr>
+              <td>diana_v</td>
+              <td><span class="cc-activity-badge">31 questions (94%)</span></td>
+              <td><button class="t-btn t-btn--ghost t-btn--sm">Edit</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="cc-details">
+        <div class="cc-panel-header">
+          <span class="cc-panel-title">Snapshot <span style="color:var(--t-primary)">alice_s</span></span>
+        </div>
+        <div class="cc-detail-card">
+          <h4>Challenging Words</h4>
+          <ul class="cc-detail-list">
+            <li>abundant</li>
+            <li>benevolent</li>
+            <li>cascade</li>
+            <li>diligent</li>
+          </ul>
+        </div>
+        <div class="cc-detail-card">
+          <h4>Skills to Develop</h4>
+          <ul class="cc-detail-list">
+            <li>Context clues</li>
+            <li>Synonyms</li>
+            <li>Word forms</li>
+          </ul>
+        </div>
+        <div class="cc-detail-card">
+          <h4>Words Due for Review</h4>
+          <div class="cc-due-count">12</div>
+        </div>
+        <button class="t-btn t-btn--secondary" style="width:100%;margin-top:12px;justify-content:center">
+          View Full Activity Report
+        </button>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ═══════════ PAGE: GROUPS ═══════════ -->
+<div class="t-shell page" id="page-groups">
+  <div class="t-page-header">
+    <h1 class="t-page-title">Student Groups</h1>
+    <button class="t-btn t-btn--primary">+ Create New Group</button>
+  </div>
+
+  <div class="t-card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <div style="font-size:1rem;font-weight:600">Group A — Morning Class</div>
+        <div style="font-size:0.85rem;color:var(--t-text-secondary);margin-top:2px">Advanced readers, focus on Tier 2 vocabulary</div>
+        <div class="group-students"><strong>4 students:</strong> alice_s, bob_t, charlie_u, diana_v</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="t-btn t-btn--secondary t-btn--sm">Edit</button>
+        <button class="t-btn t-btn--danger t-btn--sm">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="t-card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start">
+      <div>
+        <div style="font-size:1rem;font-weight:600">Group B — Afternoon Class</div>
+        <div style="font-size:0.85rem;color:var(--t-text-secondary);margin-top:2px">Emerging readers, lower Lexile range</div>
+        <div class="group-students"><strong>3 students:</strong> emma_w, frank_x, grace_y</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="t-btn t-btn--secondary t-btn--sm">Edit</button>
+        <button class="t-btn t-btn--danger t-btn--sm">Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ PAGE: GENERATION QUEUE ═══════════ -->
+<div class="t-shell page" id="page-queue">
+  <div class="t-page-header">
+    <h1 class="t-page-title">Generation Queue</h1>
+    <button class="t-btn t-btn--secondary" onclick="showPage('ws')">Back to Word Sets</button>
+  </div>
+
+  <div class="t-card" style="padding:0;overflow:hidden">
+    <table class="t-table">
+      <thead>
+        <tr>
+          <th>Word Set</th>
+          <th>Requested By</th>
+          <th>Requested At</th>
+          <th>Words</th>
+          <th>Lexile</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <div style="font-weight:600">Science Vocab Unit 5</div>
+            <div style="font-size:0.78rem;color:var(--t-text-tertiary)">NGSS / Grade 4</div>
+          </td>
+          <td>teacher2</td>
+          <td style="font-family:var(--t-font-mono);font-size:0.8rem">Apr 7, 2:30 PM</td>
+          <td><span class="ws-word-count">12</span></td>
+          <td><span class="ws-word-count">650</span></td>
+          <td><button class="t-btn t-btn--primary t-btn--sm">Generate</button></td>
+        </tr>
+        <tr>
+          <td>
+            <div style="font-weight:600">Ocean Life</div>
+            <div style="font-size:0.78rem;color:var(--t-text-tertiary)">Reading A to Z / Level R</div>
+          </td>
+          <td>teacher1</td>
+          <td style="font-family:var(--t-font-mono);font-size:0.8rem">Apr 7, 1:15 PM</td>
+          <td><span class="ws-word-count">8</span></td>
+          <td><span class="ws-word-count">720</span></td>
+          <td><button class="t-btn t-btn--primary t-btn--sm">Generate</button></td>
+        </tr>
+        <tr>
+          <td>
+            <div style="font-weight:600">Math Vocabulary Ch 6</div>
+            <div style="font-size:0.78rem;color:var(--t-text-tertiary)">Common Core / Grade 3</div>
+          </td>
+          <td>teacher3</td>
+          <td style="font-family:var(--t-font-mono);font-size:0.8rem">Apr 6, 4:45 PM</td>
+          <td><span class="ws-word-count">10</span></td>
+          <td><span class="ws-word-count">550</span></td>
+          <td><button class="t-btn t-btn--primary t-btn--sm">Generate</button></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══════════ PAGE: GENERATION WIZARD ═══════════ -->
+<div class="t-shell page" id="page-wizard">
+  <div class="t-page-header">
+    <h1 class="t-page-title">Generate Content for "Hoover Dam"</h1>
+  </div>
+
+  <div class="gen-steps">
+    <span class="gen-step gen-step--done">1. Input</span>
+    <span class="gen-step gen-step--active">2. Processing</span>
+    <span class="gen-step gen-step--pending">3. Review</span>
+  </div>
+
+  <div class="t-card" style="max-width:500px">
+    <div style="margin-bottom:12px">
+      <span class="t-badge t-badge--generating" style="font-size:0.78rem;padding:4px 10px">RUNNING</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <div class="pipeline-step">
+        <span class="pipeline-icon pipeline-icon--done">&#10003;</span>
+        <span>Word Lookup</span>
+        <span class="pipeline-duration">2.1s</span>
+      </div>
+      <div class="pipeline-step">
+        <span class="pipeline-icon pipeline-icon--done">&#10003;</span>
+        <span>Deduplication</span>
+        <span class="pipeline-duration">0.8s</span>
+      </div>
+      <div class="pipeline-step">
+        <span class="pipeline-icon pipeline-icon--done">&#10003;</span>
+        <span>Translation</span>
+        <span class="pipeline-duration">3.4s</span>
+      </div>
+      <div class="pipeline-step pipeline-step--running">
+        <span class="pipeline-icon pipeline-icon--running">&#9679;</span>
+        <span style="font-weight:600">Question Generation</span>
+      </div>
+      <div class="pipeline-step">
+        <span class="pipeline-icon pipeline-icon--pending">&#9675;</span>
+        <span style="color:var(--t-text-tertiary)">Pack Creation</span>
+      </div>
+      <div class="pipeline-step">
+        <span class="pipeline-icon pipeline-icon--pending">&#9675;</span>
+        <span style="color:var(--t-text-tertiary)">Primer Generation</span>
+      </div>
+      <div class="pipeline-step">
+        <span class="pipeline-icon pipeline-icon--pending">&#9675;</span>
+        <span style="color:var(--t-text-tertiary)">Story & Cloze Generation</span>
+      </div>
+      <div class="pipeline-step">
+        <span class="pipeline-icon pipeline-icon--pending">&#9675;</span>
+        <span style="color:var(--t-text-tertiary)">Image Generation</span>
+      </div>
+      <div class="pipeline-step">
+        <span class="pipeline-icon pipeline-icon--pending">&#9675;</span>
+        <span style="color:var(--t-text-tertiary)">Picture-Word Match</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ DEMO NAVIGATION ═══════════ -->
+<div class="demo-nav">
+  <button class="demo-btn" onclick="showPage('ws')">Word Sets</button>
+  <button class="demo-btn" onclick="toggleModal(true)">Modal</button>
+  <button class="demo-btn" onclick="showPage('cc')">Command Center</button>
+  <button class="demo-btn" onclick="showPage('groups')">Groups</button>
+  <button class="demo-btn" onclick="showPage('queue')">Gen Queue</button>
+  <button class="demo-btn" onclick="showPage('wizard')">Gen Wizard</button>
+  <button class="demo-btn" onclick="showToast()">Toast</button>
+</div>
+
+<script>
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('page--active'));
+  document.getElementById('page-' + id).classList.add('page--active');
+  // Update nav active state
+  document.querySelectorAll('.t-nav-link').forEach(l => l.classList.remove('t-nav-link--active'));
+  const navMap = { ws: 1, cc: 0, groups: 2 };
+  if (navMap[id] !== undefined) {
+    document.querySelectorAll('.t-nav-link')[navMap[id]].classList.add('t-nav-link--active');
+  }
+}
+function toggleModal(show) {
+  document.getElementById('modal').style.display = show ? 'flex' : 'none';
+}
+function showToast() {
+  const t = document.getElementById('toast');
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 3000);
+}
+</script>
+</body>
+</html>

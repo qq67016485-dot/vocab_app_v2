@@ -1,0 +1,92 @@
+=== LLM CALL LOG ===
+Timestamp: 20260401_152129
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+You are an expert ESL curriculum designer, creative writer, and curriculum architect.
+Given a list of vocabulary words with their definitions, group them into packs.
+
+Your goal is to create packs where the words are thematically connected in a way that makes it easy to weave them into a short story later. Think like a storyteller: each pack should suggest a scene, setting, or narrative arc.
+
+Consider:
+- Shared topic or domain (e.g., science, emotions, nature, conflict)
+- Words that naturally appear together in a narrative context
+- Complementary meanings that support story coherence
+- Emotional or tonal connections (e.g., words that evoke tension, discovery, calm)
+
+For each pack, evaluate the nature of the words and assign the best text type:
+- **"fiction"**: Best for action words, character/emotion words, descriptive words, or words that lend themselves to imaginative storytelling (e.g., adventure, mystery, fantasy scenarios).
+- **"narrative_nonfiction"**: Best for academic, scientific, technical, or factual words that are better taught through real-world contexts (e.g., a scientist's discovery, a historical event, a nature documentary narrative).
+
+Output valid JSON with this exact structure:
+{{
+  "packs": [
+    {{
+      "label": "A short descriptive label for the pack theme",
+      "text_type": "fiction or narrative_nonfiction",
+      "words": ["term1", "term2", "term3"]
+    }}
+  ]
+}}
+
+Rules:
+- Every word from the input must appear in exactly one pack
+- You must create exactly 3 packs
+- Distribute words as evenly as possible across packs (max 6 words per pack)
+- Pack labels should be concise (2-4 words) and suggest a narrative theme
+- Choose text_type based on the dominant nature of the words in each pack, not a blanket rule
+- Do not include any text outside the JSON object
+
+
+=== USER PROMPT ===
+- trench (noun): A long, deep ditch dug in the ground where soldiers hide and defend themselves from enemy fire.
+- artillery (noun): Large, heavy guns or cannons used by the military to shoot explosive shells over long distances.
+- battalion (noun): A large organized group of soldiers working together as a single unit under the command of an officer.
+- cavalry (noun): A group of soldiers who fight while riding horses or using armored vehicles.
+- fortify (verb): To make a place stronger and harder to attack by building walls, fences, or other defenses.
+- infantry (noun): Soldiers who march and fight on foot rather than on horseback or in vehicles.
+- munition (noun): Military supplies, especially weapons, bullets, and bombs used in fighting a war.
+- siege (noun): A military operation where an army surrounds a city or fort to trap the people inside and stop them from getting supplies.
+- veteran (noun): A person who has served in the military, especially someone who has fought in a war.
+- warfare (noun): The act of fighting a war, or the specific weapons and methods used to fight.
+- garrison (noun): A group of soldiers stationed in a specific town or fort to protect it from enemies.
+- ration (noun): A specific, limited amount of food or supplies given to a person when there is not enough for everyone to have as much as they want.
+- blockade (noun): A barrier created by an army or navy to stop people and supplies from entering or leaving a place.
+
+=== RAW RESPONSE ===
+{
+  "packs": [
+    {
+      "label": "The Frontline Advance",
+      "text_type": "fiction",
+      "words": [
+        "battalion",
+        "infantry",
+        "cavalry",
+        "trench"
+      ]
+    },
+    {
+      "label": "City Under Siege",
+      "text_type": "fiction",
+      "words": [
+        "siege",
+        "blockade",
+        "fortify",
+        "garrison",
+        "ration"
+      ]
+    },
+    {
+      "label": "The Reality of Warfare",
+      "text_type": "narrative_nonfiction",
+      "words": [
+        "artillery",
+        "munition",
+        "warfare",
+        "veteran"
+      ]
+    }
+  ]
+}

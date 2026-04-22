@@ -1,0 +1,77 @@
+=== LLM CALL LOG ===
+Timestamp: 20260314_015845
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+You are an expert ESL curriculum designer.
+Given a list of vocabulary words with their definitions, group them into packs of approximately 5 words each.
+
+Words in the same pack should be thematically or semantically related so they work well together in a short story. Consider:
+- Shared topic or domain (e.g., science, emotions, nature)
+- Words that naturally appear together in context
+- Complementary meanings that support narrative coherence
+
+Output valid JSON with this exact structure:
+{{
+  "packs": [
+    {{
+      "label": "A short descriptive label for the pack theme",
+      "words": ["term1", "term2", "term3"]
+    }}
+  ]
+}}
+
+Rules:
+- Every word from the input must appear in exactly one pack
+- Each pack should have approximately 5 words (the last pack may have fewer)
+- Pack labels should be concise (2-4 words) and describe the thematic connection
+- Do not include any text outside the JSON object
+
+
+=== USER PROMPT ===
+- refugee (noun): A person who has been forced to leave their country to escape war, danger, or a natural disaster.
+- audience (noun): A group of people who gather to listen to or watch a performance, like a play, movie, or concert.
+- spectator (noun): A person who watches an event, show, or game, especially a sports match.
+- pilgrim (noun): A person who travels on a long journey to a holy place for religious reasons.
+- volunteer (noun): A person who freely offers to do a job or help others without getting paid.
+- congregation (noun): A group of people gathered together for a religious worship service.
+- smuggler (noun): A person who secretly and illegally moves people or things into or out of a country.
+- hostage (noun): A person kept as a prisoner by someone who demands that certain conditions be met before letting them go.
+- colleague (noun): A person that you work with at a job or profession.
+- citizen (noun): A person who legally belongs to a country and has the rights and protection of that country.
+- foreigner (noun): A person born in or coming from a country other than one's own.
+- bandit (noun): A robber or outlaw who often belongs to a gang and attacks travelers.
+
+=== RAW RESPONSE ===
+{
+  "packs": [
+    {
+      "label": "Travel and Peril",
+      "words": [
+        "refugee",
+        "foreigner",
+        "smuggler",
+        "bandit",
+        "hostage"
+      ]
+    },
+    {
+      "label": "Events and Gatherings",
+      "words": [
+        "audience",
+        "spectator",
+        "congregation",
+        "pilgrim"
+      ]
+    },
+    {
+      "label": "Civic Duty and Work",
+      "words": [
+        "citizen",
+        "colleague",
+        "volunteer"
+      ]
+    }
+  ]
+}

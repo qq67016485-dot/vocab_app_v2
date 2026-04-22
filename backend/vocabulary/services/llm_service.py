@@ -231,9 +231,11 @@ def call_gemini_image(prompt):
     Returns:
         bytes: Raw image bytes (PNG).
     """
-    client_kwargs = {'api_key': settings.GEMINI_API_KEY}
-    if settings.GEMINI_BASE_URL:
-        client_kwargs['http_options'] = types.HttpOptions(base_url=settings.GEMINI_BASE_URL)
+    api_key = settings.IMAGE_API_KEY or settings.GEMINI_API_KEY
+    base_url = settings.IMAGE_BASE_URL or settings.GEMINI_BASE_URL
+    client_kwargs = {'api_key': api_key}
+    if base_url:
+        client_kwargs['http_options'] = types.HttpOptions(base_url=base_url)
     client = genai.Client(**client_kwargs)
 
     logger.info("Generating image via Gemini")

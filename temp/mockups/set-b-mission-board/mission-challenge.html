@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Set B — Challenge Mission</title>
+<link rel="stylesheet" href="../shared.css">
+</head><body>
+
+<!-- Mission header -->
+<div class="top-bar">
+  <div>
+    <span class="chip chip-orange">Challenge</span>
+    <strong style="margin-left:6px;">Word Partners</strong>
+  </div>
+  <a href="mission-board.html" class="btn btn-small" style="font-size:11px;">Exit</a>
+</div>
+
+<!-- Skill focus callout -->
+<div class="card" style="border-left: 4px solid #f97316; background: #fffbeb;">
+  <p style="font-size:13px;">
+    <strong>Focus:</strong> Collocations — words that naturally go together.
+    You got 40% on these last week. Let's improve!
+  </p>
+</div>
+
+<!-- Progress -->
+<div class="flex-between mb-8">
+  <span class="text-muted" style="font-size:12px;">Question 2 of 5</span>
+  <span class="text-muted" style="font-size:12px;">1/1 correct so far</span>
+</div>
+<div class="progress-wrap">
+  <div class="progress-fill" style="width: 40%; background: #f97316;"></div>
+</div>
+
+<!-- Collocation question -->
+<div class="card mt-16">
+  <div class="flex-between mb-8">
+    <span class="chip chip-orange">word partners</span>
+    <span class="text-muted" style="font-size:11px;">challenge</span>
+  </div>
+
+  <p style="font-size:17px; margin: 12px 0;">
+    Which phrase sounds natural?
+  </p>
+
+  <div style="display:flex; flex-direction:column; gap:8px; margin:12px 0;">
+    <div class="option-btn" style="text-align:left; padding:14px;">
+      <strong>A.</strong> make a decision
+    </div>
+    <div class="option-btn" style="text-align:left; padding:14px;">
+      <strong>B.</strong> do a decision
+    </div>
+    <div class="option-btn" style="text-align:left; padding:14px;">
+      <strong>C.</strong> take a decision
+    </div>
+  </div>
+</div>
+
+<a href="#fb" class="btn btn-primary btn-big" onclick="document.getElementById('fb').style.display='block'; this.style.display='none'; return false;">Submit</a>
+
+<!-- Feedback -->
+<div id="fb" style="display:none;">
+  <div class="card" style="border-left: 4px solid #22c55e;">
+    <span class="chip chip-green">Correct!</span>
+    <p class="mt-8"><strong>"Make a decision"</strong> is the natural English collocation.</p>
+    <p class="text-muted mt-8" style="font-size:13px;">
+      <strong>Why not the others?</strong><br>
+      "Do a decision" is not used in English. "Take a decision" is used in British English but less common.
+    </p>
+  </div>
+
+  <!-- Next: Matching question -->
+  <div class="card mt-16">
+    <div class="flex-between mb-8">
+      <span class="chip chip-orange">word partners</span>
+      <span class="text-muted" style="font-size:11px;">Q3 of 5</span>
+    </div>
+    <p style="font-size:17px; margin: 12px 0;">
+      Match each verb with its natural partner:
+    </p>
+    <div style="display:flex; gap:16px; margin:12px 0;">
+      <div style="flex:1;">
+        <div class="card" style="padding:8px; text-align:center; margin-bottom:6px;">make</div>
+        <div class="card" style="padding:8px; text-align:center; margin-bottom:6px;">pay</div>
+        <div class="card" style="padding:8px; text-align:center; margin-bottom:6px;">catch</div>
+      </div>
+      <div style="flex:1;">
+        <div class="card" style="padding:8px; text-align:center; margin-bottom:6px; border-style:dashed;">attention</div>
+        <div class="card" style="padding:8px; text-align:center; margin-bottom:6px; border-style:dashed;">a cold</div>
+        <div class="card" style="padding:8px; text-align:center; margin-bottom:6px; border-style:dashed;">progress</div>
+      </div>
+    </div>
+    <p class="text-muted text-center" style="font-size:11px;">Drag or tap to match</p>
+  </div>
+
+  <a href="mission-complete.html" class="btn btn-primary btn-big">Submit →</a>
+</div>
+
+<!-- Flow indicator -->
+<hr class="divider">
+<p class="text-muted text-center" style="font-size:11px;">
+  FLOW: Mission Board → <strong>Challenge Mission</strong> (skill-focused) → Mission Complete
+</p>
+<p class="nav-link"><a href="../index.html">← Back to all mockups</a></p>
+
+</body></html>

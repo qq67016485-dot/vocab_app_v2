@@ -12,11 +12,8 @@ export default function GenerationQueue() {
       try {
         const res = await apiClient.get('/admin/generation-queue/');
         setQueue(res.data);
-      } catch (err) {
-        console.error('Error fetching generation queue:', err);
-      } finally {
-        setIsLoading(false);
-      }
+      } catch (err) { console.error('Error fetching generation queue:', err); }
+      finally { setIsLoading(false); }
     };
     fetchQueue();
   }, []);
@@ -31,47 +28,37 @@ export default function GenerationQueue() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2>Generation Queue</h2>
-        <button onClick={() => navigate('/teacher/word-sets')}>Back to Word Sets</button>
+      <div className="t-page-header">
+        <h1 className="t-page-title">Generation Queue</h1>
+        <button className="t-btn t-btn--secondary" onClick={() => navigate('/teacher/word-sets')}>Back to Word Sets</button>
       </div>
 
       {queue.length === 0 ? (
-        <p style={{ color: '#666' }}>No pending generation requests.</p>
+        <div className="t-empty">No pending generation requests.</div>
       ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ borderBottom: '2px solid #e1e1e1', textAlign: 'left' }}>
-              <th style={{ padding: '10px' }}>Word Set</th>
-              <th style={{ padding: '10px' }}>Requested By</th>
-              <th style={{ padding: '10px' }}>Requested At</th>
-              <th style={{ padding: '10px' }}>Words</th>
-              <th style={{ padding: '10px' }}>Lexile</th>
-              <th style={{ padding: '10px' }}>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {queue.map(item => (
-              <tr key={item.id} style={{ borderBottom: '1px solid #eee' }}>
-                <td style={{ padding: '10px' }}>
-                  <div style={{ fontWeight: 'bold' }}>{item.title}</div>
-                  {item.curriculum && <small style={{ color: '#666' }}>{item.curriculum}</small>}
-                  {item.level && <small style={{ color: '#666' }}> / {item.level}</small>}
-                </td>
-                <td style={{ padding: '10px' }}>{item.requested_by || item.creator}</td>
-                <td style={{ padding: '10px' }}>{formatDate(item.requested_at)}</td>
-                <td style={{ padding: '10px' }}>{item.word_count}</td>
-                <td style={{ padding: '10px' }}>{item.target_lexile}</td>
-                <td style={{ padding: '10px' }}>
-                  <button onClick={() => navigate(`/teacher/generate/${item.id}`)}
-                    style={{ background: '#7c3aed', color: '#fff' }}>
-                    Generate
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="t-card" style={{ padding: 0, overflow: 'hidden' }}>
+          <table className="t-table">
+            <thead>
+              <tr><th>Word Set</th><th>Requested By</th><th>Requested At</th><th>Words</th><th>Lexile</th><th>Action</th></tr>
+            </thead>
+            <tbody>
+              {queue.map(item => (
+                <tr key={item.id}>
+                  <td>
+                    <div style={{ fontWeight: 600 }}>{item.title}</div>
+                    {item.curriculum && <span className="t-hint">{item.curriculum}</span>}
+                    {item.level && <span className="t-hint"> / {item.level}</span>}
+                  </td>
+                  <td>{item.requested_by || item.creator}</td>
+                  <td><span className="t-mono" style={{ fontSize: '0.8rem' }}>{formatDate(item.requested_at)}</span></td>
+                  <td><span className="ws-word-count">{item.word_count}</span></td>
+                  <td><span className="ws-word-count">{item.target_lexile}</span></td>
+                  <td><button className="t-btn t-btn--primary t-btn--sm" onClick={() => navigate(`/teacher/generate/${item.id}`)}>Generate</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

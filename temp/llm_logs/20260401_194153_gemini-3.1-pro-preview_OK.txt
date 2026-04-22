@@ -1,0 +1,99 @@
+=== LLM CALL LOG ===
+Timestamp: 20260401_194153
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+You are an expert ESL curriculum designer and a master writer for Middle Grade audiences (ages 10-14). You specialize in writing both thrilling fiction and fascinating narrative non-fiction (like National Geographic Kids).
+
+TASK:
+You will be given a list of target vocabulary words (with definitions), a Target Lexile level, a Pack Label (theme), and a Text Type ("fiction" or "narrative_nonfiction").
+Your goal is to write a highly engaging micro-passage (80-150 words) and a set of cloze (fill-in-the-blank) quiz items.
+
+PASSAGE WRITING CONSTRAINTS:
+1. Scenario Invention: Use the provided "Pack Label" to invent a highly specific, engaging scenario. Do not write a generic summary; write a specific moment in time.
+2. Adapt to the Text Type:
+   - If "fiction": Write a single, high-stakes, "show-don't-tell" scene. Drop the reader right into the action (e.g., a sci-fi mystery, survival thriller, or fantasy quest).
+   - If "narrative_nonfiction": Write a fascinating hook for an article, historical profile, or nature documentary. Make the academic or scientific context sound mysterious, cool, and highly relevant.
+3. Natural Word Flow (Crucial): Do NOT force the words unnaturally or create robotic dialogue just to use them. Integrate them smoothly into the narrative context. Wrap each target word exactly in **double asterisks**.
+4. Reading Level: Target the specified Lexile level strictly by controlling sentence length and non-target vocabulary complexity.
+5. Ensure target vocabulary words are used in their most natural and common grammatical form.
+
+CLOZE QUIZ CONSTRAINTS:
+1. The quiz sentences must be 100% DIFFERENT from the passage (new contexts).
+2. Distractors must be the exact same part of speech as the correct answer.
+3. Distractors should be plausible but logically incorrect for the sentence context.
+
+Output valid JSON with this exact structure:
+{
+  "micro_passage": {
+    "text": "The 80-150 word passage with target words wrapped in **word** markers",
+    "reading_level": 850
+  },
+  "cloze_items": [
+    {
+      "term": "the target word",
+      "sentence_text": "A sentence with _______ where the word goes",
+      "correct_answer": "the target word",
+      "distractors": ["wrong1", "wrong2"]
+    }
+  ]
+}
+
+
+=== USER PROMPT ===
+Pack Label: Military Supply Run
+Text Type: fiction
+Target Lexile: 850
+
+Target words:
+- grenade (noun): A small bomb that is designed to be thrown by hand.
+- patrol (noun): A group of soldiers, vehicles, or ships sent out to guard an area or gather information.
+- convoy (noun): A group of vehicles or ships traveling together for safety and protection.
+- surplus (noun): An extra amount of something that is left over after all needs have been met.
+
+=== RAW RESPONSE ===
+{
+  "micro_passage": {
+    "text": "The armored **convoy** rumbled across the jagged dunes of Sector Four, kicking up clouds of crimson dust. Tariq tightened his grip on the steering wheel, his heart hammering against his ribs. He squinted through the cracked windshield, desperately scanning the canyon walls for any sign of a rebel **patrol**. They were miles from base, hauling crates of medical **surplus** that the frontier hospitals desperately needed to survive the winter. Every jolt of the heavy transport echoed like a gunshot in the silent desert. Suddenly, a blinding flash erupted near the lead truck, sending shockwaves through the ground. \"Ambush!\" Tariq yelled into his radio. Without hesitating, he grabbed a smoke **grenade** from his tactical belt, ready to conceal their escape before the attackers closed in.",
+    "reading_level": 850
+  },
+  "cloze_items": [
+    {
+      "term": "convoy",
+      "sentence_text": "During the massive blizzard, a long _______ of snowplows and emergency trucks drove slowly down the icy highway.",
+      "correct_answer": "convoy",
+      "distractors": [
+        "stampede",
+        "tournament"
+      ]
+    },
+    {
+      "term": "patrol",
+      "sentence_text": "The security _______ walked carefully along the museum's perimeter fence, shining their flashlights into the dark bushes.",
+      "correct_answer": "patrol",
+      "distractors": [
+        "parade",
+        "audience"
+      ]
+    },
+    {
+      "term": "surplus",
+      "sentence_text": "After a surprisingly excellent harvest, the farmers decided to sell their _______ of corn at the neighboring town's market.",
+      "correct_answer": "surplus",
+      "distractors": [
+        "drought",
+        "shortage"
+      ]
+    },
+    {
+      "term": "grenade",
+      "sentence_text": "The action hero pulled the pin out of the _______ and tossed it into the empty bunker before diving for cover.",
+      "correct_answer": "grenade",
+      "distractors": [
+        "helmet",
+        "telescope"
+      ]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 import pytest
-from datetime import date
 from django.contrib.contenttypes.models import ContentType
+from django.utils import timezone
 
 from vocabulary.models import (
     Tag, Word, WordDefinition, DefinitionEmbedding, Translation,
@@ -168,8 +168,8 @@ class TestTranslation:
 class TestMasteryLevel:
     def test_create_and_retrieve_levels(self):
         """Verify mastery levels can be created and retrieved."""
-        MasteryLevelFactory(level_id=1, level_name='Novice', interval_days=0, points_to_promote=2)
-        MasteryLevelFactory(level_id=5, level_name='Mastered', interval_days=14, points_to_promote=999)
+        MasteryLevelFactory(level_id=1, level_name='Novice', interval_days=1, points_to_promote=2)
+        MasteryLevelFactory(level_id=5, level_name='Mastered', interval_days=20, points_to_promote=999)
         assert MasteryLevel.objects.count() == 2
         assert MasteryLevel.objects.get(level_id=1).level_name == 'Novice'
         assert MasteryLevel.objects.get(level_id=5).level_name == 'Mastered'
@@ -188,12 +188,12 @@ class TestUserWordProgress:
         level = MasteryLevelFactory(level_id=1)
         UserWordProgress.objects.create(
             user=student, word=word, level=level,
-            next_review_date=date.today(),
+            next_review_date=timezone.localdate(),
         )
         with pytest.raises(Exception):
             UserWordProgress.objects.create(
                 user=student, word=word, level=level,
-                next_review_date=date.today(),
+                next_review_date=timezone.localdate(),
             )
 
 
@@ -208,8 +208,8 @@ class TestQuestion:
         assert q.question_type == Question.QuestionType.DEFINITION_MC_SINGLE
         assert q.word is not None
 
-    def test_all_20_question_types(self):
-        assert len(Question.QuestionType.choices) == 20
+    def test_all_question_types(self):
+        assert len(Question.QuestionType.choices) == 29
 
     def test_generation_job_nullable(self):
         q = QuestionFactory()
@@ -244,14 +244,9 @@ class TestWordSet:
         ws.words.add(w1, w2)
         assert ws.words.count() == 2
 
-    def test_str_with_chapter(self):
+    def test_str(self):
         teacher = TeacherUserFactory(username='mrs_jones')
-        ws = WordSetFactory(title='Cosmos', unit_or_chapter='Ch 1', creator=teacher)
-        assert str(ws) == "'Cosmos - Ch 1' by mrs_jones"
-
-    def test_str_without_chapter(self):
-        teacher = TeacherUserFactory(username='mrs_jones')
-        ws = WordSetFactory(title='Cosmos', unit_or_chapter='', creator=teacher)
+        ws = WordSetFactory(title='Cosmos', creator=teacher)
         assert str(ws) == "'Cosmos' by mrs_jones"
 
 
@@ -300,7 +295,7 @@ class TestInstructionalModels:
     def test_generated_image_status(self):
         word = WordFactory()
         img = GeneratedImage.objects.create(
-            word=word, image_url='https://example.com/img.png',
+            word=word,
             prompt_used='A test prompt',
         )
         assert img.status == GeneratedImage.Status.PENDING_REVIEW
@@ -360,4 +355,5 @@ class TestGenerationJobLog:
         assert 'PRIMER_GEN' in steps
         assert 'STORY_CLOZE_GEN' in steps
         assert 'IMAGE_GEN' in steps
-        assert len(steps) == 8
+        assert 'PICTURE_MATCH_GEN' in steps
+        assert len(steps) == 9

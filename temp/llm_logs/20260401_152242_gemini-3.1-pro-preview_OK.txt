@@ -1,0 +1,109 @@
+=== LLM CALL LOG ===
+Timestamp: 20260401_152242
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+You are an expert ESL curriculum designer and a master writer for Middle Grade audiences (ages 10-14). You specialize in writing both thrilling fiction and fascinating narrative non-fiction (like National Geographic Kids).
+
+TASK:
+You will be given a list of target vocabulary words (with definitions), a Target Lexile level, a Pack Label (theme), and a Text Type ("fiction" or "narrative_nonfiction").
+Your goal is to write a highly engaging micro-passage (80-150 words) and a set of cloze (fill-in-the-blank) quiz items.
+
+PASSAGE WRITING CONSTRAINTS:
+1. Scenario Invention: Use the provided "Pack Label" to invent a highly specific, engaging scenario. Do not write a generic summary; write a specific moment in time.
+2. Adapt to the Text Type:
+   - If "fiction": Write a single, high-stakes, "show-don't-tell" scene. Drop the reader right into the action (e.g., a sci-fi mystery, survival thriller, or fantasy quest).
+   - If "narrative_nonfiction": Write a fascinating hook for an article, historical profile, or nature documentary. Make the academic or scientific context sound mysterious, cool, and highly relevant.
+3. Natural Word Flow (Crucial): Do NOT force the words unnaturally or create robotic dialogue just to use them. Integrate them smoothly into the narrative context. Wrap each target word exactly in **double asterisks**.
+4. Reading Level: Target the specified Lexile level strictly by controlling sentence length and non-target vocabulary complexity.
+5. Ensure target vocabulary words are used in their most natural and common grammatical form.
+
+CLOZE QUIZ CONSTRAINTS:
+1. The quiz sentences must be 100% DIFFERENT from the passage (new contexts).
+2. Distractors must be the exact same part of speech as the correct answer.
+3. Distractors should be plausible but logically incorrect for the sentence context.
+
+Output valid JSON with this exact structure:
+{
+  "micro_passage": {
+    "text": "The 80-150 word passage with target words wrapped in **word** markers",
+    "reading_level": 850
+  },
+  "cloze_items": [
+    {
+      "term": "the target word",
+      "sentence_text": "A sentence with _______ where the word goes",
+      "correct_answer": "the target word",
+      "distractors": ["wrong1", "wrong2"]
+    }
+  ]
+}
+
+
+=== USER PROMPT ===
+Pack Label: City Under Siege
+Text Type: fiction
+Target Lexile: 850
+
+Target words:
+- fortify (verb): To make a place stronger and harder to attack by building walls, fences, or other defenses.
+- siege (noun): A military operation where an army surrounds a city or fort to trap the people inside and stop them from getting supplies.
+- garrison (noun): A group of soldiers stationed in a specific town or fort to protect it from enemies.
+- ration (noun): A specific, limited amount of food or supplies given to a person when there is not enough for everyone to have as much as they want.
+- blockade (noun): A barrier created by an army or navy to stop people and supplies from entering or leaving a place.
+
+=== RAW RESPONSE ===
+{
+  "micro_passage": {
+    "text": "The **siege** of Aethelgard had lasted forty brutal days, turning the once-glorious city into a cage of ash and stone. Elara sprinted through the smoke-filled streets, desperate to help the engineers **fortify** the crumbling western gate with scrap metal and splintered beams. Above her, the exhausted **garrison** stood watch on the battlements, their arrows nocked and ready. She scrambled up the steep stone steps, clutching a small canvas sack. It contained her own daily **ration**—a meager slab of dried moss-bread—which she pressed into the hands of a shivering young archer. He nodded his silent thanks, his bloodshot eyes fixed on the horizon. Beyond the dried moat, a terrifying network of spiked iron ships formed a massive **blockade**, cutting off the harbor entirely. No supplies could get in, and no one was getting out alive unless the walls held.",
+    "reading_level": 850
+  },
+  "cloze_items": [
+    {
+      "term": "fortify",
+      "sentence_text": "To protect the village from the approaching hurricane, the residents worked together to _______ the wooden sea wall with heavy sandbags.",
+      "correct_answer": "fortify",
+      "distractors": [
+        "dismantle",
+        "navigate"
+      ]
+    },
+    {
+      "term": "siege",
+      "sentence_text": "The rebel army planned a long _______ of the mountain castle, hoping the king would surrender once he ran out of fresh water.",
+      "correct_answer": "siege",
+      "distractors": [
+        "alliance",
+        "parade"
+      ]
+    },
+    {
+      "term": "garrison",
+      "sentence_text": "The commander ordered a small _______ to stay behind and guard the jungle outpost while the rest of the troops marched north.",
+      "correct_answer": "garrison",
+      "distractors": [
+        "audience",
+        "expedition"
+      ]
+    },
+    {
+      "term": "ration",
+      "sentence_text": "During the harsh winter, the stranded explorers survived by eating a strict _______ of salted meat and dry biscuits each evening.",
+      "correct_answer": "ration",
+      "distractors": [
+        "recipe",
+        "harvest"
+      ]
+    },
+    {
+      "term": "blockade",
+      "sentence_text": "The pirate ships formed a tight _______ across the bay, preventing any merchant vessels from delivering medicine to the island.",
+      "correct_answer": "blockade",
+      "distractors": [
+        "highway",
+        "monument"
+      ]
+    }
+  ]
+}

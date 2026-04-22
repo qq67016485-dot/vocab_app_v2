@@ -3,8 +3,9 @@ RED tests for v2 API views.
 Tests written BEFORE implementation — all should fail initially.
 """
 import pytest
-from datetime import date, timedelta
+from datetime import timedelta
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from users.models import CustomUser, StudentGroup
@@ -27,11 +28,11 @@ from tests.factories import (
 
 def _seed_mastery_levels():
     levels = [
-        (1, 'Novice', 0, 2),
-        (2, 'Familiar', 1, 4),
-        (3, 'Confident', 3, 7),
-        (4, 'Proficient', 7, 10),
-        (5, 'Mastered', 14, 999),
+        (1, 'Novice', 1, 2),
+        (2, 'Familiar', 3, 4),
+        (3, 'Confident', 7, 7),
+        (4, 'Proficient', 10, 10),
+        (5, 'Mastered', 20, 999),
     ]
     for lid, name, interval, pts in levels:
         MasteryLevel.objects.get_or_create(
@@ -119,7 +120,7 @@ class TestNextPracticeWordView:
         self.question.suitable_levels.add(level1)
         UserWordProgress.objects.create(
             user=self.student, word=self.word,
-            level=level1, next_review_date=date.today(),
+            level=level1, next_review_date=timezone.localdate(),
         )
 
     def test_returns_question(self):
@@ -148,7 +149,7 @@ class TestNextPracticeWordView:
     def test_no_due_words_message(self):
         # Move review date to future
         progress = UserWordProgress.objects.get(user=self.student, word=self.word)
-        progress.next_review_date = date.today() + timedelta(days=7)
+        progress.next_review_date = timezone.localdate() + timedelta(days=7)
         progress.save()
         response = self.client.get('/api/practice/next/')
         assert response.status_code == 200
@@ -178,7 +179,7 @@ class TestSubmitAnswerView:
         level1 = MasteryLevel.objects.get(level_id=1)
         UserWordProgress.objects.create(
             user=self.student, word=self.word,
-            level=level1, next_review_date=date.today(),
+            level=level1, next_review_date=timezone.localdate(),
         )
 
     def test_correct_answer(self):
@@ -211,6 +212,128 @@ class TestSubmitAnswerView:
             'user_answer': 'test',
         })
         assert response.status_code == 404
+
+    def test_incorrect_response_excludes_correct_answer(self):
+        response = self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'wrong',
+            'duration_seconds': 5,
+        })
+        assert response.status_code == 200
+        assert response.data['is_correct'] is False
+        assert 'correct_answer' not in response.data
+
+    def test_correct_response_includes_correct_answer(self):
+        response = self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'shining',
+            'duration_seconds': 5,
+        })
+        assert response.status_code == 200
+        assert response.data['is_correct'] is True
+        assert response.data['correct_answer'] == 'shining'
+
+    def test_retry_does_not_create_second_user_answer(self):
+        self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'wrong',
+            'duration_seconds': 5,
+        })
+        assert UserAnswer.objects.filter(user=self.student).count() == 1
+        self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'shining',
+            'is_retry': True,
+        })
+        assert UserAnswer.objects.filter(user=self.student).count() == 1
+
+    def test_retry_does_not_change_mastery_points(self):
+        self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'wrong',
+            'duration_seconds': 5,
+        })
+        progress = UserWordProgress.objects.get(user=self.student, word=self.word)
+        points_after_wrong = progress.mastery_points
+
+        self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'shining',
+            'is_retry': True,
+        })
+        progress.refresh_from_db()
+        assert progress.mastery_points == points_after_wrong
+
+    def test_retry_does_not_award_xp(self):
+        self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'wrong',
+            'duration_seconds': 5,
+        })
+        self.student.refresh_from_db()
+        xp_after_wrong = self.student.xp_points
+
+        self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'shining',
+            'is_retry': True,
+        })
+        self.student.refresh_from_db()
+        assert self.student.xp_points == xp_after_wrong
+
+    def test_retry_correct_returns_is_correct_true(self):
+        self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'wrong',
+            'duration_seconds': 5,
+        })
+        response = self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'shining',
+            'is_retry': True,
+        })
+        assert response.status_code == 200
+        assert response.data['is_correct'] is True
+        assert response.data['is_retry'] is True
+
+    def test_retry_incorrect_excludes_correct_answer(self):
+        self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'wrong',
+            'duration_seconds': 5,
+        })
+        response = self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'still_wrong',
+            'is_retry': True,
+        })
+        assert response.data['is_correct'] is False
+        assert 'correct_answer' not in response.data
+
+    def test_retry_increments_retry_count(self):
+        self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'wrong',
+            'duration_seconds': 5,
+        })
+        answer = UserAnswer.objects.get(user=self.student, question=self.question)
+        assert answer.retry_count == 0
+
+        self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'still_wrong',
+            'is_retry': True,
+        })
+        answer.refresh_from_db()
+        assert answer.retry_count == 1
+
+        self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'shining',
+            'is_retry': True,
+        })
+        answer.refresh_from_db()
+        assert answer.retry_count == 2
 
 
 @pytest.mark.django_db
@@ -291,9 +414,36 @@ class TestStudentDashboardView:
         response = client.get('/api/student/dashboard/')
         assert response.status_code == 403
 
+    def test_returns_goal_bounds(self):
+        response = self.client.get('/api/student/dashboard/')
+        assert response.status_code == 200
+        assert 'daily_goal_min' in response.data
+        assert 'daily_goal_max' in response.data
+        assert 'last_goal_prompt_date' in response.data
+        assert response.data['daily_goal_min'] == self.student.daily_goal_min
+        assert response.data['daily_goal_max'] == self.student.daily_goal_max
+
 
 @pytest.mark.django_db
-class TestWordsByLevelView:
+class TestStudentGoalPromptView:
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        self.student = StudentUserFactory()
+        self.client = _make_client(self.student)
+
+    def test_records_prompt_date(self):
+        assert self.student.last_goal_prompt_date is None
+        response = self.client.post('/api/student/goal-prompt-shown/')
+        assert response.status_code == 200
+        assert response.data['recorded'] is True
+        self.student.refresh_from_db()
+        assert self.student.last_goal_prompt_date == timezone.localdate()
+
+    def test_teacher_cannot_access(self):
+        teacher = TeacherUserFactory()
+        client = _make_client(teacher)
+        response = client.post('/api/student/goal-prompt-shown/')
+        assert response.status_code == 403
     def test_returns_words_at_level(self):
         _seed_mastery_levels()
         student = StudentUserFactory()
@@ -302,7 +452,7 @@ class TestWordsByLevelView:
         level1 = MasteryLevel.objects.get(level_id=1)
         UserWordProgress.objects.create(
             user=student, word=word,
-            level=level1, next_review_date=date.today(),
+            level=level1, next_review_date=timezone.localdate(),
         )
         client = _make_client(student)
         response = client.get('/api/student/words-by-level/1/')
@@ -501,7 +651,7 @@ class TestCompletePackView:
         level1 = MasteryLevel.objects.get(level_id=1)
         UserWordProgress.objects.create(
             user=self.student, word=self.word,
-            level=level1, next_review_date=date.today(),
+            level=level1, next_review_date=timezone.localdate(),
             instructional_status='PENDING',
         )
 
@@ -682,7 +832,6 @@ class TestPackManagement:
         WordPackItem.objects.create(pack=pack, word=self.word, order=0)
         GeneratedImage.objects.create(
             word=self.word,
-            image_url='https://example.com/img.png',
             prompt_used='test prompt',
         )
         response = self.client.get(
@@ -833,7 +982,7 @@ class TestWordViewSet:
         level1 = MasteryLevel.objects.get(level_id=1)
         UserWordProgress.objects.create(
             user=self.student, word=word,
-            level=level1, next_review_date=date.today(),
+            level=level1, next_review_date=timezone.localdate(),
         )
         response = self.client.get('/api/words/')
         assert response.status_code == 200

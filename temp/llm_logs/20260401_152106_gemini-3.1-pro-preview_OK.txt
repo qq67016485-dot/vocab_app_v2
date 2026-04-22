@@ -1,0 +1,561 @@
+=== LLM CALL LOG ===
+Timestamp: 20260401_152106
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+**ROLE AND GOAL**
+You are an expert AI educational content creator and psychometrician specializing in English vocabulary. Your task is to process a JSON list of words (each with its definition and example sentence) and a target reading level. For EACH word, generate a comprehensive set of **15 practice questions, 3 for each of the 5 mastery levels**. The question types are strictly defined below. The questions are **learning-oriented**, not high-stakes tests. Each question must have its own specific **Lexile score**, a logical and instructive **explanation**, and a unique contextual **example sentence**. Finally, you will package all results into a single, valid JSON object.
+
+---
+
+**INPUT**
+You will be provided with a JSON object containing two main keys:
+* `"words"`: A list of word objects, each with `term`, `part_of_speech`, `definition`, and `example_sentence`.
+* `"target_lexile_level"`: An integer representing the *center point* for the desired Lexile scores (e.g., 800, 1000, 1200).
+
+---
+
+### QUESTION GENERATION
+Generate questions for each word according to the following rules.
+
+**Strict Question Quota**
+Exactly 15 questions per word: **3** at Level 1, **3** at Level 2, **3** at Level 3, **3** at Level 4, **3** at Level 5. *(Note: Where a level has fewer than 3 question types, duplicate one of the types to reach the required 3 questions).*
+
+**Fields required for EACH question**
+1) `lexile_score` — an integer within **target_lexile_level +/- 50**.
+2) `explanation` — logically and instructively explains **why** the correct answer is right and **must include the vocabulary word**. **NOTE:** the student is most likely to read this explanation when their answer is incorrect.
+3) `example_sentence` — a different, real-world usage of the word, including a natural collocation or context the learner is likely to meet again (not redundant with the explanation).
+
+**Question Types and Mastery Levels**
+* **Level 1 – Recognition** (3 items)
+  * `REVERSE_DEFINITION_MC`: The formal definition is provided in the question stem. The target word is the correct answer among other vocabulary distractors.
+  * `DEFINITION_MC_SINGLE`: The question asks for the primary meaning of the target word. Options are various definitions.
+* **Level 2 – Relationships** (3 items)
+  * `REVERSE_SYNONYM_IN_CONTEXT_MC`: A full sentence using a synonym or near-synonym phrase of the target word is provided . The target word is the correct answer to replace it.
+  * `ANTONYM_MC_SINGLE`: A direct question asking for a word with the opposite meaning.
+  * `CONCEPTUAL_ASSOCIATION_MC_SINGLE`: Asks the student to identify which category, broad concept, or related idea best fits the target word (e.g., "Which field is 'orbital' most associated with?").
+* *Fallback Protocol:* If `ANTONYM_MC_SINGLE` is difficult for a word (e.g., a highly specific noun), generate questions of different type to meet the quota.
+
+* **Level 3 – Context & Application** (3 items)
+  * `CONTEXT_MC_SINGLE`: A standard fill-in-the-blank sentence where the target word is the correct choice to complete the logic.
+  * `APPLICATION_MC`: The target word is used in the stem to describe a scenario. The options are real-world behaviors, objects, or outcomes (e.g., "If the path is perilous, what should you do?").
+* **Level 4 – Nuance & Usage** (3 items)
+  * `WORD_FORM_MC`: Tests grammatical accuracy using same-root minimal pairs (e.g., noun/verb/adjective form). DO NOT generate `WORD_FORM_MC` questions if the "target_lexile_level" is less than 600.
+  * `COLLOCATION_MC_SINGLE`: Tests "partner words." The stem contains the target word, and the student picks the correct verb-object or adjective-noun pairing.
+* **Level 5 – Deep Comparison** (3 items)
+  * `ODD_ONE_OUT_MC_SINGLE`: Provides four words in a tight semantic field. The student must identify the one that violates a "latent rule."
+  * `NUANCE_CONTRAST_MC`: A sentence that explicitly contrasts the target word with a near-synonym to test high-level nuance (e.g., "It wasn't just a quick glance; he took hours to _____ every detail"). The target word is the blank.
+
+---
+
+## Distractor Tiers (apply to ALL MC types)
+- **Tier 1 (near-synonym/antonym):** Same part of speech as the key. High semantic similarity, but differs on at least one defining feature in the formal definition.
+- **Tier 2 (collocation foil):** A real word/phrase that commonly collocates with a **neighbor concept** in the same domain, but **not** with the target word (e.g., "wing flap" vs. "propeller pitch").
+- **Tier 3 (orthographic/phonological trap):** Looks/sounds similar but has a different meaning (e.g., propose/propel; manifest/manifesto). Use sparingly and **never** if it changes POS.
+
+**Enforcement**
+- For **all MC items at Levels 3-5**, include **at least one Tier-2** distractor.
+- Do **not** include more than **one Tier-3** distractor in any single item.
+- All distractors must be plausible in context and the **same POS** as the correct answer unless the item purposefully contrasts forms (only in `WORD_FORM_MC`).
+- For collocations, ensure incorrect choices are **genuine collocations with a related neighbor concept** (not nonsense).
+
+---
+
+## Lexile Guardrails
+- Target Lexile per item (including the question, answer text, explanation text, example sentence) = **target_lexile_level +/- 50**.
+
+---
+
+## Nuance Requirements for Specific Types
+- **`REVERSE_SYNONYM_IN_CONTEXT_MC` (L2)**: Ensure the phrase being replaced is visually distinct (e.g., capitalized) so the student knows what they are substituting.
+- **`APPLICATION_MC` (L3)**: The distractors should be plausible behaviors or outcomes, but only one correctly applies the logic of the target word. 
+- **`WORD_FORM_MC` (L4)**: Use **same-root minimal pairs** differing by POS/meaning (e.g., *propel* (V) vs *propulsion* (N) vs *propulsive* (ADJ) vs *propeller* (N device)). Exactly **one** fits the prompt grammatically.
+- **`COLLOCATION_MC_SINGLE` (L4)**: Test genuine **verb-object** or **adjective-noun** patterns and include one **register/domain cue** (e.g., *orbital* (technical) vs *space* (general)).
+- **`ODD_ONE_OUT_MC_SINGLE` (L5)**: Keep all options within a **tight semantic field**; the odd one must violate a **latent rule** (e.g., building up vs. breaking down). The explanation must **state the rule** clearly.
+- **`NUANCE_CONTRAST_MC` (L5)**: The stem MUST include a weaker or related word and a transition word (e.g., *just*, *merely*, *rather than*) to create a contrast that necessitates the stronger/more specific target word.
+
+---
+
+### OUTPUT REQUIREMENTS
+Return a single, valid JSON object. The root object must have one key: `"generated_question_sets"`. Its value is a list; each element contains:
+- `"term"`: the word term (string).
+- `"questions"`: the exactly 15 question objects for that word.
+
+Do **not** include any text outside the JSON object.
+
+---
+
+### QUALITY GUIDELINES
+- **Lexile adherence:** Always within +/-50 of target; apply Guardrails and revise if needed.
+- **Explanation vs. example:** The explanation is analytical ("why"); the example is contextual ("how"). No redundancy.
+- **Plausible distractors:** Follow **Distractor Tiers**.
+- **Avoid tautologies:** The `explanation` must **never** use the root of the term itself to define the term.
+- **Vary sentence structures:** Across the 15 items, vary stems, explanations, examples.
+- **Supportive tone:** Avoid grading language; use encouraging, learner-friendly phrasing.
+
+---
+
+### PRE-FLIGHT CHECKLIST (apply to every item before output)
+- [ ] Exactly 15 questions generated (3 per level).
+- [ ] Lexile proxy **within band** (+/- 50).
+- [ ] **At least one Tier-2** distractor for **all L3-L5** MC items; **<=1 Tier-3** per item.
+- [ ] `WORD_FORM_MC` uses **same-root minimal pairs**.
+- [ ] `APPLICATION_MC` options are real-world outcomes/behaviors, not just definitions.
+- [ ] `NUANCE_CONTRAST_MC` explicitly contrasts the target word against a near-synonym in the stem.
+- [ ] `ODD_ONE_OUT_MC_SINGLE` uses a **tight field** and the explanation **states the latent rule**.
+- [ ] `explanation` includes the target word and gives a **hypernym + differentiating feature** (not circular).
+-[ ] `example_sentence` is **different** from the explanation and contextually natural.
+
+---
+**EXAMPLE**
+
+**INPUT:**
+```json
+{
+  "target_lexile_level": 1000,
+  "words":[
+    {
+      "term": "Analyze",
+      "part_of_speech": "verb",
+      "definition": "to study something closely and carefully to learn more about it",
+      "example_sentence": "The scientist needed to analyze the rock samples to determine their age."
+    }
+  ]
+}
+```
+
+**EXPECTED JSON OUTPUT:**
+```json
+{
+  "generated_question_sets": [
+    {
+      "term": "Analyze",
+      "questions":[
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "Which verb means to study something closely and carefully to learn more about its parts?",
+          "options": { "choices":["Analyze", "Estimate", "Fabricate", "Ignore"] },
+          "correct_answers": ["Analyze"],
+          "explanation": "To 'analyze' is the exact act of examining something in detail. 'Estimate' means to guess a value, 'fabricate' means to invent or fake, and 'ignore' means to pay no attention.",
+          "example_sentence": "She decided to analyze the poem to understand its hidden meanings.",
+          "lexile_score": 980        },
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the primary meaning of the word 'analyze'?",
+          "options": { "choices":["To examine in detail", "To guess a solution", "To create something new", "To memorize facts"] },
+          "correct_answers": ["To examine in detail"],
+          "explanation": "To 'analyze' means to look at the parts of something very carefully to understand the whole. It does not mean to guess, create, or just memorize.",
+          "example_sentence": "Before making a large purchase, he took time to analyze his monthly budget.",
+          "lexile_score": 950        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "If you break a complex topic down into smaller parts to understand it better, which action are you performing?",
+          "options": { "choices": ["Analyze", "Combine", "Observe", "Conceal"] },
+          "correct_answers": ["Analyze"],
+          "explanation": "Breaking something down to study its parts is how you 'analyze' it. 'Observe' is just looking, 'combine' is putting things together, and 'conceal' is hiding.",
+          "example_sentence": "The mechanic had to analyze the engine piece by piece to find the strange noise.",
+          "lexile_score": 1010        },
+        {
+          "question_type": "REVERSE_SYNONYM_IN_CONTEXT_MC",
+          "question_text": "The manager needs to 'evaluate and deeply inspect' the financial reports before the meeting. Which word best replaces the phrase in quotes?",
+          "options": { "choices":["analyze", "predict", "synthesize", "distribute"] },
+          "correct_answers": ["analyze"],
+          "explanation": "To 'analyze' perfectly replaces evaluating and inspecting deeply. 'Predict' is guessing the future, 'synthesize' is combining, and 'distribute' is handing out.",
+          "example_sentence": "We will analyze the survey results to see what our customers want.",
+          "lexile_score": 1020        },
+        {
+          "question_type": "ANTONYM_MC_SINGLE",
+          "question_text": "Which word is an antonym for 'analyze'?",
+          "options": { "choices": ["Synthesize", "Investigate", "Scrutinize", "Interpret"] },
+          "correct_answers": ["Synthesize"],
+          "explanation": "To 'analyze' is to break a whole down into parts. To 'synthesize' is to combine parts into a whole, making it the direct opposite action.",
+          "example_sentence": "It is usually easier to analyze a completed project than to synthesize a brand new plan from scratch.",
+          "lexile_score": 1050        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which field or activity is the word 'analyze' most heavily associated with?",
+          "options": { "choices":["Scientific research", "Creative writing", "Physical exercise", "Musical performance"] },
+          "correct_answers": ["Scientific research"],
+          "explanation": "Scientific research relies heavily on the ability to 'analyze' data and evidence. While musicians and writers might examine their work, analysis is a core, defining pillar of science.",
+          "example_sentence": "Biologists frequently analyze blood samples to track the progression of a disease.",
+          "lexile_score": 1040        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The detective needed to _____ the fingerprints found at the scene to see if they matched the primary suspect.",
+          "options": { "choices": ["analyze", "fabricate", "guess", "discard"] },
+          "correct_answers": ["analyze"],
+          "explanation": "In the context of a detective handling evidence, 'analyze' is the only logical action to find a match. Detectives do not 'fabricate' (fake) or 'discard' important clues.",
+          "example_sentence": "Modern software programs can analyze huge amounts of digital information in seconds.",
+          "lexile_score": 1020        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "If a doctor decides to analyze a patient's unusual symptoms, what is she most likely to do?",
+          "options": { "choices":["Compare them to medical charts to find a root cause", "Prescribe a random medication immediately", "Send the patient home without asking questions", "Ask the patient about their favorite sports"] },
+          "correct_answers": ["Compare them to medical charts to find a root cause"],
+          "explanation": "When you 'analyze' symptoms, you study them methodically to find a deeper answer or root cause. The other choices involve guessing, ignoring, or changing the subject entirely.",
+          "example_sentence": "The lab technicians analyze the water quality every week to ensure it is safe to drink.",
+          "lexile_score": 1030        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "When a coach asks the soccer team to analyze their previous match, what outcome is he expecting?",
+          "options": { "choices":["Players identify their specific tactical mistakes to improve", "Players completely forget about the game", "Players physically train harder on the field", "Players loudly celebrate their previous victories"] },
+          "correct_answers": ["Players identify their specific tactical mistakes to improve"],
+          "explanation": "To 'analyze' a match means to review the game footage or strategies critically to learn from it, which leads to identifying mistakes rather than just physically training or celebrating.",
+          "example_sentence": "Chess grandmasters often analyze their past games to avoid repeating the same errors.",
+          "lexile_score": 1040        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "Her brilliant _____ of the historical documents revealed political themes that no one else had noticed.",
+          "options": { "choices":["analysis", "analyze", "analytical", "analyzing"] },
+          "correct_answers": ["analysis"],
+          "explanation": "The sentence requires a noun to follow the adjective 'brilliant.' 'Analysis' is the noun form. 'Analyze' is the verb, and 'analytical' is an adjective.",
+          "example_sentence": "The committee presented a thorough analysis of the city's traffic problems.",
+          "lexile_score": 1050        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "In academic and professional settings, which noun is most commonly paired with the verb 'analyze'?",
+          "options": { "choices":["Data", "Emotions", "Promises", "Inventions"] },
+          "correct_answers": ["Data"],
+          "explanation": "While you 'feel' emotions, 'keep' promises, or 'create' inventions, you systematically 'analyze' data. This is a highly frequent, standard academic collocation.",
+          "example_sentence": "It took the research team three weeks to analyze the data collected during the clinical trial.",
+          "lexile_score": 1040        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which phrase represents a natural and logical use of the target word?",
+          "options": { "choices":["Analyze a situation", "Analyze a nap", "Analyze a temperature", "Analyze a distance"] },
+          "correct_answers": ["Analyze a situation"],
+          "explanation": "You can 'analyze a situation' by looking at all its complex factors. You usually 'take' a nap, and 'measure' a temperature or distance, as they are single metrics rather than complex systems.",
+          "example_sentence": "The military general paused to analyze the situation before deploying his troops to the valley.",
+          "lexile_score": 1010        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this specific semantic group?",
+          "options": { "choices": ["Synthesize", "Analyze", "Examine", "Dissect"] },
+          "correct_answers":["Synthesize"],
+          "explanation": "The latent rule is that 'analyze', 'examine', and 'dissect' all refer to breaking something apart to look at the details. 'Synthesize' violates this rule because it means building up or combining parts into a whole.",
+          "example_sentence": "When you analyze a complex legal contract, you must check every minor detail.",
+          "lexile_score": 1040        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "It wasn't enough to just skim the dense legal document; the determined lawyer had to _____ every single clause to find the hidden loophole.",
+          "options": { "choices": ["analyze", "approve", "draft", "sign"] },
+          "correct_answers":["analyze"],
+          "explanation": "The phrase 'wasn't enough to just skim' sets up a contrast requiring a word that means reading very deeply and critically. 'Analyze' fits perfectly, whereas 'approve' or 'sign' do not imply deep reading.",
+          "example_sentence": "The auditor arrived to analyze the company's financial records after the fraud allegations surfaced.",
+          "lexile_score": 1050        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Rather than merely summarizing the surface-level plot of the novel, the literature professor challenged her students to _____ the underlying social themes.",
+          "options": { "choices": ["analyze", "memorize", "recite", "enjoy"] },
+          "correct_answers":["analyze"],
+          "explanation": "The transition 'Rather than merely summarizing' contrasts a shallow action with a deep, critical one. To 'analyze' goes beyond surface summarizing to explain the 'how' and 'why' of the themes.",
+          "example_sentence": "Critics often analyze the director's unique camera angles to understand his artistic vision.",
+          "lexile_score": 1050        }
+      ]
+    }
+  ]
+}
+```
+
+**YOUR TASK**
+Now, process the following JSON input according to the rules, make sure the output is a JSON object strictly following the format shown above.
+
+```json
+{
+  "target_lexile_level": 850,
+  "words": [
+    {
+      "term": "blockade",
+      "part_of_speech": "noun",
+      "definition": "A barrier created by an army or navy to stop people and supplies from entering or leaving a place.",
+      "example_sentence": "The battleships formed a blockade in the ocean to prevent cargo ships from delivering food to the enemy country."
+    }
+  ]
+}
+```
+
+
+=== USER PROMPT ===
+(empty)
+
+=== RAW RESPONSE ===
+{
+  "generated_question_sets": [
+    {
+      "term": "blockade",
+      "questions": [
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "Which word describes a military barrier set up to stop supplies and people from passing through?",
+          "options": {
+            "choices": [
+              "Blockade",
+              "Monument",
+              "Foundation",
+              "Settlement"
+            ]
+          },
+          "correct_answers": [
+            "Blockade"
+          ],
+          "explanation": "A 'blockade' is a specific type of barrier used by armies or navies to trap an enemy or cut off their supplies. A monument is a statue, a foundation is a base, and a settlement is a living area.",
+          "example_sentence": "The rebel soldiers built a blockade across the main highway to stop the supply trucks.",
+          "lexile_score": 820
+        },
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the primary meaning of the noun 'blockade'?",
+          "options": {
+            "choices": [
+              "A barrier that prevents entry or exit",
+              "A peaceful treaty between nations",
+              "A fast vehicle used by the military",
+              "A secret path through a mountain"
+            ]
+          },
+          "correct_answers": [
+            "A barrier that prevents entry or exit"
+          ],
+          "explanation": "A 'blockade' involves physically closing off a port or region to stop movement and trade. It is a hostile barrier, not a treaty, a vehicle, or a secret path.",
+          "example_sentence": "By setting up a naval blockade, the fleet cut off the island's access to fresh water.",
+          "lexile_score": 840
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "If an army uses ships or troops to trap an enemy and halt all deliveries to a city, what have they created?",
+          "options": {
+            "choices": [
+              "A blockade",
+              "An alliance",
+              "A negotiation",
+              "A rebellion"
+            ]
+          },
+          "correct_answers": [
+            "A blockade"
+          ],
+          "explanation": "Creating a 'blockade' means cutting off a location completely to force a surrender. An alliance is a friendship, negotiation is talking, and a rebellion is fighting against leaders.",
+          "example_sentence": "During the war, the harsh blockade caused severe food shortages in the capital city.",
+          "lexile_score": 860
+        },
+        {
+          "question_type": "REVERSE_SYNONYM_IN_CONTEXT_MC",
+          "question_text": "The king ordered a strict 'military barricade' around the castle to keep anyone from escaping. Which word best replaces the phrase in quotes?",
+          "options": {
+            "choices": [
+              "blockade",
+              "ambush",
+              "parade",
+              "surrender"
+            ]
+          },
+          "correct_answers": [
+            "blockade"
+          ],
+          "explanation": "A 'blockade' is a perfect replacement for a military barricade that completely stops movement. An ambush is a surprise attack, a parade is a celebration, and a surrender is giving up.",
+          "example_sentence": "The town's residents tried to sneak past the blockade under the cover of darkness.",
+          "lexile_score": 850
+        },
+        {
+          "question_type": "ANTONYM_MC_SINGLE",
+          "question_text": "Which concept represents the opposite action or state of a 'blockade'?",
+          "options": {
+            "choices": [
+              "An opening",
+              "An enclosure",
+              "A siege",
+              "A fortress"
+            ]
+          },
+          "correct_answers": [
+            "An opening"
+          ],
+          "explanation": "A 'blockade' completely closes off an area to trap people inside or keep supplies out. Therefore, an opening or free passage is its direct opposite. Enclosures, sieges, and fortresses all relate to trapping or defending.",
+          "example_sentence": "The peace agreement finally ended the blockade, allowing trading ships to sail freely into the harbor.",
+          "lexile_score": 870
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which of the following situations is most heavily associated with a 'blockade'?",
+          "options": {
+            "choices": [
+              "Naval warfare",
+              "Agricultural farming",
+              "Medical research",
+              "Space exploration"
+            ]
+          },
+          "correct_answers": [
+            "Naval warfare"
+          ],
+          "explanation": "A 'blockade' is heavily associated with warfare, especially naval warfare where ships block a port. Farming, medicine, and space do not primarily involve cutting off military supplies.",
+          "example_sentence": "The commander's strategy involved a strict blockade to force the enemy troops to surrender without a battle.",
+          "lexile_score": 850
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The protesters formed a human _____ across the factory entrance, refusing to let any delivery trucks pass.",
+          "options": {
+            "choices": [
+              "blockade",
+              "embargo",
+              "convoy",
+              "boycott"
+            ]
+          },
+          "correct_answers": [
+            "blockade"
+          ],
+          "explanation": "A 'blockade' is a physical barrier stopping people or goods. An embargo is a legal ban on trade, not a physical wall. A convoy is a group of traveling vehicles, and a boycott is a refusal to buy things.",
+          "example_sentence": "The police warned the protesters that their illegal blockade of the bridge was causing a massive traffic jam.",
+          "lexile_score": 880
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "If a general decides to set up a blockade around an enemy port, what is the intended result?",
+          "options": {
+            "choices": [
+              "Enemy ships will be trapped and unable to bring in food or weapons.",
+              "The general's troops will charge directly into the city.",
+              "Both sides will sit down to sign a peace treaty.",
+              "The local citizens will be invited to trade freely."
+            ]
+          },
+          "correct_answers": [
+            "Enemy ships will be trapped and unable to bring in food or weapons."
+          ],
+          "explanation": "The exact purpose of a 'blockade' is to create a physical barrier that stops the flow of supplies and people. It does not involve a direct charge, signing treaties, or free trade.",
+          "example_sentence": "The long blockade weakened the fort because the soldiers completely ran out of gunpowder.",
+          "lexile_score": 850
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "How might a city suffer if it is placed under a strict blockade for several months?",
+          "options": {
+            "choices": [
+              "Grocery stores and pharmacies would run completely out of supplies.",
+              "Citizens would enjoy an increase in foreign visitors.",
+              "The city would naturally produce more advanced technology.",
+              "Local merchants would quickly become wealthy from exports."
+            ]
+          },
+          "correct_answers": [
+            "Grocery stores and pharmacies would run completely out of supplies."
+          ],
+          "explanation": "A 'blockade' cuts a city off from the outside world. Without outside deliveries, businesses run out of basic goods. It prevents visitors, trade, and profitable exports.",
+          "example_sentence": "To survive the blockade, the townspeople started growing their own vegetables in small hidden gardens.",
+          "lexile_score": 860
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "The enemy army planned to _____ the southern ports to starve the defending troops.",
+          "options": {
+            "choices": [
+              "blockade",
+              "blockades",
+              "blockaded",
+              "blockader"
+            ]
+          },
+          "correct_answers": [
+            "blockade"
+          ],
+          "explanation": "In this sentence, the word acts as an infinitive verb following 'to'. 'Blockade' is the correct base form. The word 'blockades' is plural or present tense, 'blockaded' is past tense, and a 'blockader' is a noun for the person doing it.",
+          "example_sentence": "If we blockade the canyon pass, the bandits will have no way to escape with the stolen gold.",
+          "lexile_score": 830
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "In historical and military texts, which adjective is most frequently paired with the noun 'blockade'?",
+          "options": {
+            "choices": [
+              "Naval",
+              "Diplomatic",
+              "Medical",
+              "Domestic"
+            ]
+          },
+          "correct_answers": [
+            "Naval"
+          ],
+          "explanation": "A 'naval blockade' is a highly common phrase referring to a fleet of warships blocking a port. While a 'diplomatic' embargo exists, 'diplomatic' does not naturally describe physical military barriers.",
+          "example_sentence": "During the Civil War, the Union navy maintained a vast naval blockade along the southern coastline.",
+          "lexile_score": 850
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which verb correctly completes the common military phrase: 'to _____ a blockade'?",
+          "options": {
+            "choices": [
+              "impose",
+              "enact",
+              "harvest",
+              "diagnose"
+            ]
+          },
+          "correct_answers": [
+            "impose"
+          ],
+          "explanation": "In political and military language, leaders 'impose a blockade' to forcefully put the barrier into place. You 'enact' a law, 'harvest' crops, and 'diagnose' illnesses, not physical barriers.",
+          "example_sentence": "The government decided to impose a strict blockade on the rogue nation until they agreed to the safety laws.",
+          "lexile_score": 860
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group of military and barrier terms?",
+          "options": {
+            "choices": [
+              "Gateway",
+              "Blockade",
+              "Siege",
+              "Barricade"
+            ]
+          },
+          "correct_answers": [
+            "Gateway"
+          ],
+          "explanation": "The latent rule is that a 'blockade', a 'siege', and a 'barricade' are all methods used to block, trap, or restrict movement. A 'gateway' violates this rule because it provides an opening for free passage.",
+          "example_sentence": "The old stone arch served as a gateway to the city before the war turned it into a guarded checkpoint.",
+          "lexile_score": 850
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "The local police didn't just set up a temporary traffic detour; they formed a massive _____ with armored vehicles to completely seal the road.",
+          "options": {
+            "choices": [
+              "blockade",
+              "checkpoint",
+              "perimeter",
+              "crosswalk"
+            ]
+          },
+          "correct_answers": [
+            "blockade"
+          ],
+          "explanation": "The sentence contrasts a simple detour with a heavy barrier that completely seals the road. A 'blockade' implies an impassable barrier. A 'checkpoint' is mostly for inspecting passing cars, and a 'perimeter' is just a boundary line.",
+          "example_sentence": "They used heavy concrete barriers to form a blockade that no car could possibly drive through.",
+          "lexile_score": 860
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "While an 'embargo' is simply a law that makes trading illegal, a _____ is a physical wall of ships or troops that forcibly stops the movement of goods.",
+          "options": {
+            "choices": [
+              "blockade",
+              "tariff",
+              "boycott",
+              "penalty"
+            ]
+          },
+          "correct_answers": [
+            "blockade"
+          ],
+          "explanation": "The sentence contrasts a legal ban (embargo) with a physical, forceful barrier. A 'blockade' is the actual physical act of blocking a path with troops or ships. Tariffs, boycotts, and penalties are financial or legal terms.",
+          "example_sentence": "The country ignored the legal embargo, so a physical naval blockade had to be established.",
+          "lexile_score": 880
+        }
+      ]
+    }
+  ]
+}

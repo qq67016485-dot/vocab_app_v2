@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext.jsx';
 import apiClient from '../api/axiosConfig.js';
 import LevelProgressBar from './LevelProgressBar.jsx';
@@ -7,6 +7,7 @@ import LevelProgressBar from './LevelProgressBar.jsx';
 export default function Navbar() {
   const { user, logoutUser } = useUser();
   const navigate = useNavigate();
+  const location = useLocation();
   const [queueCount, setQueueCount] = useState(0);
 
   useEffect(() => {
@@ -33,53 +34,57 @@ export default function Navbar() {
     }
   };
 
-  const handleNavigateHome = () => {
-    if (user?.role === 'STUDENT') {
-      navigate('/student/dashboard');
-    } else {
-      navigate('/teacher/command-center');
-    }
-  };
+  if (!user) return null;
 
-  if (!user) {
-    return null;
+  // Student navbar (unchanged)
+  if (user.role === 'STUDENT') {
+    return (
+      <nav className="navbar">
+        <div className="navbar-brand">Vocabulary App</div>
+        <LevelProgressBar />
+        <div className="navbar-user">
+          <span>Welcome, {user.username}!</span>
+          <button onClick={() => navigate('/student/dashboard')} className="navbar-button">Back to Home</button>
+          <button onClick={handleLogoutClick} className="logout-button">Logout</button>
+        </div>
+      </nav>
+    );
   }
 
+  // Teacher/Admin navbar — new design
+  const isActive = (path) => location.pathname.startsWith(path);
+
   return (
-    <nav className="navbar">
-      <div className="navbar-brand">
-        Vocabulary App
-      </div>
-
-      {user.role === 'STUDENT' && <LevelProgressBar />}
-
-      <div className="navbar-user">
-        <span>Welcome, {user.username}!</span>
-
+    <nav className="t-navbar">
+      <div className="t-navbar-brand">Vocab<span>App</span></div>
+      <button
+        className={`t-nav-link${isActive('/teacher/command-center') ? ' t-nav-link--active' : ''}`}
+        onClick={() => navigate('/teacher/command-center')}
+      >
+        Command Center
+      </button>
+      <button
+        className={`t-nav-link${isActive('/teacher/word-sets') ? ' t-nav-link--active' : ''}`}
+        onClick={() => navigate('/teacher/word-sets')}
+      >
+        Word Sets
+      </button>
+      <button
+        className={`t-nav-link${isActive('/teacher/groups') ? ' t-nav-link--active' : ''}`}
+        onClick={() => navigate('/teacher/groups')}
+      >
+        Groups
+      </button>
+      <div className="t-navbar-spacer" />
+      <div className="t-navbar-user">
         {user.role === 'ADMIN' && queueCount > 0 && (
-          <button className="navbar-button" onClick={() => navigate('/teacher/generation-queue')}
-            style={{ position: 'relative' }}>
-            Generation Queue
-            <span style={{
-              position: 'absolute', top: '-6px', right: '-6px',
-              background: '#dc2626', color: '#fff', borderRadius: '50%',
-              width: '20px', height: '20px', fontSize: '0.75rem',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              {queueCount}
-            </span>
+          <button className="t-navbar-queue" onClick={() => navigate('/teacher/generation-queue')}>
+            Gen Queue
+            <span className="t-queue-badge">{queueCount}</span>
           </button>
         )}
-
-        {(user.role === 'TEACHER' || user.role === 'ADMIN') && (
-          <button className="navbar-button" onClick={handleNavigateHome}>
-            Back to Home
-          </button>
-        )}
-
-        <button onClick={handleLogoutClick} className="logout-button">
-          Logout
-        </button>
+        <span>{user.username}</span>
+        <button onClick={handleLogoutClick} className="t-navbar-logout">Logout</button>
       </div>
     </nav>
   );

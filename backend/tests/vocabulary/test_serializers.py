@@ -41,8 +41,8 @@ factory = APIRequestFactory()
 
 def _seed_mastery_levels():
     levels = [
-        (1, 'Novice', 0, 2),
-        (2, 'Familiar', 1, 4),
+        (1, 'Novice', 1, 2),
+        (2, 'Familiar', 3, 4),
     ]
     for lid, name, interval, pts in levels:
         MasteryLevel.objects.get_or_create(
@@ -94,6 +94,14 @@ class TestUserSerializer:
         serializer = UserSerializer(student)
         data = serializer.data
         assert data['native_language'] == 'ja'
+
+    def test_includes_goal_fields(self):
+        student = StudentUserFactory(daily_question_limit=30, daily_goal_min=20, daily_goal_max=50)
+        serializer = UserSerializer(student)
+        data = serializer.data
+        assert data['daily_question_limit'] == 30
+        assert data['daily_goal_min'] == 20
+        assert data['daily_goal_max'] == 50
 
 
 # =============================================================================
@@ -202,13 +210,12 @@ class TestWordSetSerializer:
     def test_serializes_list_fields(self):
         teacher = TeacherUserFactory()
         ws = WordSetFactory(
-            title='Unit 1', unit_or_chapter='Chapter 3',
+            title='Unit 1',
             description='Test', creator=teacher,
         )
         serializer = WordSetSerializer(ws)
         data = serializer.data
         assert data['title'] == 'Unit 1'
-        assert data['unit_or_chapter'] == 'Chapter 3'
         assert data['creator_username'] == teacher.username
 
     def test_includes_word_count(self):
@@ -330,6 +337,13 @@ class TestTeacherStudentSerializer:
         assert data['lexile_min'] == 300
         assert data['lexile_max'] == 700
 
+    def test_serializes_goal_bounds(self):
+        student = StudentUserFactory(daily_goal_min=15, daily_goal_max=40)
+        serializer = TeacherStudentSerializer(student)
+        data = serializer.data
+        assert data['daily_goal_min'] == 15
+        assert data['daily_goal_max'] == 40
+
 
 @pytest.mark.django_db
 class TestStudentCreateUpdateSerializer:
@@ -372,6 +386,46 @@ class TestStudentCreateUpdateSerializer:
         assert serializer.is_valid(), serializer.errors
         updated = serializer.save()
         assert updated.check_password('newpass456')
+
+    def test_creates_with_goal_bounds(self):
+        serializer = StudentCreateUpdateSerializer(
+            data={
+                'username': 'goal_student', 'password': 'pass123',
+                'daily_goal_min': 15, 'daily_question_limit': 25, 'daily_goal_max': 40,
+            },
+        )
+        assert serializer.is_valid(), serializer.errors
+        user = serializer.save()
+        assert user.daily_goal_min == 15
+        assert user.daily_question_limit == 25
+        assert user.daily_goal_max == 40
+
+    def test_validates_goal_min_less_than_max(self):
+        serializer = StudentCreateUpdateSerializer(
+            data={
+                'username': 'test', 'password': 'pass123',
+                'daily_goal_min': 40, 'daily_goal_max': 20,
+            },
+        )
+        assert not serializer.is_valid()
+
+    def test_validates_limit_within_bounds(self):
+        serializer = StudentCreateUpdateSerializer(
+            data={
+                'username': 'test', 'password': 'pass123',
+                'daily_goal_min': 20, 'daily_question_limit': 60, 'daily_goal_max': 50,
+            },
+        )
+        assert not serializer.is_valid()
+
+    def test_validates_goal_min_floor(self):
+        serializer = StudentCreateUpdateSerializer(
+            data={
+                'username': 'test', 'password': 'pass123',
+                'daily_goal_min': 5,
+            },
+        )
+        assert not serializer.is_valid()
 
 
 # =============================================================================

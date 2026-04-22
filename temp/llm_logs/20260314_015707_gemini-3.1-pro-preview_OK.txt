@@ -1,0 +1,2264 @@
+=== LLM CALL LOG ===
+Timestamp: 20260314_015707
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+**ROLE AND GOAL**
+You are an expert AI educational content creator and psychometrician specializing in English vocabulary. Your task is to process a JSON list of words and a target reading level. For EACH word, you will first **enrich** it with a formal definition and a general example sentence. Then, using this enriched data, you will generate a comprehensive set of **15 practice questions, 3 for each of the 5 mastery levels**. The question types will include multiple-choice, true/false. The questions are **learning-oriented**, not high-stakes tests. Each question must have its own specific **Lexile score**, a logical and instructive **explanation**, and a unique contextual **example sentence**. Finally, you will package all results into a single, valid JSON object.
+
+---
+
+**INPUT**
+You will be provided with a JSON object containing two main keys:
+* `"simplified_words"`: A list of word objects, each with a `term`, `part_of_speech`, and `simple_definition`.
+* `"target_lexile_level"`: An integer representing the *center point* for the desired Lexile scores (e.g., 800, 1000, 1200).
+
+---
+
+### STEP 1: WORD ENRICHMENT
+For each word from the input, perform an enrichment step. All text must align with the `target_lexile_level`.
+
+1) **Formalize the Definition (`definition`)**: Based on the `simple_definition`, generate a more formal, precise, academic definition.
+2) **Create a very concise Chinese Translation**: Based on the `simple_definition`, translate the word into Chinese.
+3) **Create a General Example Sentence**: Write one high-quality sentence that demonstrates the word's most common usage.
+
+---
+
+### STEP 2: QUESTION GENERATION
+Using the enriched data from Step 1, generate questions for each word according to the following rules.
+
+**Strict Question Quota**
+Exactly 15 questions per word: **3** at Level 1, **3** at Level 2, **3** at Level 3, **3** at Level 4, **3** at Level 5.
+
+**Fields required for EACH question**
+1) `lexile_score` — an integer within **target_lexile_level +/- 50**.
+2) `explanation` — logically and instructively explains **why** the correct answer is right and **must include the vocabulary word**. **NOTE: the student is most likely to read this explanation when the student's answer is incorrect.
+3) `example_sentence` — a different, real-world usage of the word, including a natural collocation or context the learner is likely to meet again (not redundant with the explanation).
+
+**Question Types and Mastery Levels**
+* **Level 1 – Recognition** (3 items)
+  * `DEFINITION_MC_SINGLE`
+  * `DEFINITION_TRUE_FALSE`
+* **Level 2 – Relationships** (3 items)
+  * `SYNONYM_MC_SINGLE`
+  * `ANTONYM_MC_SINGLE`
+  * `CONCEPTUAL_ASSOCIATION_MC_SINGLE`
+  Fallback Protocol: If both ANTONYM_MC_SINGLE and SYNONYM_MC_SINGLE types are difficult for a word, generate two distinct CONCEPTUAL_ASSOCIATION_MC_SINGLE questions.
+* **Level 3 – Context & Application** (3 items)
+  * `CONTEXT_MC_SINGLE`
+  * `DIALOGUE_COMPLETION_MC`
+    * **Structure:** A short exchange between two speakers (Person A and Person B).
+    * **Constraint:** Person A sets a clear context/scenario. Person B responds, and the target word is the blank (_____) in Person B's line.
+* **Level 4 – Nuance & Usage** (3 items)
+  * `WORD_FORM_MC` (e.g., noun/verb/adjective form)
+  * `COLLOCATION_MC_SINGLE` (e.g., *make* a decision vs *do* a decision)
+* **Level 5 – Deep Comparison** (3 items)
+  * `ODD_ONE_OUT_MC_SINGLE`
+
+**Special Instructions for `DIALOGUE_COMPLETION_MC`**
+* **Format:** `question_text` must follow the format: "Person A: [Context sentence].\nPerson B: [Response sentence with _____]."
+* **Context Cue:** Person A's line must contain a specific keyword or clue that makes the target word the **only** logical answer for Person B.
+* **Natural Tone:** Use natural, conversational English suitable for the target Lexile level.
+
+---
+
+## Distractor Tiers (apply to ALL MC types)
+- **Tier 1 (near-synonym/antonym):** Same part of speech as the key. High semantic similarity, but differs on at least one defining feature in the formal definition.
+- **Tier 2 (collocation foil):** A real word/phrase that commonly collocates with a **neighbor concept** in the same domain, but **not** with the target word (e.g., "wing flap" vs. "propeller pitch").
+- **Tier 3 (orthographic/phonological trap):** Looks/sounds similar but has a different meaning (e.g., propose/propel; manifest/manifesto). Use sparingly and **never** if it changes POS.
+
+**Enforcement**
+- For **all MC items at Levels 3-5**, include **at least one Tier-2** distractor.
+- Do **not** include more than **one Tier-3** distractor in any single item.
+- All distractors must be plausible in context and the **same POS** as the correct answer unless the item purposefully contrasts forms (only in `WORD_FORM_MC`).
+- For collocations, ensure incorrect choices are **genuine collocations with a related neighbor concept** (not nonsense).
+
+---
+
+## Lexile Guardrails
+- Target Lexile per item (including the question, answer text, explanation text, example sentence) = **target_lexile_level +/- 50**.
+
+---
+
+## Nuance Requirements for Levels 4-5
+- **`WORD_FORM_MC` (L4)**: Use **same-root minimal pairs** differing by POS/meaning (e.g., *propel* (V) vs *propulsion* (N) vs *propulsive* (ADJ) vs *propeller* (N device)). Exactly **one** fits the prompt.
+- **`COLLOCATION_MC_SINGLE` (L4)**: Test genuine **verb-object** or **adjective-noun** patterns and include one **register/domain cue** (e.g., *orbital* (technical) vs *space* (general); *deploy* (military) vs *send* (general)). Only **one** choice is the high-frequency, domain-true pairing.
+- **`ODD_ONE_OUT_MC_SINGLE` (L5)**: Keep all options within a **tight semantic field**; the odd one must violate a **latent rule** (e.g., reusability; medium-air/water; rigidity). The explanation must **state the rule** clearly.
+---
+
+### OUTPUT REQUIREMENTS
+Return a single, valid JSON object. The root object must have one key: `"generated_question_sets"`. Its value is a list; each element contains:
+- `"word"`: a list with one enriched word object containing `term`, `part_of_speech`, `definition`,`definition_chinese`, `example_sentence`.
+- `"questions"`: the fifteen question objects for that word.
+
+Do **not** include any text outside the JSON object.
+
+---
+
+### QUALITY GUIDELINES
+- **Lexile adherence:** Always within +/-50 of target; apply Guardrails and revise if needed.
+- **Explanation vs. example:** The explanation is analytical ("why"); the example is contextual ("how"). No redundancy.
+- **Plausible distractors:** Follow **Distractor Tiers**; ensure at least one Tier-2 distractor at L3-L5; <=1 Tier-3 per item.
+- **Avoid tautologies:** The `definition` and `explanation` must **never** use the root of the term itself.
+- **Vary sentence structures:** Across the 15 items for a word, vary stems, explanations, examples. Use one mild complexity feature at L4-L5.
+- **Answer balance:** For True/False, ~50% should be "True." For MC, balance correct answer positions (A/B/C/D).
+- **Collocation authenticity**: wrong collocations must be real for a neighbor concept, not invented.
+- **Supportive tone**: avoid grading language; use encouraging, learner-friendly phrasing.
+
+---
+
+### PRE-FLIGHT CHECKLIST (apply to every item before output)
+- [ ] Lexile proxy **within band**; if L4-L5, include exactly **one** advanced structure.
+- [ ] **At least one Tier-2** distractor for **all L3-L5** MC items; **<=1 Tier-3** per item.
+- [ ] `WORD_FORM_MC` uses **same-root minimal pairs**; exactly one matches the prompt.
+- [ ] `DIALOGUE_COMPLETION_MC` has a clear conversational context; Person A's clue makes the answer unique.
+- [ ] `COLLOCATION_MC_SINGLE` uses **real domain collocations** + one **register/domain cue**.
+- [ ] `ODD_ONE_OUT_MC_SINGLE` uses a **tight field** and the explanation **states the latent rule**.
+- [ ] `explanation` includes the target word and gives a **hypernym + differentiating feature** (not circular).
+- [ ] `example_sentence` is **different** from the explanation and contextually natural.
+
+---
+**EXAMPLE**
+
+**INPUT:**
+```json
+{
+  "target_lexile_level": 1000,
+  "simplified_words": [
+    {
+      "term": "Analyze",
+      "part_of_speech": "verb",
+      "simple_definition": "to study something closely"
+    }
+  ]
+}
+```
+
+**EXPECTED JSON OUTPUT:**
+```json
+{
+  "generated_question_sets": [
+    {
+      "word": [
+        {
+          "term": "Analyze",
+          "part_of_speech": "verb",
+          "definition": "To examine the parts or structure of something (especially information) in detail, typically to explain or interpret it.",
+          "definition_chinese": "分析",
+          "example_sentence": "The scientist needed to analyze the rock samples to determine their age."
+        }
+      ],
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the primary meaning of the verb 'analyze'?",
+          "options": { "choices": ["To create something new", "To examine in detail", "To guess a solution", "To ignore the facts"] },
+          "correct_answers": ["To examine in detail"],
+          "explanation": "To 'analyze' means to study the structure or parts of something carefully. 'Create', 'guess', and 'ignore' do not involve detailed examination.",
+          "example_sentence": "Before making a purchase, he took time to analyze the costs and benefits.",
+          "lexile_score": 950,
+          "suitable_mastery_levels": [1]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: To analyze something means to look at it quickly and superficially.",
+          "options": { "choices": ["True", "False"] },
+          "correct_answers": ["False"],
+          "explanation": "This is false. Analyzing requires a deep, methodical, and detailed examination, not a quick or superficial look.",
+          "example_sentence": "The teacher asked the students to analyze the poem's deeper meaning.",
+          "lexile_score": 920,
+          "suitable_mastery_levels": [1]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word is a synonym for 'analyze'?",
+          "options": { "choices": ["Synthesize", "Inspect", "Invent", "Neglect"] },
+          "correct_answers": ["Inspect"],
+          "explanation": "'Inspect' is a synonym because both verbs involve looking at something closely. 'Synthesize' is an antonym (combining parts), and 'Invent' means creating.",
+          "example_sentence": "The mechanic had to analyze the engine to find the source of the noise.",
+          "lexile_score": 1000,
+          "suitable_mastery_levels": [2]
+        },
+        {
+          "question_type": "ANTONYM_MC_SINGLE",
+          "question_text": "Which word is an antonym for 'analyze'?",
+          "options": { "choices": ["Synthesize", "Investigate", "Scrutinize", "Evaluate"] },
+          "correct_answers": ["Synthesize"],
+          "explanation": "To 'analyze' is to break a whole down into parts. To 'synthesize' is to combine parts into a whole, making it the direct opposite action.",
+          "example_sentence": "It is easier to analyze a completed project than to synthesize a new plan from scratch.",
+          "lexile_score": 1100,
+          "suitable_mastery_levels": [2]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The detective needed to _____ the fingerprints found at the scene to see if they matched the suspect.",
+          "options": { "choices": ["analyze", "fabricate", "guess", "discard"] },
+          "correct_answers": ["analyze"],
+          "explanation": "In the context of a detective and evidence, 'analyze' is the only logical action. Detectives do not 'fabricate' (fake) or 'guess' evidence.",
+          "example_sentence": "Software programs can now analyze huge amounts of data in seconds.",
+          "lexile_score": 1050,
+          "suitable_mastery_levels": [3]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Complete the conversation.\nPerson A: 'The survey results are too complex to understand just by looking at them.'\nPerson B: 'You are right; we need to _____ the data carefully to find the real trends.'",
+          "options": { "choices": ["analyze", "guess", "erase", "invent"] },
+          "correct_answers": ["analyze"],
+          "explanation": "Person A describes the data as 'complex.' To understand complex data, you must examine it in detail. Therefore, 'analyze' is the correct verb. You should not 'guess', 'erase', or 'invent' data in a serious context.",
+          "example_sentence": "The software helps us analyze customer feedback quickly.",
+          "lexile_score": 1020,
+          "suitable_mastery_levels": [3]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "What is the noun form of 'analyze'?",
+          "options": { "choices": ["analysis", "analytic", "analyzing", "analyzed"] },
+          "correct_answers": ["analysis"],
+          "explanation": "'Analysis' is the noun referring to the process itself. 'Analytic' is an adjective, and 'analyzing/analyzed' are verb forms.",
+          "example_sentence": "Her detailed analysis of the market trends impressed the investors.",
+          "lexile_score": 1120,
+          "suitable_mastery_levels": [4]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which word forms a common expression with 'analyze' in a scientific context?",
+          "options": { "choices": ["data", "decision", "truth", "goal"] },
+          "correct_answers": ["data"],
+          "explanation": "While you 'make' a decision, 'tell' the truth, or 'set' a goal, you specifically 'analyze' data. This is a standard academic collocation.",
+          "example_sentence": "It took weeks to analyze the data collected during the field study.",
+          "lexile_score": 1150,
+          "suitable_mastery_levels": [4]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": { "choices": ["Analyze", "Examine", "Synthesize", "Dissect"] },
+          "correct_answers": ["Synthesize"],
+          "explanation": "'Analyze', 'examine', and 'dissect' all refer to breaking something down or looking at details. 'Synthesize' refers to building something up (combining).",
+          "example_sentence": "When you analyze a contract, you check every detail.",
+          "lexile_score": 1150,
+          "suitable_mastery_levels": [5]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which action is the most different from the others?",
+          "options": { "choices": ["Investigate", "Study", "Guess", "Probe"] },
+          "correct_answers": ["Guess"],
+          "explanation": "'Investigate', 'study', and 'probe' imply a methodical effort to find information (analysis). To 'guess' implies answering without any analysis or proof.",
+          "example_sentence": "Scientists do not simply guess; they analyze facts to prove their theories.",
+          "lexile_score": 1180,
+          "suitable_mastery_levels": [5]
+        }
+      ]
+    }
+  ]
+}
+```
+
+**YOUR TASK**
+Now, process the following JSON input according to the rules, make sure the output is a JSON object strictly following the format shown above.
+
+```json
+{
+  "target_lexile_level": 800,
+  "simplified_words": [
+    {
+      "term": "smuggler",
+      "part_of_speech": "noun",
+      "simple_definition": "A person who secretly and illegally moves people or things into or out of a country."
+    },
+    {
+      "term": "hostage",
+      "part_of_speech": "noun",
+      "simple_definition": "A person kept as a prisoner by someone who demands that certain conditions be met before letting them go."
+    },
+    {
+      "term": "colleague",
+      "part_of_speech": "noun",
+      "simple_definition": "A person that you work with at a job or profession."
+    },
+    {
+      "term": "citizen",
+      "part_of_speech": "noun",
+      "simple_definition": "A person who legally belongs to a country and has the rights and protection of that country."
+    },
+    {
+      "term": "foreigner",
+      "part_of_speech": "noun",
+      "simple_definition": "A person born in or coming from a country other than one's own."
+    },
+    {
+      "term": "bandit",
+      "part_of_speech": "noun",
+      "simple_definition": "A robber or outlaw who often belongs to a gang and attacks travelers."
+    }
+  ]
+}
+```
+
+
+=== USER PROMPT ===
+(empty)
+
+=== RAW RESPONSE ===
+{
+  "generated_question_sets": [
+    {
+      "word": [
+        {
+          "term": "smuggler",
+          "part_of_speech": "noun",
+          "definition": "An individual who secretly and illegally transports goods or people across international borders.",
+          "definition_chinese": "走私者",
+          "example_sentence": "The border police arrested the smuggler who was trying to bring illegal diamonds into the country."
+        }
+      ],
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the primary meaning of the word 'smuggler'?",
+          "options": {
+            "choices": [
+              "A person who legally sells cheap goods",
+              "A person who illegally moves things across borders",
+              "A person who guards an international airport",
+              "A person who buys imported products"
+            ]
+          },
+          "correct_answers": [
+            "A person who illegally moves things across borders"
+          ],
+          "explanation": "A 'smuggler' is someone who transports items or people secretly and against the law. They do not sell things legally or guard borders.",
+          "example_sentence": "The guards carefully searched the car to make sure the driver was not a smuggler.",
+          "lexile_score": 780,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A smuggler is someone who always follows the law when moving goods from one country to another.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false. A smuggler is a criminal who specifically breaks the law by hiding things and avoiding customs checks.",
+          "example_sentence": "Because he hid the artwork in his suitcase, the man was charged as a smuggler.",
+          "lexile_score": 760,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "Which action best describes what a smuggler does?",
+          "options": {
+            "choices": [
+              "Hiding items to move them illegally",
+              "Paying heavy taxes on imported goods",
+              "Inspecting traveler bags at an airport",
+              "Opening a new retail clothing store"
+            ]
+          },
+          "correct_answers": [
+            "Hiding items to move them illegally"
+          ],
+          "explanation": "A 'smuggler' moves things secretly to avoid being caught by authorities. They avoid paying taxes and do not act as inspectors.",
+          "example_sentence": "The smuggler tried to sneak the rare animals past the security checkpoint.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word is closest in meaning to 'smuggler'?",
+          "options": {
+            "choices": [
+              "Trafficker",
+              "Detective",
+              "Merchant",
+              "Inspector"
+            ]
+          },
+          "correct_answers": [
+            "Trafficker"
+          ],
+          "explanation": "A 'trafficker' is a synonym for 'smuggler' because both words describe a person who trades or moves illegal goods.",
+          "example_sentence": "The police caught the trafficker moving dangerous materials in a hidden truck compartment.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which person's job is to stop a smuggler?",
+          "options": {
+            "choices": [
+              "A customs officer",
+              "A travel agent",
+              "A foreign tourist",
+              "A factory worker"
+            ]
+          },
+          "correct_answers": [
+            "A customs officer"
+          ],
+          "explanation": "A customs officer checks bags and vehicles at a border to ensure no illegal goods enter, making it their job to stop a 'smuggler'.",
+          "example_sentence": "The diligent customs officer caught the smuggler hiding electronics under the car seats.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What is a smuggler most likely to avoid while traveling?",
+          "options": {
+            "choices": [
+              "A border checkpoint",
+              "A dark forest",
+              "A secret path",
+              "A hidden cave"
+            ]
+          },
+          "correct_answers": [
+            "A border checkpoint"
+          ],
+          "explanation": "Because a 'smuggler' breaks the law, they will avoid a border checkpoint where police might search their belongings.",
+          "example_sentence": "Instead of using the main road, the smuggler took a dirt path to cross the border unseen.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "To avoid paying high taxes, the _____ decided to move the valuable artwork across the sea at midnight in a small boat.",
+          "options": {
+            "choices": [
+              "smuggler",
+              "importer",
+              "struggler",
+              "painter"
+            ]
+          },
+          "correct_answers": [
+            "smuggler"
+          ],
+          "explanation": "Moving valuable things secretly at night to avoid taxes is an illegal act, making the person a 'smuggler'. An 'importer' operates legally, and 'struggler' is a trap word that sounds similar.",
+          "example_sentence": "The daring smuggler was finally captured after years of sneaking goods into the port.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Complete the conversation.\nPerson A: 'Why are the border guards checking every single car so carefully today?'\nPerson B: 'They heard a _____ is trying to sneak illegal electronics into the country.'",
+          "options": {
+            "choices": [
+              "smuggler",
+              "supplier",
+              "snicker",
+              "tourist"
+            ]
+          },
+          "correct_answers": [
+            "smuggler"
+          ],
+          "explanation": "Person A notices tight security, and Person B mentions someone sneaking illegal items. Only a 'smuggler' fits this criminal context. 'Supplier' is a legal business term, and 'snicker' is an unrelated sound.",
+          "example_sentence": "The clever smuggler thought he could fool the guards by hiding the phones in cereal boxes.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The police stopped the heavy truck and found illegal medicine hidden in the tires, proving the driver was a _____.",
+          "options": {
+            "choices": [
+              "smuggler",
+              "merchant",
+              "snuggler",
+              "mechanic"
+            ]
+          },
+          "correct_answers": [
+            "smuggler"
+          ],
+          "explanation": "Hiding illegal medicine inside truck tires is a clear sign of secret, illegal transport, which defines a 'smuggler'. 'Snuggler' is a trap that sounds alike but means someone who cuddles.",
+          "example_sentence": "It is dangerous to buy medicine from a smuggler because the drugs are not safety tested.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "Which word is the verb form of 'smuggler', describing the action they perform?",
+          "options": {
+            "choices": [
+              "smuggle",
+              "smuggler",
+              "smuggling",
+              "smuggled"
+            ]
+          },
+          "correct_answers": [
+            "smuggle"
+          ],
+          "explanation": "To 'smuggle' is the base verb indicating the act of secretly moving goods. 'Smuggler' is the noun (the person), and 'smuggling' is the gerund or present participle.",
+          "example_sentence": "He attempted to smuggle a rare parrot on the airplane, but security stopped him.",
+          "lexile_score": 780,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which phrase is commonly used to describe a person who specifically transports illegal weapons across borders?",
+          "options": {
+            "choices": [
+              "An arms smuggler",
+              "A tool smuggler",
+              "An iron smuggler",
+              "A battle smuggler"
+            ]
+          },
+          "correct_answers": [
+            "An arms smuggler"
+          ],
+          "explanation": "In legal and news contexts, weapons are referred to as 'arms'. Therefore, someone who moves them illegally is called an 'arms smuggler'.",
+          "example_sentence": "The international police agency tracked the arms smuggler across three different countries.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "What kind of goods does a smuggler typically transport in secret?",
+          "options": {
+            "choices": [
+              "Contraband goods",
+              "Approved goods",
+              "Domestic goods",
+              "Manufactured goods"
+            ]
+          },
+          "correct_answers": [
+            "Contraband goods"
+          ],
+          "explanation": "'Contraband' refers specifically to goods that are illegal to possess or transport. A 'smuggler' is known for moving contraband goods.",
+          "example_sentence": "The ship was seized by the navy because it was carrying a large amount of contraband goods.",
+          "lexile_score": 850,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": {
+            "choices": [
+              "Smuggler",
+              "Inspector",
+              "Guard",
+              "Officer"
+            ]
+          },
+          "correct_answers": [
+            "Smuggler"
+          ],
+          "explanation": "An 'inspector', 'guard', and 'officer' are all authority figures who uphold the law. A 'smuggler' is a criminal who breaks the law.",
+          "example_sentence": "The guard stood firmly at his post, hoping to catch any smuggler trying to pass.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not fit with the others?",
+          "options": {
+            "choices": [
+              "Customer",
+              "Smuggler",
+              "Trafficker",
+              "Bootlegger"
+            ]
+          },
+          "correct_answers": [
+            "Customer"
+          ],
+          "explanation": "A 'smuggler', 'trafficker', and 'bootlegger' are all terms for people who illegally sell or move goods. A 'customer' is simply a buyer, usually in a legal setting.",
+          "example_sentence": "The bootlegger acted as a smuggler during the time when selling alcohol was forbidden.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which action is least likely to involve a smuggler?",
+          "options": {
+            "choices": [
+              "Declaring items at customs",
+              "Hiding goods in a secret compartment",
+              "Crossing a border at midnight",
+              "Bribing a security guard"
+            ]
+          },
+          "correct_answers": [
+            "Declaring items at customs"
+          ],
+          "explanation": "'Declaring items at customs' is a legal and honest process. A 'smuggler' relies on hiding, sneaking, or bribing to avoid doing exactly this.",
+          "example_sentence": "Honest travelers declare their purchases, but a smuggler tries to keep everything hidden.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "word": [
+        {
+          "term": "hostage",
+          "part_of_speech": "noun",
+          "definition": "A person captured and held captive by someone who demands specific conditions be met in exchange for their safe release.",
+          "definition_chinese": "人质",
+          "example_sentence": "The police negotiated with the robbers to ensure the safe release of the hostage."
+        }
+      ],
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is a 'hostage'?",
+          "options": {
+            "choices": [
+              "A person held captive until demands are met",
+              "A person who steals money from a bank",
+              "A police officer who saves people",
+              "A person who visits a prison"
+            ]
+          },
+          "correct_answers": [
+            "A person held captive until demands are met"
+          ],
+          "explanation": "A 'hostage' is a prisoner held by criminals who want money or other demands in exchange for letting the person go.",
+          "example_sentence": "The robbers kept the bank manager as a hostage while they demanded a helicopter.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A hostage is a person who is free to leave whenever they want.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false. A hostage is held against their will by a captor and is not free to leave.",
+          "example_sentence": "The brave hostage waited quietly for the rescue team to arrive.",
+          "lexile_score": 760,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "Why do criminals usually take a hostage?",
+          "options": {
+            "choices": [
+              "To force someone to agree to certain demands",
+              "To invite them to a secret meeting",
+              "To give them a special prize",
+              "To help them hide from the police"
+            ]
+          },
+          "correct_answers": [
+            "To force someone to agree to certain demands"
+          ],
+          "explanation": "Taking a 'hostage' gives criminals power, allowing them to force authorities to pay money or meet other demands in exchange for the person's life.",
+          "example_sentence": "The kidnapper took a hostage to force the city to pay a large amount of cash.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word is closest in meaning to 'hostage'?",
+          "options": {
+            "choices": [
+              "Captive",
+              "Guard",
+              "Detective",
+              "Criminal"
+            ]
+          },
+          "correct_answers": [
+            "Captive"
+          ],
+          "explanation": "A 'captive' is someone who has been captured and kept as a prisoner, which is exactly the situation of a 'hostage'.",
+          "example_sentence": "The captive was finally released when the ransom was paid.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Who is usually trained to talk to criminals and free a hostage safely?",
+          "options": {
+            "choices": [
+              "A negotiator",
+              "A teacher",
+              "A captor",
+              "A prisoner"
+            ]
+          },
+          "correct_answers": [
+            "A negotiator"
+          ],
+          "explanation": "A negotiator is a professional who talks to criminals to calmly convince them to release a 'hostage'.",
+          "example_sentence": "The police brought in an expert negotiator to speak with the man holding the hostage.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What does a criminal usually want in exchange for letting a hostage go?",
+          "options": {
+            "choices": [
+              "A ransom",
+              "A gift",
+              "A promotion",
+              "A ticket"
+            ]
+          },
+          "correct_answers": [
+            "A ransom"
+          ],
+          "explanation": "A ransom is a specific sum of money demanded for the release of a captive, which is why a 'hostage' is often taken.",
+          "example_sentence": "The gang demanded a million-dollar ransom before they would release the hostage.",
+          "lexile_score": 780,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The desperate bank robbers refused to let the _____ leave the building until the police provided a getaway car.",
+          "options": {
+            "choices": [
+              "hostage",
+              "customer",
+              "postage",
+              "manager"
+            ]
+          },
+          "correct_answers": [
+            "hostage"
+          ],
+          "explanation": "If someone is kept inside a building to force the police to provide a car, they are being used as a 'hostage'. 'Customer' is too general, and 'postage' is a trap word.",
+          "example_sentence": "The terrifying situation ended peacefully when the hostage was released unharmed.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Complete the conversation.\nPerson A: 'Did the kidnappers make any specific demands on the phone?'\nPerson B: 'Yes, they said they will not free the _____ until they receive one million dollars.'",
+          "options": {
+            "choices": [
+              "hostage",
+              "witness",
+              "hostile",
+              "detective"
+            ]
+          },
+          "correct_answers": [
+            "hostage"
+          ],
+          "explanation": "Person A asks about kidnappers and demands. Kidnappers hold a 'hostage' for ransom. A 'witness' sees a crime, and 'hostile' is an adjective trap.",
+          "example_sentence": "After long talks on the phone, the kidnappers agreed to let the hostage go.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "After three days of careful planning, the special forces were finally able to rescue the _____ from the dangerous group.",
+          "options": {
+            "choices": [
+              "hostage",
+              "soldier",
+              "host",
+              "criminal"
+            ]
+          },
+          "correct_answers": [
+            "hostage"
+          ],
+          "explanation": "Special forces typically rescue a 'hostage' who has been held against their will. 'Host' is an orthographic trap that means someone who throws a party.",
+          "example_sentence": "The president praised the team for saving the hostage from the armed compound.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "Which noun describes the criminal act of capturing someone to demand a ransom?",
+          "options": {
+            "choices": [
+              "hostage-taking",
+              "hostage",
+              "host",
+              "hostages"
+            ]
+          },
+          "correct_answers": [
+            "hostage-taking"
+          ],
+          "explanation": "The term 'hostage-taking' is the noun form used to describe the actual event or crime of seizing a person. 'Hostage' is the person taken.",
+          "example_sentence": "The government passed stricter laws to punish the crime of hostage-taking.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which verb is most commonly paired with the word 'hostage' when criminals capture someone?",
+          "options": {
+            "choices": [
+              "Take",
+              "Make",
+              "Do",
+              "Give"
+            ]
+          },
+          "correct_answers": [
+            "Take"
+          ],
+          "explanation": "In English, the standard collocation is to 'take' someone hostage. We do not say 'make' or 'do' a hostage.",
+          "example_sentence": "The desperate man decided to take a hostage to force the mayor to listen to him.",
+          "lexile_score": 750,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which phrase specifically describes a professional who tries to talk to criminals to free a captive?",
+          "options": {
+            "choices": [
+              "Hostage negotiator",
+              "Hostage speaker",
+              "Hostage manager",
+              "Hostage director"
+            ]
+          },
+          "correct_answers": [
+            "Hostage negotiator"
+          ],
+          "explanation": "A 'hostage negotiator' is the official job title for a person trained to communicate with captors and secure the safe release of a captive.",
+          "example_sentence": "The hostage negotiator remained calm and spoke softly to the nervous bank robber.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": {
+            "choices": [
+              "Guard",
+              "Hostage",
+              "Captive",
+              "Prisoner"
+            ]
+          },
+          "correct_answers": [
+            "Guard"
+          ],
+          "explanation": "A 'hostage', 'captive', and 'prisoner' are all people who are held against their will. A 'guard' is the person doing the holding or watching.",
+          "example_sentence": "The guard fell asleep, giving the hostage a perfect chance to escape.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which situation does not fit with the others in this list?",
+          "options": {
+            "choices": [
+              "Rescuing a swimmer",
+              "Taking a hostage",
+              "Kidnapping a victim",
+              "Holding a captive"
+            ]
+          },
+          "correct_answers": [
+            "Rescuing a swimmer"
+          ],
+          "explanation": "'Taking a hostage', 'kidnapping', and 'holding a captive' all involve criminal acts of trapping a person. 'Rescuing a swimmer' is an unrelated lifesaving act.",
+          "example_sentence": "The lifeguard was busy rescuing a swimmer while the police dealt with the hostage crisis.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which term is the most different from the rest?",
+          "options": {
+            "choices": [
+              "Attacker",
+              "Hostage",
+              "Victim",
+              "Target"
+            ]
+          },
+          "correct_answers": [
+            "Attacker"
+          ],
+          "explanation": "A 'hostage', 'victim', and 'target' are all people who suffer from a crime. The 'attacker' is the one causing the harm.",
+          "example_sentence": "The swift police action ensured that the attacker was caught and the hostage was freed.",
+          "lexile_score": 780,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "word": [
+        {
+          "term": "colleague",
+          "part_of_speech": "noun",
+          "definition": "A person with whom one works, especially in a profession or business.",
+          "definition_chinese": "同事",
+          "example_sentence": "My colleague helped me finish the important report before the Friday deadline."
+        }
+      ],
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is a 'colleague'?",
+          "options": {
+            "choices": [
+              "A person you work with",
+              "A person you live with",
+              "A person who serves you food",
+              "A person who drives a bus"
+            ]
+          },
+          "correct_answers": [
+            "A person you work with"
+          ],
+          "explanation": "A 'colleague' is someone you share a workplace or profession with. It is a formal word for a coworker.",
+          "example_sentence": "I asked my colleague for advice on how to use the new computer system.",
+          "lexile_score": 750,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A colleague is someone who goes to the same high school or college as you.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false. A colleague is someone you work with at a job, while a person at your school is a classmate or fellow student.",
+          "example_sentence": "After graduating, she got a job at a bank and met her new colleague.",
+          "lexile_score": 760,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "Where do you most commonly interact with a colleague?",
+          "options": {
+            "choices": [
+              "At a workplace",
+              "At a supermarket",
+              "In a family home",
+              "In a hospital bed"
+            ]
+          },
+          "correct_answers": [
+            "At a workplace"
+          ],
+          "explanation": "Because a 'colleague' is a person you work with, you will usually find them at an office, factory, or other workplace.",
+          "example_sentence": "During his lunch break at the office, he sat down to eat with a colleague.",
+          "lexile_score": 780,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word is a synonym for 'colleague'?",
+          "options": {
+            "choices": [
+              "Coworker",
+              "Friend",
+              "Boss",
+              "Student"
+            ]
+          },
+          "correct_answers": [
+            "Coworker"
+          ],
+          "explanation": "A 'coworker' is someone who works at the same place as you do, which has the exact same meaning as 'colleague'.",
+          "example_sentence": "He invited his favorite coworker to join the project team.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "ANTONYM_MC_SINGLE",
+          "question_text": "Which word serves as the best opposite for 'colleague' in a team setting?",
+          "options": {
+            "choices": [
+              "Competitor",
+              "Partner",
+              "Teammate",
+              "Assistant"
+            ]
+          },
+          "correct_answers": [
+            "Competitor"
+          ],
+          "explanation": "A 'colleague' works alongside you for the same company or goal. A 'competitor' works against you for a rival company.",
+          "example_sentence": "Our company wants to sell more products than our biggest competitor.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which activity are you most likely to do with a colleague?",
+          "options": {
+            "choices": [
+              "Attend a business meeting",
+              "Go on a family vacation",
+              "Adopt a pet dog",
+              "Paint your own house"
+            ]
+          },
+          "correct_answers": [
+            "Attend a business meeting"
+          ],
+          "explanation": "Since a 'colleague' is a person connected to your job, attending a business meeting is a professional activity you would do together.",
+          "example_sentence": "Every Monday morning, I review the weekly schedule with my colleague.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "Since I was too sick to go to work, my helpful _____ covered my hospital shift so the patients were safe.",
+          "options": {
+            "choices": [
+              "colleague",
+              "manager",
+              "college",
+              "neighbor"
+            ]
+          },
+          "correct_answers": [
+            "colleague"
+          ],
+          "explanation": "Covering a shift implies a shared work responsibility. A 'colleague' is a coworker who could do this. 'College' is an orthographic trap that means a university.",
+          "example_sentence": "It is great to have a supportive colleague who can help you when you are ill.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Complete the conversation.\nPerson A: 'Who is that woman you were talking to by the office coffee machine?'\nPerson B: 'Oh, she is a _____ of mine from the marketing department.'",
+          "options": {
+            "choices": [
+              "colleague",
+              "client",
+              "college",
+              "sibling"
+            ]
+          },
+          "correct_answers": [
+            "colleague"
+          ],
+          "explanation": "Person A asks about someone at the office. Person B mentions the marketing department, meaning the woman is a coworker, or 'colleague'. 'College' sounds similar but is incorrect here.",
+          "example_sentence": "The new colleague from the marketing department had some great ideas for the ad campaign.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "When working on a large architectural project, it is very important to communicate well with every _____ on your design team.",
+          "options": {
+            "choices": [
+              "colleague",
+              "supervisor",
+              "collage",
+              "friend"
+            ]
+          },
+          "correct_answers": [
+            "colleague"
+          ],
+          "explanation": "A design team consists of professionals working together. Each team member is a 'colleague'. 'Collage' is a trap word meaning a piece of art made by sticking pictures together.",
+          "example_sentence": "The architect trusted her colleague to check the math on the building blueprints.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "Which adjective form describes an atmosphere of cooperation and shared responsibility between coworkers?",
+          "options": {
+            "choices": [
+              "collegial",
+              "colleague",
+              "colleagues",
+              "collegiality"
+            ]
+          },
+          "correct_answers": [
+            "collegial"
+          ],
+          "explanation": "The word 'collegial' is the adjective form. 'Colleague' is the singular noun, 'colleagues' is the plural, and 'collegiality' is the abstract noun.",
+          "example_sentence": "The office had a very collegial environment where everyone respected each other.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which phrase is commonly used to describe a coworker who has been at the company for a long time and has high status?",
+          "options": {
+            "choices": [
+              "A senior colleague",
+              "A major colleague",
+              "A deep colleague",
+              "An olden colleague"
+            ]
+          },
+          "correct_answers": [
+            "A senior colleague"
+          ],
+          "explanation": "In professional settings, a 'senior colleague' refers to someone with more experience or a higher rank in the workplace.",
+          "example_sentence": "Whenever I face a difficult problem, I seek guidance from a senior colleague.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "What do you usually ask a colleague for when you need help understanding a complex work task?",
+          "options": {
+            "choices": [
+              "Professional advice",
+              "Medical treatment",
+              "Family secrets",
+              "Financial loans"
+            ]
+          },
+          "correct_answers": [
+            "Professional advice"
+          ],
+          "explanation": "Because a 'colleague' shares your professional environment, asking for 'professional advice' is the most natural and appropriate interaction.",
+          "example_sentence": "He gave me some excellent professional advice on how to improve my presentation.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": {
+            "choices": [
+              "Cousin",
+              "Colleague",
+              "Coworker",
+              "Associate"
+            ]
+          },
+          "correct_answers": [
+            "Cousin"
+          ],
+          "explanation": "A 'colleague', 'coworker', and 'associate' are all people you know through your job. A 'cousin' is a family member.",
+          "example_sentence": "While she loved her cousin, she never mixed family life with her work life.",
+          "lexile_score": 780,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which relationship is the most different from the others?",
+          "options": {
+            "choices": [
+              "Stranger",
+              "Colleague",
+              "Teammate",
+              "Partner"
+            ]
+          },
+          "correct_answers": [
+            "Stranger"
+          ],
+          "explanation": "A 'colleague', 'teammate', and 'partner' all describe people who collaborate or work together toward a goal. A 'stranger' is someone you do not know at all.",
+          "example_sentence": "A stranger asked me for directions outside the building where I work.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not fit the category of professional workplace relationships?",
+          "options": {
+            "choices": [
+              "Sibling",
+              "Colleague",
+              "Manager",
+              "Supervisor"
+            ]
+          },
+          "correct_answers": [
+            "Sibling"
+          ],
+          "explanation": "A 'colleague', 'manager', and 'supervisor' are all specific workplace roles. A 'sibling' is a brother or sister.",
+          "example_sentence": "Her brother was a wonderful sibling, but she preferred not to hire him as an employee.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "word": [
+        {
+          "term": "citizen",
+          "part_of_speech": "noun",
+          "definition": "A legally recognized member of a state or nation, either native or naturalized, who is entitled to its rights and protections.",
+          "definition_chinese": "公民",
+          "example_sentence": "As a responsible citizen, she always makes sure to vote in local and national elections."
+        }
+      ],
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What does the word 'citizen' mean?",
+          "options": {
+            "choices": [
+              "A legal member of a country",
+              "A person just visiting a country",
+              "A person who breaks the law",
+              "A person who studies maps"
+            ]
+          },
+          "correct_answers": [
+            "A legal member of a country"
+          ],
+          "explanation": "A 'citizen' is someone who legally belongs to a specific country and is protected by its laws.",
+          "example_sentence": "Because he was born in Italy, he is an Italian citizen.",
+          "lexile_score": 770,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A citizen is a person who legally belongs to a country and has certain rights there.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "True"
+          ],
+          "explanation": "This is true. Being a citizen means you hold legal membership in a country and enjoy rights like voting and protection.",
+          "example_sentence": "Every citizen has the right to express their opinion peacefully.",
+          "lexile_score": 780,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "Which of these is a right that a citizen usually has?",
+          "options": {
+            "choices": [
+              "The right to vote in elections",
+              "The right to steal property",
+              "The right to ignore traffic laws",
+              "The right to print their own money"
+            ]
+          },
+          "correct_answers": [
+            "The right to vote in elections"
+          ],
+          "explanation": "A legal 'citizen' is granted specific rights by the government, the most common being the right to vote. The other choices are illegal acts.",
+          "example_sentence": "When she turned eighteen, she registered to vote as a newly recognized citizen.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word is closest in meaning to 'citizen'?",
+          "options": {
+            "choices": [
+              "National",
+              "Tourist",
+              "Invader",
+              "Guest"
+            ]
+          },
+          "correct_answers": [
+            "National"
+          ],
+          "explanation": "In legal contexts, a 'national' is a person who belongs to a nation, which is essentially the same as a 'citizen'.",
+          "example_sentence": "Every French national living abroad was encouraged to return home for the holiday.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "ANTONYM_MC_SINGLE",
+          "question_text": "Which word is an antonym for 'citizen' when describing legal status?",
+          "options": {
+            "choices": [
+              "Alien",
+              "Resident",
+              "Voter",
+              "Inhabitant"
+            ]
+          },
+          "correct_answers": [
+            "Alien"
+          ],
+          "explanation": "In terms of law, an 'alien' is a person who belongs to a foreign country, making it the opposite of a 'citizen', who legally belongs to the host country.",
+          "example_sentence": "The government requires every resident alien to register their address annually.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What document officially proves that a person is a citizen of a country and allows them to travel internationally?",
+          "options": {
+            "choices": [
+              "A passport",
+              "A receipt",
+              "A library card",
+              "A grocery list"
+            ]
+          },
+          "correct_answers": [
+            "A passport"
+          ],
+          "explanation": "A passport is an official government document that verifies someone is a legal 'citizen' and grants them permission to travel abroad.",
+          "example_sentence": "He had to renew his passport before his trip to Spain.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "In order to apply for a federal passport, you must first prove that you are a legal _____ of this country.",
+          "options": {
+            "choices": [
+              "citizen",
+              "resident",
+              "city",
+              "tourist"
+            ]
+          },
+          "correct_answers": [
+            "citizen"
+          ],
+          "explanation": "Only a legal 'citizen' is entitled to receive a passport from a nation. 'Resident' is a closely related tier-2 word, but residents without citizenship cannot get passports. 'City' is a sound-alike trap.",
+          "example_sentence": "She kept her birth certificate safe because it proved she was a citizen.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Complete the conversation.\nPerson A: 'Why are you studying the history book so intensely tonight?'\nPerson B: 'Because I must pass the government test to become a legal _____ next month!'",
+          "options": {
+            "choices": [
+              "citizen",
+              "civilian",
+              "sit-in",
+              "visitor"
+            ]
+          },
+          "correct_answers": [
+            "citizen"
+          ],
+          "explanation": "Person B is taking a government test to gain legal status. The status gained is becoming a 'citizen'. 'Civilian' is a related term for non-military, and 'sit-in' is a phonological trap.",
+          "example_sentence": "She studied for months to pass the test and finally become a citizen.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The mayor gave a speech praising the brave _____ who helped clean up the public park after the terrible storm.",
+          "options": {
+            "choices": [
+              "citizen",
+              "civilian",
+              "season",
+              "traveler"
+            ]
+          },
+          "correct_answers": [
+            "citizen"
+          ],
+          "explanation": "A person who actively helps their local community is often referred to as a good 'citizen'. 'Civilian' means non-military, and 'season' is an orthographic trap.",
+          "example_sentence": "A good citizen cares about the community and helps neighbors in need.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "Which noun describes the state or legal status of being a member of a country?",
+          "options": {
+            "choices": [
+              "citizenship",
+              "citizen",
+              "citizens",
+              "citizenry"
+            ]
+          },
+          "correct_answers": [
+            "citizenship"
+          ],
+          "explanation": "The word 'citizenship' refers to the legal status of being a 'citizen'. 'Citizenry' refers to the group of citizens as a whole.",
+          "example_sentence": "He was proud to finally receive his certificate of citizenship after years of waiting.",
+          "lexile_score": 850,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which phrase is commonly used to describe a person who perfectly obeys laws and contributes positively to society?",
+          "options": {
+            "choices": [
+              "A model citizen",
+              "A perfect citizen",
+              "A standard citizen",
+              "A normal citizen"
+            ]
+          },
+          "correct_answers": [
+            "A model citizen"
+          ],
+          "explanation": "In English, a 'model citizen' is a common expression used to describe someone whose excellent behavior is an example for others to follow.",
+          "example_sentence": "The teacher praised him as a model citizen for organizing the neighborhood cleanup.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which term describes a person who holds legal membership in two different countries at the exact same time?",
+          "options": {
+            "choices": [
+              "A dual citizen",
+              "A double citizen",
+              "A twin citizen",
+              "A split citizen"
+            ]
+          },
+          "correct_answers": [
+            "A dual citizen"
+          ],
+          "explanation": "The correct legal and common collocation is 'dual citizen'. 'Dual' specifically means having two parts or aspects.",
+          "example_sentence": "Because she was born in Canada to British parents, she is a dual citizen.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": {
+            "choices": [
+              "Foreigner",
+              "Citizen",
+              "National",
+              "Subject"
+            ]
+          },
+          "correct_answers": [
+            "Foreigner"
+          ],
+          "explanation": "A 'citizen', 'national', and 'subject' all refer to someone who legally belongs to a specific nation. A 'foreigner' comes from a different nation.",
+          "example_sentence": "The king expected every loyal subject to obey the new laws of the land.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which action is least related to being an active, participating citizen?",
+          "options": {
+            "choices": [
+              "Traveling abroad",
+              "Voting in elections",
+              "Paying local taxes",
+              "Obeying traffic laws"
+            ]
+          },
+          "correct_answers": [
+            "Traveling abroad"
+          ],
+          "explanation": "Voting, paying taxes, and obeying laws are fundamental duties that define participation as a 'citizen'. Traveling abroad is a personal choice, not a civic duty.",
+          "example_sentence": "Although he enjoyed traveling abroad, his main duties were to his home country.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word group describes someone who lives in a place permanently, except for one?",
+          "options": {
+            "choices": [
+              "Tourist",
+              "Citizen",
+              "Resident",
+              "Inhabitant"
+            ]
+          },
+          "correct_answers": [
+            "Tourist"
+          ],
+          "explanation": "A 'citizen', 'resident', and 'inhabitant' all live in a place on a long-term or permanent basis. A 'tourist' is someone visiting temporarily.",
+          "example_sentence": "During the summer, the small island is crowded with every passing tourist.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "word": [
+        {
+          "term": "foreigner",
+          "part_of_speech": "noun",
+          "definition": "A person who comes from or was born in a country different from the one they are currently in.",
+          "definition_chinese": "外国人",
+          "example_sentence": "When I traveled to Japan for the first time, I had to learn how to navigate the city as a foreigner."
+        }
+      ],
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is a 'foreigner'?",
+          "options": {
+            "choices": [
+              "Someone from a different country",
+              "Someone from the exact same city",
+              "Someone who works indoors all day",
+              "Someone who drives long trains"
+            ]
+          },
+          "correct_answers": [
+            "Someone from a different country"
+          ],
+          "explanation": "A 'foreigner' is a person who was born in or comes from a nation outside of the one they are currently visiting or living in.",
+          "example_sentence": "It is fun to meet a foreigner and learn about the customs of their home country.",
+          "lexile_score": 760,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A foreigner is a person who was born in the exact same town as you.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false. The word 'foreigner' describes someone from an entirely different country, not someone from your own town.",
+          "example_sentence": "Since she grew up next door to me, she is definitely not a foreigner.",
+          "lexile_score": 750,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "If a person from France travels to visit Canada, what is that person called while in Canada?",
+          "options": {
+            "choices": [
+              "A foreigner",
+              "A citizen",
+              "A neighbor",
+              "A local"
+            ]
+          },
+          "correct_answers": [
+            "A foreigner"
+          ],
+          "explanation": "Because the person is outside of their native country (France) and inside a new country (Canada), they are considered a 'foreigner' there.",
+          "example_sentence": "When he moved to Canada from France, he felt like a foreigner for the first few months.",
+          "lexile_score": 780,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word is a synonym for 'foreigner'?",
+          "options": {
+            "choices": [
+              "Alien",
+              "Native",
+              "Local",
+              "Resident"
+            ]
+          },
+          "correct_answers": [
+            "Alien"
+          ],
+          "explanation": "In immigration terms, an 'alien' is someone who belongs to a different country, making it a direct synonym for 'foreigner'.",
+          "example_sentence": "He had to register as a resident alien when he moved to the United States.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "ANTONYM_MC_SINGLE",
+          "question_text": "Which word is an antonym for 'foreigner'?",
+          "options": {
+            "choices": [
+              "Native",
+              "Tourist",
+              "Traveler",
+              "Outsider"
+            ]
+          },
+          "correct_answers": [
+            "Native"
+          ],
+          "explanation": "A 'native' is a person born in the specific country being discussed, which is the exact opposite of a 'foreigner'.",
+          "example_sentence": "The native population warmly welcomed the travelers to their island.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What official document might a foreigner need to legally enter a new country?",
+          "options": {
+            "choices": [
+              "A visa",
+              "A library card",
+              "A movie ticket",
+              "A receipt"
+            ]
+          },
+          "correct_answers": [
+            "A visa"
+          ],
+          "explanation": "A visa is a special stamp or document given by a government that allows a 'foreigner' to enter and stay in that country.",
+          "example_sentence": "She applied for a student visa so she could study at a university abroad.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "Since he did not speak the local language and stared at the street signs, it was obvious he was a _____ in the small town.",
+          "options": {
+            "choices": [
+              "foreigner",
+              "tourist",
+              "forager",
+              "local"
+            ]
+          },
+          "correct_answers": [
+            "foreigner"
+          ],
+          "explanation": "Not speaking the local language implies the person is from another country. 'Tourist' is a strong tier-2 trap, but 'foreigner' highlights the language barrier. 'Forager' is an orthographic trap.",
+          "example_sentence": "The friendly shop owner used hand signals to communicate with the foreigner.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Complete the conversation.\nPerson A: 'Why did you ask for the English menu at the local cafe?'\nPerson B: 'I am a _____ here, and I cannot read the local writing yet.'",
+          "options": {
+            "choices": [
+              "foreigner",
+              "visitor",
+              "forewarn",
+              "local"
+            ]
+          },
+          "correct_answers": [
+            "foreigner"
+          ],
+          "explanation": "Person B needs an English menu because they do not understand the local language. This marks them as a 'foreigner'. 'Visitor' is related, but 'forewarn' is a trick word.",
+          "example_sentence": "The cafe always kept a few English menus ready for any foreigner who walked in.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The national museum offers special audio guides translated into ten languages so that any visiting _____ can understand the country's history.",
+          "options": {
+            "choices": [
+              "foreigner",
+              "immigrant",
+              "forgetter",
+              "student"
+            ]
+          },
+          "correct_answers": [
+            "foreigner"
+          ],
+          "explanation": "Audio guides in many languages are provided specifically for people from other countries, known as a 'foreigner'. 'Immigrant' is a tier-2 word, while 'forgetter' is a tier-3 trap.",
+          "example_sentence": "The museum was very popular, and almost every foreigner in the city visited it.",
+          "lexile_score": 850,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "What is the adjective form of the word 'foreigner', used to describe things from another country?",
+          "options": {
+            "choices": [
+              "foreign",
+              "foreigner",
+              "foreigners",
+              "foreignness"
+            ]
+          },
+          "correct_answers": [
+            "foreign"
+          ],
+          "explanation": "The word 'foreign' is the adjective form. 'Foreigner' is the singular noun, 'foreigners' is plural, and 'foreignness' is an abstract noun.",
+          "example_sentence": "She loved to collect foreign coins whenever she traveled to a new place.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which adjective frequently describes a person from another country who comes simply to sightsee or stay briefly?",
+          "options": {
+            "choices": [
+              "A visiting foreigner",
+              "A dropping foreigner",
+              "A seeing foreigner",
+              "A looking foreigner"
+            ]
+          },
+          "correct_answers": [
+            "A visiting foreigner"
+          ],
+          "explanation": "We commonly say 'visiting' to describe someone who is temporarily staying in a place for tourism or business.",
+          "example_sentence": "The mayor gave a welcoming speech to the visiting foreigner at the city hall.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which verb commonly goes with 'foreigner' to describe the legal action of sending them back to their home country?",
+          "options": {
+            "choices": [
+              "Deport a foreigner",
+              "Reject a foreigner",
+              "Erase a foreigner",
+              "Delete a foreigner"
+            ]
+          },
+          "correct_answers": [
+            "Deport a foreigner"
+          ],
+          "explanation": "In legal and immigration contexts, the official action of forcing a person to return to their native country is to 'deport' them.",
+          "example_sentence": "If someone breaks the immigration laws, the government may choose to deport the foreigner.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": {
+            "choices": [
+              "Foreigner",
+              "Local",
+              "Native",
+              "Citizen"
+            ]
+          },
+          "correct_answers": [
+            "Foreigner"
+          ],
+          "explanation": "A 'local', 'native', and 'citizen' all describe people who belong to and live in a specific place. A 'foreigner' comes from the outside.",
+          "example_sentence": "The local guide knew the mountain trails much better than any visitor would.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which concept is the most different from the others?",
+          "options": {
+            "choices": [
+              "Resident",
+              "Foreigner",
+              "Outsider",
+              "Alien"
+            ]
+          },
+          "correct_answers": [
+            "Resident"
+          ],
+          "explanation": "A 'foreigner', 'outsider', and 'alien' all describe someone who does not naturally belong to the group or nation. A 'resident' is someone who lives there stably.",
+          "example_sentence": "Even though he moved here recently, he was happy to finally be an official resident.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which experience is least likely to happen to a native citizen compared to a foreigner?",
+          "options": {
+            "choices": [
+              "Applying for a visa",
+              "Paying for groceries",
+              "Renting an apartment",
+              "Driving a car"
+            ]
+          },
+          "correct_answers": [
+            "Applying for a visa"
+          ],
+          "explanation": "Applying for a visa is an immigration process required only for a 'foreigner' entering a country. Natives and foreigners both buy groceries, rent homes, and drive.",
+          "example_sentence": "Because she was a citizen, she skipped the long line of people applying for a visa.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    },
+    {
+      "word": [
+        {
+          "term": "bandit",
+          "part_of_speech": "noun",
+          "definition": "A robber or outlaw, especially one who belongs to a gang and attacks travelers in remote areas.",
+          "definition_chinese": "强盗",
+          "example_sentence": "The armed bandit hid in the mountains and waited for wealthy travelers to pass by."
+        }
+      ],
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is a 'bandit'?",
+          "options": {
+            "choices": [
+              "An outlaw who robs travelers",
+              "A police officer on a horse",
+              "A person who sells weapons",
+              "A person who works in a bank"
+            ]
+          },
+          "correct_answers": [
+            "An outlaw who robs travelers"
+          ],
+          "explanation": "A 'bandit' is a criminal who steals from people, often waiting in lonely places to attack travelers on the road.",
+          "example_sentence": "The bandit stepped out of the shadows and demanded the man's gold.",
+          "lexile_score": 780,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_TRUE_FALSE",
+          "question_text": "True or False: A bandit is a person who protects travelers from danger on the road.",
+          "options": {
+            "choices": [
+              "True",
+              "False"
+            ]
+          },
+          "correct_answers": [
+            "False"
+          ],
+          "explanation": "This is false. A bandit is the danger itself, as they are outlaws who rob and attack travelers.",
+          "example_sentence": "The terrified travelers ran away as fast as they could when the bandit appeared.",
+          "lexile_score": 760,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "Where does a bandit most often attack people?",
+          "options": {
+            "choices": [
+              "On lonely roads or remote areas",
+              "In crowded police stations",
+              "Inside a school classroom",
+              "At a busy shopping mall"
+            ]
+          },
+          "correct_answers": [
+            "On lonely roads or remote areas"
+          ],
+          "explanation": "Because a 'bandit' wants to avoid the police and catch people alone, they usually operate in forests, mountains, or remote roads.",
+          "example_sentence": "The lone rider was cautious, knowing a bandit might be hiding in the dark woods.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            1
+          ]
+        },
+        {
+          "question_type": "SYNONYM_MC_SINGLE",
+          "question_text": "Which word is a synonym for 'bandit'?",
+          "options": {
+            "choices": [
+              "Robber",
+              "Guard",
+              "Judge",
+              "Traveler"
+            ]
+          },
+          "correct_answers": [
+            "Robber"
+          ],
+          "explanation": "A 'robber' is someone who steals by force, which is the exact same criminal behavior performed by a 'bandit'.",
+          "example_sentence": "The robber stole the heavy bags of silver from the stagecoach.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Who is usually responsible for tracking down and catching a bandit?",
+          "options": {
+            "choices": [
+              "A sheriff",
+              "A farmer",
+              "A teacher",
+              "A merchant"
+            ]
+          },
+          "correct_answers": [
+            "A sheriff"
+          ],
+          "explanation": "A sheriff is a law enforcement officer whose job is to catch outlaws, making them the enemy of a 'bandit'.",
+          "example_sentence": "The brave sheriff organized a group of men to hunt the bandit in the hills.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What is a bandit most likely to steal from a passing carriage?",
+          "options": {
+            "choices": [
+              "Valuable goods",
+              "School books",
+              "Old clothes",
+              "Fresh vegetables"
+            ]
+          },
+          "correct_answers": [
+            "Valuable goods"
+          ],
+          "explanation": "A 'bandit' robs people for profit, so they specifically look for money, jewelry, or other highly valuable goods.",
+          "example_sentence": "The greedy bandit checked the chests to see if they held any valuable gems.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            2
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The merchants were scared to cross the dark forest because a famous _____ was known to rob people there.",
+          "options": {
+            "choices": [
+              "bandit",
+              "sheriff",
+              "banish",
+              "farmer"
+            ]
+          },
+          "correct_answers": [
+            "bandit"
+          ],
+          "explanation": "A criminal who hides in a forest to rob travelers is a 'bandit'. 'Sheriff' is a tier-2 law word, and 'banish' is a tier-3 sound-alike trap.",
+          "example_sentence": "No one wanted to travel at night, fearing the bandit who ruled the forest road.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "DIALOGUE_COMPLETION_MC",
+          "question_text": "Complete the conversation.\nPerson A: 'Why are you carrying a sword on this peaceful journey?'\nPerson B: 'I heard there is a dangerous _____ hiding in these hills who steals gold from travelers.'",
+          "options": {
+            "choices": [
+              "bandit",
+              "guard",
+              "bandage",
+              "escort"
+            ]
+          },
+          "correct_answers": [
+            "bandit"
+          ],
+          "explanation": "Person B mentions a danger who steals gold in the hills. This perfectly describes a 'bandit'. 'Guard' is an opposing tier-2 word, and 'bandage' is an orthographic trap.",
+          "example_sentence": "He sharpened his sword, ready to fight the bandit if he was attacked.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "CONTEXT_MC_SINGLE",
+          "question_text": "The angry king sent his best soldiers into the rough mountains to capture the _____ who had been attacking the royal carriages.",
+          "options": {
+            "choices": [
+              "bandit",
+              "knight",
+              "banquet",
+              "traveler"
+            ]
+          },
+          "correct_answers": [
+            "bandit"
+          ],
+          "explanation": "Attacking carriages in the mountains is the classic action of a 'bandit'. A 'knight' is a soldier, and 'banquet' is a tier-3 trap word meaning a large feast.",
+          "example_sentence": "After a long search, the soldiers finally captured the bandit in his secret cave.",
+          "lexile_score": 840,
+          "suitable_mastery_levels": [
+            3
+          ]
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "Which noun describes the general criminal acts of robbery and violence committed by these outlaws?",
+          "options": {
+            "choices": [
+              "banditry",
+              "bandit",
+              "bandits",
+              "bandited"
+            ]
+          },
+          "correct_answers": [
+            "banditry"
+          ],
+          "explanation": "The word 'banditry' is an abstract noun referring to the practice or acts of robbing people. 'Bandit' is the individual person.",
+          "example_sentence": "The king wanted to bring peace to the roads and put an end to all banditry.",
+          "lexile_score": 850,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "Which phrase is commonly used to describe a robber who hides their identity by wearing a cloth over their face?",
+          "options": {
+            "choices": [
+              "A masked bandit",
+              "A hidden bandit",
+              "A dark bandit",
+              "A secret bandit"
+            ]
+          },
+          "correct_answers": [
+            "A masked bandit"
+          ],
+          "explanation": "It is a very common English collocation to say 'a masked bandit' when referring to a robber who covers their face to avoid being recognized.",
+          "example_sentence": "The bank teller could not describe the thief because he was a masked bandit.",
+          "lexile_score": 820,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "COLLOCATION_MC_SINGLE",
+          "question_text": "What type of outlaw specifically targets and robs vehicles traveling on long, lonely roads?",
+          "options": {
+            "choices": [
+              "A highway bandit",
+              "A street bandit",
+              "A path bandit",
+              "A driveway bandit"
+            ]
+          },
+          "correct_answers": [
+            "A highway bandit"
+          ],
+          "explanation": "A 'highway bandit' (or highwayman) is a historical and common term for an outlaw who specifically robs travelers on major roads or highways.",
+          "example_sentence": "In the old days, a highway bandit was the greatest fear of anyone traveling by stagecoach.",
+          "lexile_score": 830,
+          "suitable_mastery_levels": [
+            4
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": {
+            "choices": [
+              "Victim",
+              "Bandit",
+              "Thief",
+              "Robber"
+            ]
+          },
+          "correct_answers": [
+            "Victim"
+          ],
+          "explanation": "A 'bandit', 'thief', and 'robber' are all criminals who steal from others. A 'victim' is the innocent person who is robbed.",
+          "example_sentence": "The victim cried for help after the thief took her purse.",
+          "lexile_score": 790,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which person operates on the side of the law, unlike the others?",
+          "options": {
+            "choices": [
+              "Deputy",
+              "Bandit",
+              "Outlaw",
+              "Criminal"
+            ]
+          },
+          "correct_answers": [
+            "Deputy"
+          ],
+          "explanation": "A 'bandit', 'outlaw', and 'criminal' all break the law. A 'deputy' is an officer who enforces the law.",
+          "example_sentence": "The tough deputy chased the outlaw across the hot desert.",
+          "lexile_score": 810,
+          "suitable_mastery_levels": [
+            5
+          ]
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not describe a type of criminal who steals goods?",
+          "options": {
+            "choices": [
+              "Merchant",
+              "Bandit",
+              "Pirate",
+              "Smuggler"
+            ]
+          },
+          "correct_answers": [
+            "Merchant"
+          ],
+          "explanation": "A 'bandit', 'pirate', and 'smuggler' are all criminals involved in illegal taking or moving of goods. A 'merchant' is an honest businessperson.",
+          "example_sentence": "The wealthy merchant hired extra guards to protect his goods from outlaws.",
+          "lexile_score": 800,
+          "suitable_mastery_levels": [
+            5
+          ]
+        }
+      ]
+    }
+  ]
+}

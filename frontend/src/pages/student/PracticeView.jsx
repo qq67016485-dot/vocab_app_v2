@@ -3,114 +3,69 @@ import { useNavigate } from 'react-router-dom';
 import apiClient from '../../api/axiosConfig.js';
 import { useUser } from '../../context/UserContext.jsx';
 import TextToSpeechButton from '../../components/TextToSpeechButton.jsx';
-import ProgressBar from '../../components/ProgressBar.jsx';
 import { SKILL_TAG_DISPLAY_NAMES_STUDENT } from '../../constants/skillTags.js';
 import { useTranslationVisibility } from '../../hooks/useTranslationVisibility.js';
 import correctSfx from '../../assets/sounds/correct.mp3';
 import incorrectSfx from '../../assets/sounds/incorrect.mp3';
 
-const REFLECTION_ARCHETYPES = [
-  {
-    id: 'definition',
-    match: ['DEFINITION_MC_SINGLE', 'DEFINITION_MATCHING', 'DEFINITION_TRUE_FALSE'],
-    options: [
-      { id: 'forgot', label: 'I knew it, but forgot' },
-      { id: 'ambiguous', label: 'The choices were confusing' },
-      { id: 'unknown', label: "I didn't know this word" },
-      { id: 'next', label: 'Got it / Next', isNeutral: true },
-    ],
-  },
-  {
-    id: 'synonym_antonym',
-    match: ['SYNONYM_MC_SINGLE', 'SYNONYM_MC_MULTI', 'SYNONYM_MATCHING', 'ANTONYM_MC_SINGLE', 'ANTONYM_MATCHING', 'ODD_ONE_OUT_MC_SINGLE'],
-    options: [
-      { id: 'mixed_polarity', label: 'I mixed up Synonym vs Antonym' },
-      { id: 'distractor', label: 'Confused with similar word' },
-      { id: 'unknown', label: "I didn't know the answer choices" },
-      { id: 'next', label: 'Got it / Next', isNeutral: true },
-    ],
-  },
-  {
-    id: 'collocation',
-    match: ['COLLOCATION_MC_SINGLE', 'COLLOCATION_FILL_IN_BLANK', 'COLLOCATION_MATCHING'],
-    options: [
-      { id: 'intuition_fail', label: 'It "sounded" right to me' },
-      { id: 'nuance_gap', label: 'Unsure of the specific usage' },
-      { id: 'guess', label: 'Just guessed' },
-      { id: 'next', label: 'Got it / Next', isNeutral: true },
-    ],
-  },
-  {
-    id: 'word_form',
-    match: ['WORD_FORM_MC', 'WORD_FORM_FILL_IN_BLANK', 'SPELLING_FILL_IN_BLANK'],
-    options: [
-      { id: 'wrong_clue', label: 'I looked at the wrong clue' },
-      { id: 'morphology', label: 'Confused the word ending/suffix' },
-      { id: 'intuition', label: 'I relied on "what sounds right"' },
-      { id: 'next', label: 'Got it / Next', isNeutral: true },
-    ],
-  },
-  {
-    id: 'syntax',
-    match: ['SENTENCE_SCRAMBLE'],
-    options: [
-      { id: 'syntax_error', label: 'Confused the word order' },
-      { id: 'ambiguous', label: 'My answer seems correct too' },
-      { id: 'logic', label: 'Misunderstood the sentence logic' },
-      { id: 'next', label: 'Got it / Next', isNeutral: true },
-    ],
-  },
-  {
-    id: 'context',
-    match: ['CONTEXT_MC_SINGLE', 'CONTEXT_FILL_IN_BLANK', 'CONNOTATION_SORTING', 'CONCEPTUAL_ASSOCIATION_MC_SINGLE'],
-    options: [
-      { id: 'blindness', label: 'Missed the clue in sentence' },
-      { id: 'nuance', label: 'Choices were too similar' },
-      { id: 'guess', label: 'Just guessed' },
-      { id: 'next', label: 'Got it / Next', isNeutral: true },
-    ],
-  },
+const correctMessages = {
+  firstAttempt: [
+    "Nice! Paying off.",
+    "Solid effort!",
+    "That one's sticking!",
+    "Progress!",
+    "You earned that.",
+  ],
+  selfCorrected: [
+    "You figured it out!",
+    "Persistence paid off!",
+    "Got there! That's growth.",
+    "Try, adjust, succeed.",
+    "Mistakes help you learn.",
+  ],
+};
+
+const incorrectMessages = [
+  "Not yet. Try again!",
+  "Tricky one! Check the hint.",
+  "Almost! One more try.",
+  "Keep at it!",
+  "Not quite. You'll get it.",
 ];
 
-const getReflectionOptions = (qType) => {
-  const archetype = REFLECTION_ARCHETYPES.find(arch => arch.match.includes(qType));
-  if (archetype) return archetype.options;
-  return [
-    { id: 'forgot', label: 'I knew it, but forgot' },
-    { id: 'unknown', label: "I didn't know this" },
-    { id: 'slip', label: 'Accidental click' },
-    { id: 'next', label: 'Got it / Next', isNeutral: true },
-  ];
+const getCorrectMessage = (isSelfCorrected) => {
+  const pool = isSelfCorrected ? correctMessages.selfCorrected : correctMessages.firstAttempt;
+  return pool[Math.floor(Math.random() * pool.length)];
 };
 
 const reasonMessages = {
   NEW_WORD: [
-    "Here's a brand new word for you!",
-    "Let's learn something new.",
-    "Time to add a new word to your collection.",
-    "A fresh word coming your way.",
-    "Let's explore a new term.",
+    "New word!",
+    "A fresh one.",
+    "Let's learn this.",
+    "Something new!",
+    "New challenge!",
   ],
   STRUGGLE_WORD: [
-    "Repetition is key! Let's try this one again.",
-    "Let's take another look at this one.",
-    "This one can be tricky. You've got this!",
-    "Practice makes perfect. Let's give it another go.",
-    "Let's reinforce this one.",
+    "Let's strengthen this one.",
+    "Still building this one.",
+    "Tricky words take time.",
+    "Coming back makes it stick.",
+    "One more round with this one.",
   ],
   MASTERY_CHECK: [
-    "Almost mastered! Let's lock it in.",
-    "You've just about got this one memorized.",
-    "This is the final check on this word.",
-    "Let's get this one to the next level.",
-    "Time to prove your mastery.",
+    "Almost there!",
+    "One more check!",
+    "Your effort's about to pay off.",
+    "Show what you know!",
+    "Close to locking this in.",
   ],
   STANDARD_REVIEW: [
-    "Time for a quick review!",
-    "Let's see if you remember this one.",
-    "Knockin' the rust off this word.",
-    "Let's keep your memory sharp.",
-    "Just checking in on this one.",
+    "Quick check-in.",
+    "Keeping it fresh.",
+    "Still remember this one?",
+    "Staying sharp!",
+    "Let's keep this one strong.",
   ],
 };
 
@@ -132,23 +87,33 @@ export default function PracticeView() {
 
   const [question, setQuestion] = useState(null);
   const [userAnswer, setUserAnswer] = useState('');
-  const [submittedAnswer, setSubmittedAnswer] = useState('');
   const [feedback, setFeedback] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [finishMessage, setFinishMessage] = useState('');
   const [sessionSummary, setSessionSummary] = useState(null);
   const [scrambledAttempt, setScrambledAttempt] = useState([]);
-  const [feedbackPhase, setFeedbackPhase] = useState('showing');
+
+  const [retryMode, setRetryMode] = useState(false);
+  const [wrongOptions, setWrongOptions] = useState([]);
+  const [hintText, setHintText] = useState('');
+  const [showExplanation, setShowExplanation] = useState(false);
+  const [retryFeedback, setRetryFeedback] = useState(null);
+  const [correctMessage, setCorrectMessage] = useState('');
+  const [incorrectMessage, setIncorrectMessage] = useState('');
 
   const [sessionGoalTotal, setSessionGoalTotal] = useState(0);
   const [questionsAnsweredThisSession, setQuestionsAnsweredThisSession] = useState(0);
   const [typoHint, setTypoHint] = useState('');
+  const [showKeepGoingPrompt, setShowKeepGoingPrompt] = useState(false);
+  const [dailyGoalMax, setDailyGoalMax] = useState(50);
 
   const { visibleTranslationTerm, handleShowTranslation } = useTranslationVisibility();
 
   const answerSwitchCount = useRef(0);
+  const isSubmittingRetry = useRef(false);
   const sessionStartTime = useRef(new Date().toISOString());
   const questionStartTimeRef = useRef(null);
+  const skipGoalCheck = useRef(false);
 
   const sessionStats = useRef({
     correctCount: 0,
@@ -185,19 +150,29 @@ export default function PracticeView() {
   };
 
   const fetchNextQuestion = async () => {
-    if (sessionGoalTotal > 0 && questionsAnsweredThisSession >= sessionGoalTotal) {
+    if (!skipGoalCheck.current && sessionGoalTotal > 0 && questionsAnsweredThisSession >= sessionGoalTotal) {
+      if (sessionGoalTotal + 5 <= dailyGoalMax) {
+        setShowKeepGoingPrompt(true);
+        return;
+      }
       setFinishMessage("You've completed your goal for this session!");
       return;
     }
+    skipGoalCheck.current = false;
 
     setIsLoading(true);
     setFeedback(null);
-    setFeedbackPhase('showing');
     setUserAnswer('');
-    setSubmittedAnswer('');
     setScrambledAttempt([]);
     setTypoHint('');
     setQuestion(null);
+    setRetryMode(false);
+    setWrongOptions([]);
+    setHintText('');
+    setShowExplanation(false);
+    setRetryFeedback(null);
+    setCorrectMessage('');
+    setIncorrectMessage('');
     answerSwitchCount.current = 0;
 
     try {
@@ -265,8 +240,6 @@ export default function PracticeView() {
   const handleAnswerSubmission = async (answerToSubmit) => {
     if (!question || feedback || !answerToSubmit) return;
 
-    setSubmittedAnswer(answerToSubmit);
-
     const endTime = new Date();
     const durationMillis = endTime - questionStartTimeRef.current;
     const durationSeconds = Math.round(durationMillis / 1000);
@@ -280,24 +253,19 @@ export default function PracticeView() {
       });
       const data = response.data;
 
-      // Typo detected — let student retry without penalty
       if (data.is_typo) {
         setTypoHint(data.message || 'Almost! Check your spelling and try again.');
         setUserAnswer('');
-        setSubmittedAnswer('');
         return;
       }
 
       setTypoHint('');
       setQuestionsAnsweredThisSession((prev) => prev + 1);
       playFeedbackSound(data.is_correct);
-
-      if (data.is_correct) {
-        setFeedbackPhase('confirmed');
-      } else {
-        setFeedbackPhase('showing');
-      }
       setFeedback(data);
+      if (data.is_correct) {
+        setCorrectMessage(getCorrectMessage(false));
+      }
 
       const stats = sessionStats.current;
       stats.totalCount++;
@@ -306,7 +274,7 @@ export default function PracticeView() {
         stats.correctCount++;
         stats.baseXp += 5;
 
-        for (const [key, value] of Object.entries(data.bonus_info)) {
+        for (const [key, value] of Object.entries(data.bonus_info ?? {})) {
           const bonusName = key.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
           if (stats.bonuses[bonusName]) stats.bonuses[bonusName] += value;
           else stats.bonuses[bonusName] = value;
@@ -321,6 +289,12 @@ export default function PracticeView() {
         }
       } else {
         stats.currentFocusStreak = 0;
+        setRetryMode(true);
+        setWrongOptions([answerToSubmit]);
+        setHintText(data.explanation || '');
+        setIncorrectMessage(incorrectMessages[Math.floor(Math.random() * incorrectMessages.length)]);
+        setUserAnswer('');
+        setScrambledAttempt([]);
       }
     } catch (error) {
       console.error('Error submitting answer:', error);
@@ -328,26 +302,80 @@ export default function PracticeView() {
     }
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (question?.question_type === 'SENTENCE_SCRAMBLE') {
-      const finalAnswer = scrambledAttempt.map((w) => w.text).join(' ').trim();
-      handleAnswerSubmission(finalAnswer);
-    } else {
-      handleAnswerSubmission(userAnswer);
+  const handleRetrySubmission = async (answerToSubmit) => {
+    if (!question || !answerToSubmit || isSubmittingRetry.current) return;
+    isSubmittingRetry.current = true;
+
+    try {
+      const response = await apiClient.post('/practice/submit/', {
+        question_id: question.id,
+        user_answer: answerToSubmit,
+        is_retry: true,
+      });
+      const data = response.data;
+
+      if (data.is_typo) {
+        setTypoHint(data.message || 'Almost! Check your spelling and try again.');
+        setUserAnswer('');
+        return;
+      }
+
+      setTypoHint('');
+
+      if (data.is_correct) {
+        playFeedbackSound(true);
+        setRetryMode(false);
+        setRetryFeedback(data);
+        setCorrectMessage(getCorrectMessage(true));
+      } else {
+        setWrongOptions((prev) => [...prev, answerToSubmit]);
+        setHintText(data.explanation || '');
+        setIncorrectMessage(incorrectMessages[Math.floor(Math.random() * incorrectMessages.length)]);
+        setUserAnswer('');
+        setScrambledAttempt([]);
+      }
+    } catch (error) {
+      console.error('Error submitting retry:', error);
+    } finally {
+      isSubmittingRetry.current = false;
     }
   };
 
-  const handleReflection = () => {
-    fetchNextQuestion();
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const handler = retryMode ? handleRetrySubmission : handleAnswerSubmission;
+    if (question?.question_type === 'SENTENCE_SCRAMBLE') {
+      const finalAnswer = scrambledAttempt.map((w) => w.text).join(' ').trim();
+      handler(finalAnswer);
+    } else {
+      handler(userAnswer);
+    }
   };
 
   useEffect(() => {
     const startSession = async () => {
       try {
         const response = await apiClient.get('/student/dashboard/');
-        const sessionTarget = response.data.session_goal_total || 0;
-        const totalGoal = response.data.daily_question_limit || 20;
+        const goalMax = response.data.daily_goal_max || 50;
+        setDailyGoalMax(goalMax);
+
+        let sessionTarget = response.data.session_goal_total || 0;
+        const totalGoal = response.data.daily_question_limit || 30;
+
+        const overrideRaw = sessionStorage.getItem('daily_goal_override');
+        if (overrideRaw) {
+          try {
+            const override = JSON.parse(overrideRaw);
+            const today = new Date().toISOString().slice(0, 10);
+            if (override.date === today && override.value > 0) {
+              const answeredToday = response.data.questions_answered_today || 0;
+              const overrideRemaining = Math.max(0, override.value - answeredToday);
+              const wordsDue = response.data.session_goal_total || 0;
+              sessionTarget = Math.min(overrideRemaining, wordsDue);
+            }
+          } catch { /* ignore bad JSON */ }
+        }
+
         setSessionGoalTotal(sessionTarget);
 
         if (sessionTarget > 0) {
@@ -377,6 +405,65 @@ export default function PracticeView() {
     if (!question) return null;
 
     const optionsArray = shuffledOptions;
+    const feedbackSource = retryFeedback || feedback;
+    const correctDone = feedbackSource?.is_correct && !retryMode;
+
+    const correctFeedbackBlock = correctDone ? (
+      <div className="correct-inline-feedback" style={{ marginTop: '20px' }}>
+        <div className="feedback-header">
+          <span className="feedback-chip correct">{correctMessage || 'Correct!'}</span>
+        </div>
+        {!showExplanation ? (
+          <div className="correct-actions">
+            <button
+              className="correct-action-btn outline"
+              onClick={() => setShowExplanation(true)}
+              type="button"
+            >
+              Explain
+            </button>
+            <button
+              className="correct-action-btn filled"
+              onClick={fetchNextQuestion}
+              type="button"
+            >
+              Next Question
+            </button>
+          </div>
+        ) : (
+          <>
+            {feedbackSource.explanation && (
+              <div className="feedback-block explain">
+                <div className="block-title">
+                  Explanation
+                  <TextToSpeechButton textToSpeak={feedbackSource.explanation} />
+                </div>
+                <p className="block-body">
+                  <em>{feedbackSource.explanation}</em>
+                </p>
+              </div>
+            )}
+            {feedbackSource.example_sentence && (
+              <div className="feedback-block example">
+                <div className="block-title">
+                  Example
+                  <TextToSpeechButton textToSpeak={feedbackSource.example_sentence} />
+                </div>
+                <p className="block-body">{feedbackSource.example_sentence}</p>
+              </div>
+            )}
+            <button
+              className="correct-action-btn filled"
+              onClick={fetchNextQuestion}
+              type="button"
+              style={{ width: '100%', marginTop: '10px' }}
+            >
+              Next Question
+            </button>
+          </>
+        )}
+      </div>
+    ) : null;
 
     const mcQuestionTypes = [
       'DEFINITION_MC_SINGLE', 'SYNONYM_MC_SINGLE', 'ANTONYM_MC_SINGLE',
@@ -400,6 +487,23 @@ export default function PracticeView() {
       question.lexile_score > 600 &&
       question.question_type !== 'DEFINITION_TRUE_FALSE';
 
+    const retryHintBlock = retryMode ? (
+      <div className="retry-hint-block">
+        {incorrectMessage && (
+          <p className="retry-encouragement">{incorrectMessage}</p>
+        )}
+        {hintText && (
+          <>
+            <div className="block-title">
+              Hint
+              <TextToSpeechButton textToSpeak={hintText} />
+            </div>
+            <p className="block-body"><em>{hintText}</em></p>
+          </>
+        )}
+      </div>
+    ) : null;
+
     if (
       question.question_type === 'DEFINITION_TRUE_FALSE' ||
       mcQuestionTypes.includes(question.question_type)
@@ -417,20 +521,23 @@ export default function PracticeView() {
                 </div>
               ))}
             </div>
+            {retryHintBlock}
             {typoHint && (
               <div className="typo-hint">{typoHint}</div>
             )}
-            <input
-              type="text"
-              className={`type-to-spell-input${typoHint ? ' typo-shake' : ''}`}
-              placeholder="Type the correct word..."
-              value={userAnswer || ''}
-              onChange={(e) => { setUserAnswer(e.target.value); setTypoHint(''); }}
-              autoFocus
-            />
-            {userAnswer && (
+            {!correctDone && (
+              <input
+                type="text"
+                className={`type-to-spell-input${typoHint ? ' typo-shake' : ''}`}
+                placeholder={retryMode ? "Try typing the word again..." : "Type the correct word..."}
+                value={userAnswer || ''}
+                onChange={(e) => { setUserAnswer(e.target.value); setTypoHint(''); }}
+                autoFocus
+              />
+            )}
+            {correctDone ? correctFeedbackBlock : userAnswer && (
               <button type="submit" className="btn btn-primary" style={{ marginTop: '20px', width: '100%' }}>
-                Submit
+                {retryMode ? 'Try Again' : 'Submit'}
               </button>
             )}
           </form>
@@ -446,21 +553,41 @@ export default function PracticeView() {
                 : 'mc-options-container'
             }
           >
-            {choices.map((option, index) => (
-              <button
-                key={index}
-                type="button"
-                className={`mc-option-button ${userAnswer === option ? 'selected' : ''}`}
-                onClick={() => handleMcOptionClick(option)}
-              >
-                {option}
-              </button>
-            ))}
+            {choices.map((option, index) => {
+              const isWrong = wrongOptions.includes(option);
+              const isCorrectOption = correctDone && userAnswer === option;
+              return (
+                <button
+                  key={index}
+                  type="button"
+                  className={`mc-option-button ${isCorrectOption ? 'correct-answer' : userAnswer === option ? 'selected' : ''}${isWrong ? ' wrong-answer' : ''}`}
+                  onClick={() => handleMcOptionClick(option)}
+                  disabled={isWrong || correctDone}
+                >
+                  {option}
+                </button>
+              );
+            })}
           </div>
-          {userAnswer && (
-            <button type="submit" className="btn btn-primary" style={{ marginTop: '20px', width: '100%' }}>
-              Submit
-            </button>
+          {retryHintBlock}
+          {correctDone ? correctFeedbackBlock : (
+            <>
+              {retryMode && wrongOptions.length >= choices.length && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ marginTop: '20px', width: '100%' }}
+                  onClick={fetchNextQuestion}
+                >
+                  Next Question
+                </button>
+              )}
+              {userAnswer && (
+                <button type="submit" className="btn btn-primary" style={{ marginTop: '20px', width: '100%' }}>
+                  {retryMode ? 'Try Again' : 'Submit'}
+                </button>
+              )}
+            </>
           )}
         </form>
       );
@@ -477,6 +604,7 @@ export default function PracticeView() {
 
       return (
         <form onSubmit={handleSubmit}>
+          {retryHintBlock}
           <div className="scramble-container">
             <div className="scramble-attempt-box">
               {scrambledAttempt.length > 0 ? (
@@ -509,31 +637,38 @@ export default function PracticeView() {
               ))}
             </div>
           </div>
-          <div className="scramble-controls">
-            <button type="button" className="secondary-button" onClick={() => setScrambledAttempt([])}>
-              Reset
-            </button>
-            <button type="submit" disabled={scrambledAttempt.length === 0}>
-              Submit
-            </button>
-          </div>
+          {correctDone ? correctFeedbackBlock : (
+            <div className="scramble-controls">
+              <button type="button" className="secondary-button" onClick={() => setScrambledAttempt([])}>
+                Reset
+              </button>
+              <button type="submit" disabled={scrambledAttempt.length === 0}>
+                {retryMode ? 'Try Again' : 'Submit'}
+              </button>
+            </div>
+          )}
         </form>
       );
     }
 
     return (
       <form onSubmit={handleSubmit}>
-        <input
-          type="text"
-          value={userAnswer}
-          onChange={(e) => setUserAnswer(e.target.value)}
-          placeholder="Type your answer..."
-          autoFocus
-          style={{ marginTop: '20px' }}
-        />
-        <button type="submit" className="btn btn-primary" style={{ marginTop: '10px', width: '100%' }}>
-          Submit Answer
-        </button>
+        {retryHintBlock}
+        {!correctDone && (
+          <input
+            type="text"
+            value={userAnswer}
+            onChange={(e) => setUserAnswer(e.target.value)}
+            placeholder={retryMode ? "Try typing the answer again..." : "Type your answer..."}
+            autoFocus
+            style={{ marginTop: '20px' }}
+          />
+        )}
+        {correctDone ? correctFeedbackBlock : (
+          <button type="submit" className="btn btn-primary" style={{ marginTop: '10px', width: '100%' }}>
+            {retryMode ? 'Try Again' : 'Submit Answer'}
+          </button>
+        )}
       </form>
     );
   };
@@ -541,34 +676,66 @@ export default function PracticeView() {
   const renderContent = () => {
     if (isLoading) return <p>Loading...</p>;
 
+    if (showKeepGoingPrompt) {
+      return (
+        <div className="keep-going-prompt">
+          <h3>Goal reached!</h3>
+          <p>You answered {questionsAnsweredThisSession} questions. Want to keep going?</p>
+          <div className="keep-going-actions">
+            <button
+              className="btn btn-primary"
+              type="button"
+              onClick={() => {
+                const newGoal = Math.min(sessionGoalTotal + 5, dailyGoalMax);
+                setSessionGoalTotal(newGoal);
+                setShowKeepGoingPrompt(false);
+                skipGoalCheck.current = true;
+                fetchNextQuestion();
+              }}
+            >
+              +5 More
+            </button>
+            <button
+              className="btn btn-secondary"
+              type="button"
+              onClick={() => {
+                setShowKeepGoingPrompt(false);
+                setFinishMessage("Great session!");
+              }}
+            >
+              I'm Done
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     if (finishMessage) {
-      if (!sessionSummary) return <p>Great work! Generating your session report...</p>;
+      if (!sessionSummary) return <p>Wrapping up your session...</p>;
       const minutes = Math.max(1, Math.round((sessionSummary.timeSeconds || 0) / 60));
       return (
         <div className="session-summary">
           <section className="summary-hero">
-            <h3>Great work!</h3>
-            <p>You finished your practice.</p>
+            <h3>You put in the work!</h3>
+            <p>{minutes} min of focused practice — that effort adds up.</p>
             <div className="metrics-row">
               <div className="metric-card">
-                <div className="metric-value">
-                  {sessionSummary.correctCount} / {sessionSummary.totalCount}
-                </div>
+                <div className="metric-value">{sessionSummary.totalCount}</div>
+                <div className="metric-label">Attempted</div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-value">{sessionSummary.correctCount}</div>
                 <div className="metric-label">Correct</div>
               </div>
               <div className="metric-card">
-                <div className="metric-value">{minutes} min</div>
-                <div className="metric-label">Time</div>
-              </div>
-              <div className="metric-card">
                 <div className="metric-value">+{sessionSummary.totalSessionXp} XP</div>
-                <div className="metric-label">XP earned</div>
+                <div className="metric-label">Earned</div>
               </div>
             </div>
           </section>
           {sessionSummary.strengths?.length > 0 && (
             <section className="summary-section chips">
-              <h4>You're doing great with</h4>
+              <h4>Getting stronger at</h4>
               <div className="chip-list">
                 {sessionSummary.strengths.map((w) => (
                   <span key={w} className="summary-chip">{w}</span>
@@ -578,7 +745,7 @@ export default function PracticeView() {
           )}
           {sessionSummary.weaknesses?.length > 0 && (
             <section className="summary-section weaknesses">
-              <h4>Words to practice</h4>
+              <h4>Still building these</h4>
               <ul className="weakness-list">
                 {sessionSummary.weaknesses.map((word) => (
                   <li key={word.term} className="weakness-row">
@@ -625,106 +792,6 @@ export default function PracticeView() {
       return null;
     }
 
-    if (feedback) {
-      const skillDisplayName = skillTagDisplayNames[feedback.skill_tag] || feedback.skill_tag;
-
-      return (
-        <div>
-          <div className="feedback-header">
-            <span className={`feedback-chip ${feedback.is_correct ? 'correct' : 'incorrect'}`}>
-              {feedback.is_correct ? 'Correct!' : 'Incorrect'}
-            </span>
-            {feedback.skill_tag && (
-              <span className="feedback-chip tag">{skillDisplayName}</span>
-            )}
-          </div>
-
-          <div className="feedback-wordline">
-            <div className="feedback-word-main">
-              <span className="label">The word was:</span>
-              <strong>{question.term_text}</strong>
-              <TextToSpeechButton textToSpeak={question.term_text} />
-              {!feedback.is_correct &&
-                feedback.skill_tag === 'definition_recall' &&
-                feedback.translation && (
-                  <span className="feedback-translation">{feedback.translation}</span>
-                )}
-            </div>
-          </div>
-
-          {!feedback.is_correct && (
-            <div className="feedback-context-card">
-              <div className="feedback-question-text">
-                <span className="label-tiny">Question:</span>
-                <p>{question.question_text}</p>
-              </div>
-              <div className="feedback-comparison">
-                <div className="answer-row user-error">
-                  <span className="icon">&#10008;</span>
-                  <span className="label-tiny">You said:</span>
-                  <span className="text">{submittedAnswer || "(No answer)"}</span>
-                </div>
-                <div className="answer-row correct-target">
-                  <span className="icon">&#10004;</span>
-                  <span className="label-tiny">Answer:</span>
-                  <span className="text">{feedback.correct_answer}</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {feedback.explanation && (
-            <div className="feedback-block explain">
-              <div className="block-title">
-                Explanation
-                <TextToSpeechButton textToSpeak={feedback.explanation} />
-              </div>
-              <p className="block-body">
-                <em>{feedback.explanation}</em>
-              </p>
-            </div>
-          )}
-
-          {feedback.example_sentence && (
-            <div className="feedback-block example">
-              <div className="block-title">
-                Example
-                <TextToSpeechButton textToSpeak={feedback.example_sentence} />
-              </div>
-              <p className="block-body">{feedback.example_sentence}</p>
-            </div>
-          )}
-
-          <div style={{ marginTop: '1.5rem' }}>
-            {feedback.is_correct ? (
-              <button
-                className="next-question btn btn-primary"
-                onClick={fetchNextQuestion}
-                style={{ width: '100%' }}
-              >
-                Next Question
-              </button>
-            ) : (
-              <div className="feedback-reflection-area">
-                <p className="reflection-prompt">Self Reflection:</p>
-                <div className="reflection-grid">
-                  {getReflectionOptions(question.question_type).map((opt) => (
-                    <button
-                      key={opt.id}
-                      className={`reflection-btn ${opt.isNeutral ? 'neutral' : ''}`}
-                      onClick={() => handleReflection(opt.id)}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
-
     return (
       <div>
         <div className="question-heading">
@@ -749,20 +816,24 @@ export default function PracticeView() {
   return (
     <div>
       <div className="practice-header compact">
-        <ProgressBar
-          current={questionsAnsweredThisSession}
-          total={sessionGoalTotal}
-          labelRight
-          height={10}
-        />
+        <div className="session-progress-track">
+          <div
+            className="session-progress-fill"
+            style={{ width: sessionGoalTotal > 0 ? `${Math.min((questionsAnsweredThisSession / sessionGoalTotal) * 100, 100)}%` : '0%' }}
+          />
+          <span className="session-progress-label">
+            {questionsAnsweredThisSession} / {sessionGoalTotal}
+          </span>
+        </div>
         <button
-          className="end-session btn btn-primary"
+          className="end-session"
+          type="button"
           onClick={() => setFinishMessage("Session ended.")}
         >
           End Session
         </button>
       </div>
-      <div className="practice-card">{renderContent()}</div>
+      <div className="practice-card" key={question?.id || 'loading'}>{renderContent()}</div>
     </div>
   );
 }

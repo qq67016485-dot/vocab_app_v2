@@ -1,0 +1,125 @@
+=== LLM CALL LOG ===
+Timestamp: 20260407_202202
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+You are a bilingual vocabulary expert for young learners (ages 8-14).
+
+You will receive a list of English vocabulary words with their definitions and example sentences.
+Your job is to provide translations into zh-CN for each item.
+
+IMPORTANT — two different translation strategies:
+
+1. For "definition_text": Do NOT translate the English description word-for-word.
+   Instead, provide the natural equivalent word or short phrase that a native zh-CN speaker would use.
+   Example: "a person forced to leave their country" → "难民" (NOT "被迫离开自己国家的人")
+
+2. For "example_sentence": Translate the full sentence naturally into zh-CN.
+   It should sound like something a native speaker would say, not a word-for-word translation.
+
+Output valid JSON with this exact structure:
+{
+  "translations": [
+    {
+      "source_field": "definition_text",
+      "source_text": "the original English text",
+      "translated_text": "native equivalent word or short phrase"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "the original English sentence",
+      "translated_text": "natural translation of the sentence"
+    }
+  ]
+}
+
+Translate each of the following items:
+- term: adventure
+  definition_text: an exciting and sometimes dangerous experience or activity.
+  example_sentence: Crawling through the slippery mud felt like a wild adventure.
+- term: obstacle
+  definition_text: something that blocks your path or makes it difficult to move forward.
+  example_sentence: The hardest obstacle in the race was a giant slippery wall that we had to climb over.
+- term: athlete
+  definition_text: a person who is trained in or good at sports and physical exercises.
+  example_sentence: The athlete trained for months to be strong enough to finish the race.
+- term: course
+  definition_text: a path or route that is set up for a race or sport.
+  example_sentence: The race course went through a dark forest and ended in a giant pool of water.
+- term: theme
+  definition_text: a main idea or specific subject that an event, party, or story is based on.
+  example_sentence: The race had a pirate theme, so all the runners wore eye patches and bandanas.
+- term: zombie
+  definition_text: a scary, imaginary creature from stories that is a dead person walking around.
+  example_sentence: During the Halloween mud run, volunteers dressed up as a zombie to chase the runners.
+
+
+=== USER PROMPT ===
+Translate to zh-CN
+
+=== RAW RESPONSE ===
+{
+  "translations": [
+    {
+      "source_field": "definition_text",
+      "source_text": "an exciting and sometimes dangerous experience or activity.",
+      "translated_text": "冒险"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "Crawling through the slippery mud felt like a wild adventure.",
+      "translated_text": "在湿滑的泥地里爬行感觉就像是一场疯狂的冒险。"
+    },
+    {
+      "source_field": "definition_text",
+      "source_text": "something that blocks your path or makes it difficult to move forward.",
+      "translated_text": "障碍物"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "The hardest obstacle in the race was a giant slippery wall that we had to climb over.",
+      "translated_text": "比赛中最难的障碍物是一堵我们需要翻过去的巨大又湿滑的墙。"
+    },
+    {
+      "source_field": "definition_text",
+      "source_text": "a person who is trained in or good at sports and physical exercises.",
+      "translated_text": "运动员"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "The athlete trained for months to be strong enough to finish the race.",
+      "translated_text": "为了有足够的体力完成比赛，这名运动员训练了几个月。"
+    },
+    {
+      "source_field": "definition_text",
+      "source_text": "a path or route that is set up for a race or sport.",
+      "translated_text": "赛道"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "The race course went through a dark forest and ended in a giant pool of water.",
+      "translated_text": "赛道穿过了一片漆黑的森林，终点是一个巨大的水池。"
+    },
+    {
+      "source_field": "definition_text",
+      "source_text": "a main idea or specific subject that an event, party, or story is based on.",
+      "translated_text": "主题"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "The race had a pirate theme, so all the runners wore eye patches and bandanas.",
+      "translated_text": "这场比赛是海盗主题的，所以所有的跑步者都戴上了眼罩和头巾。"
+    },
+    {
+      "source_field": "definition_text",
+      "source_text": "a scary, imaginary creature from stories that is a dead person walking around.",
+      "translated_text": "僵尸"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "During the Halloween mud run, volunteers dressed up as a zombie to chase the runners.",
+      "translated_text": "在万圣节的泥地跑活动中，志愿者们打扮成僵尸去追赶参赛者。"
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+=== LLM CALL LOG ===
+Timestamp: 20260407_211124
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+You are an expert ESL curriculum designer, creative writer, and curriculum architect.
+Given a list of vocabulary words with their definitions, group them into packs.
+
+Your goal is to create packs where the words are thematically connected in a way that makes it easy to weave them into a short story later. Think like a storyteller: each pack should suggest a scene, setting, or narrative arc.
+
+Consider:
+- Shared topic or domain (e.g., science, emotions, nature, conflict)
+- Words that naturally appear together in a narrative context
+- Complementary meanings that support story coherence
+- Emotional or tonal connections (e.g., words that evoke tension, discovery, calm)
+
+For each pack, evaluate the nature of the words and assign the best text type:
+- **"fiction"**: Best for action words, character/emotion words, descriptive words, or words that lend themselves to imaginative storytelling (e.g., adventure, mystery, fantasy scenarios).
+- **"narrative_nonfiction"**: Best for academic, scientific, technical, or factual words that are better taught through real-world contexts (e.g., a scientist's discovery, a historical event, a nature documentary narrative).
+
+Output valid JSON with this exact structure:
+{{
+  "packs": [
+    {{
+      "label": "A short descriptive label for the pack theme",
+      "text_type": "fiction or narrative_nonfiction",
+      "words": ["term1", "term2", "term3"]
+    }}
+  ]
+}}
+
+Rules:
+- Every word from the input must appear in exactly one pack
+- You must create exactly 1 packs
+- Distribute words as evenly as possible across packs (max 6 words per pack)
+- Pack labels should be concise (2-4 words) and suggest a narrative theme
+- Choose text_type based on the dominant nature of the words in each pack, not a blanket rule
+- Do not include any text outside the JSON object
+
+
+=== USER PROMPT ===
+- canyon (noun): a deep valley with steep rock sides, often with a river flowing through it
+- concrete (noun): a strong, hard building material made by mixing sand, rocks, water, and cement together
+- electricity (noun): a type of energy that flows through wires and is used to power lights, machines, and homes
+- grout (noun): a thin mixture of cement and water used to fill small cracks and spaces to make things stronger
+- mold (noun): a hollow container used to give a specific shape to liquid material when it cools and becomes hard
+- power plant (noun): a large building or facility where energy is created to be sent to homes and businesses
+
+=== RAW RESPONSE ===
+{
+  "packs": [
+    {
+      "label": "Building the Canyon Dam",
+      "text_type": "narrative_nonfiction",
+      "words": [
+        "canyon",
+        "concrete",
+        "electricity",
+        "grout",
+        "mold",
+        "power plant"
+      ]
+    }
+  ]
+}

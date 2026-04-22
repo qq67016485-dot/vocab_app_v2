@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Set B — Review Mission</title>
+<link rel="stylesheet" href="../shared.css">
+</head><body>
+
+<!-- Mission header -->
+<div class="top-bar">
+  <div>
+    <span class="chip chip-green">Review</span>
+    <strong style="margin-left:6px;">6 Due Words</strong>
+  </div>
+  <a href="mission-board.html" class="btn btn-small" style="font-size:11px;">Exit</a>
+</div>
+
+<!-- Progress -->
+<div class="flex-between mb-8">
+  <span class="text-muted" style="font-size:12px;">Question 3 of 6</span>
+  <span class="text-muted" style="font-size:12px;">+10 XP</span>
+</div>
+<div class="progress-wrap">
+  <div class="progress-fill" style="width: 50%;"></div>
+</div>
+
+<!-- Question -->
+<div class="card mt-16">
+  <div class="flex-between mb-8">
+    <span class="chip chip-blue">word meaning</span>
+    <span class="text-muted" style="font-size:11px;">standard review</span>
+  </div>
+
+  <p style="font-size:17px; margin: 12px 0;">
+    Which word means <strong>"to change in order to fit a new situation"</strong>?
+  </p>
+
+  <div class="options-grid">
+    <div class="option-btn">migrate</div>
+    <div class="option-btn selected">adapt</div>
+    <div class="option-btn">evolve</div>
+    <div class="option-btn">survive</div>
+  </div>
+</div>
+
+<a href="#feedback" class="btn btn-primary btn-big" onclick="document.getElementById('feedback').style.display='block'; this.style.display='none'; return false;">Submit</a>
+
+<!-- Feedback (correct) -->
+<div id="feedback" style="display:none;">
+  <div class="card" style="border-left: 4px solid #22c55e;">
+    <div class="flex-between mb-8">
+      <span class="chip chip-green">Correct! +5 XP</span>
+      <span class="chip chip-blue">word meaning</span>
+    </div>
+    <p style="font-size:18px; font-weight:700;">adapt 🔊</p>
+    <p class="text-muted mt-8" style="font-style:italic;">
+      "Animals must adapt to survive in changing environments."
+    </p>
+  </div>
+  <a href="#q2" class="btn btn-primary btn-big" onclick="document.getElementById('q2').style.display='block'; this.style.display='none'; return false;">Next Question →</a>
+</div>
+
+<!-- Question 2 (wrong answer example) -->
+<div id="q2" style="display:none;">
+  <div class="card">
+    <div class="flex-between mb-8">
+      <span class="chip chip-orange">sentence clues</span>
+      <span class="text-muted" style="font-size:11px;">struggle word</span>
+    </div>
+    <p style="font-size:17px; margin: 12px 0;">
+      Complete the sentence: The birds _______ south every winter to escape the cold.
+    </p>
+    <div class="options-grid">
+      <div class="option-btn wrong">adapt</div>
+      <div class="option-btn correct">migrate</div>
+      <div class="option-btn">evolve</div>
+      <div class="option-btn">hibernate</div>
+    </div>
+  </div>
+
+  <div class="card" style="border-left: 4px solid #ef4444;">
+    <div class="flex-between mb-8">
+      <span class="chip chip-red">Incorrect</span>
+      <span class="chip chip-orange">sentence clues</span>
+    </div>
+    <p style="font-size:18px; font-weight:700;">migrate 🔊</p>
+    <p class="text-muted mt-8">Your answer: adapt</p>
+    <p><strong>Correct:</strong> migrate — to move to a new area</p>
+    <p class="text-muted mt-8" style="font-style:italic;">
+      "Birds migrate south every winter to find warmer weather."
+    </p>
+    <hr class="divider">
+    <p style="font-size:13px; font-weight:600; margin-bottom:8px;">What happened?</p>
+    <div class="reflection-grid">
+      <div class="reflection-btn">Missed the clue</div>
+      <div class="reflection-btn">Choices too similar</div>
+      <div class="reflection-btn">Just guessed</div>
+      <div class="reflection-btn" style="background:#eef2ff;">Got it / Next →</div>
+    </div>
+  </div>
+
+  <a href="mission-complete.html" class="btn btn-primary btn-big">Continue →</a>
+</div>
+
+<!-- Flow indicator -->
+<hr class="divider">
+<p class="text-muted text-center" style="font-size:11px;">
+  FLOW: Mission Board → <strong>Review Mission</strong> (SRS questions) → Mission Complete
+</p>
+<p class="nav-link"><a href="../index.html">← Back to all mockups</a></p>
+
+</body></html>

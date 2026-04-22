@@ -1,0 +1,1403 @@
+=== LLM CALL LOG ===
+Timestamp: 20260401_193647
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+**ROLE AND GOAL**
+You are an expert AI educational content creator and psychometrician specializing in English vocabulary. Your task is to process a JSON list of words (each with its definition and example sentence) and a target reading level. For EACH word, generate a comprehensive set of **15 practice questions, 3 for each of the 5 mastery levels**. The question types are strictly defined below. The questions are **learning-oriented**, not high-stakes tests. Each question must have its own specific **Lexile score**, a logical and instructive **explanation**, and a unique contextual **example sentence**. Finally, you will package all results into a single, valid JSON object.
+
+---
+
+**INPUT**
+You will be provided with a JSON object containing two main keys:
+* `"words"`: A list of word objects, each with `term`, `part_of_speech`, `definition`, and `example_sentence`.
+* `"target_lexile_level"`: An integer representing the *center point* for the desired Lexile scores (e.g., 800, 1000, 1200).
+
+---
+
+### QUESTION GENERATION
+Generate questions for each word according to the following rules.
+
+**Strict Question Quota**
+Exactly 15 questions per word: **3** at Level 1, **3** at Level 2, **3** at Level 3, **3** at Level 4, **3** at Level 5. *(Note: Where a level has fewer than 3 question types, duplicate one of the types to reach the required 3 questions).*
+
+**Fields required for EACH question**
+1) `lexile_score` — an integer within **target_lexile_level +/- 50**.
+2) `explanation` — logically and instructively explains **why** the correct answer is right and **must include the vocabulary word**. **NOTE: the student is most likely to read this explanation when the student's answer is incorrect.
+3) `example_sentence` — a different, real-world usage of the word, including a natural collocation or context the learner is likely to meet again (not redundant with the explanation).
+
+**Question Types and Mastery Levels (15 Items Total)**
+* **Level 1 – Recognition** (3 items)
+  * `DEFINITION_MC_SINGLE`: The question asks for the primary meaning of the target word. Options are various definitions.
+  * `REVERSE_DEFINITION_MC`: The formal definition is provided in the question stem. The target word is the correct answer among other vocabulary distractors.
+* **Level 2 – Relationships** (3 items)
+  * `SYNONYM_IN_CONTEXT_MC`: A full sentence is provided using the target word. The options are synonyms; the student must pick the one that fits the specific nuance and grammar of that sentence.
+  * `ANTONYM_MC_SINGLE`: A direct question asking for a word with the opposite meaning. (Used for words with clear opposites).
+  * `CONCEPTUAL_ASSOCIATION_MC_SINGLE`: Asks the student to identify which category, broad concept, or related idea best fits the target word.
+  * *Fallback Protocol:* If `ANTONYM_MC_SINGLE` is difficult for a word (e.g., a highly specific noun), generate questions of different type to meet the quota.
+* **Level 3 – Context & Application** (3 items)
+  * `APPLICATION_MC`: The target word is used in the stem to describe a scenario. The options are real-world behaviors, objects, or outcomes.
+  * `REVERSE_ASSOCIATION_MC`: The stem provides 2–3 related concepts, actions, or clues (e.g., "Microscope, evidence, and detailed notes"). The target word is the correct answer.
+* **Level 4 – Nuance & Usage** (3 items)
+  * `WORD_FORM_MC`: Tests grammatical accuracy using same-root minimal pairs (e.g., Analyze vs. Analysis). Only one fits the sentence. *DO NOT generate `WORD_FORM_MC` if the "target_lexile_level" is less than 600.*
+  * `REVERSE_COLLOCATION_MC`: The stem provides typical partner words (e.g., "Which word is commonly paired with data, trends, and evidence?"). The target word is the answer.
+* **Level 5 – Deep Comparison** (3 items)
+  * `ODD_ONE_OUT_MC_SINGLE`: Provides four words in a tight semantic field. The student must identify the one that violates a "latent rule".
+  * `NUANCE_CONTRAST_MC`: A sentence that explicitly contrasts the target word with a near-synonym to test high-level nuance (e.g., "It wasn't just a quick glance; he took hours to _____ every detail"). The target word is the blank.
+
+---
+
+## Distractor Tiers (apply to ALL MC types)
+- **Tier 1 (near-synonym/antonym):** Same part of speech as the key. High semantic similarity, but differs on at least one defining feature in the formal definition.
+- **Tier 2 (collocation foil):** A real word/phrase that commonly collocates with a **neighbor concept** in the same domain, but **not** with the target word (e.g., "wing flap" vs. "propeller pitch").
+- **Tier 3 (orthographic/phonological trap):** Looks/sounds similar but has a different meaning (e.g., propose/propel; manifest/manifesto). Use sparingly and **never** if it changes POS.
+
+**Enforcement**
+- For **all MC items at Levels 3-5**, include **at least one Tier-2** distractor.
+- Do **not** include more than **one Tier-3** distractor in any single item.
+- All distractors must be plausible in context and the **same POS** as the correct answer unless the item purposefully contrasts forms (only in `WORD_FORM_MC`).
+- For collocations, ensure incorrect choices are **genuine collocations with a related neighbor concept** (not nonsense).
+
+---
+
+## Lexile Guardrails
+- Target Lexile per item (including the question, answer text, explanation text, example sentence) = **target_lexile_level +/- 50**.
+
+---
+
+## Nuance Requirements
+- **`APPLICATION_MC` (L3)**: Ensure options describe realistic behaviors, outcomes, or steps. The distractor behaviors should sound plausible but logically fail the specific constraint of the target word.
+- **`WORD_FORM_MC` (L4)**: Use **same-root minimal pairs** differing by POS/meaning (e.g., *propel* (V) vs *propulsion* (N) vs *propulsive* (ADJ) vs *propeller* (N device)). Exactly **one** fits the prompt.
+- **`REVERSE_COLLOCATION_MC` (L4)**: Wrong options (distractors) should be real verbs or adjectives that strongly collocate with a *different* neighbor concept (e.g., if the clues are "data" and "trends", distractors might be words paired with physical objects or speeches, like "assemble" or "recite").
+- **`ODD_ONE_OUT_MC_SINGLE` (L5)**: Keep all options within a **tight semantic field**; the odd one must violate a **latent rule** (e.g., reusability; medium-air/water; building up vs. breaking down). The explanation must **state the rule** clearly.
+- **`NUANCE_CONTRAST_MC` (L5)**: The sentence stem must structurally reject the weaker near-synonym (e.g., using constructions like "Rather than just X, she needed to Y"). 
+
+---
+
+### OUTPUT REQUIREMENTS
+Return a single, valid JSON object. The root object must have one key: `"generated_question_sets"`. Its value is a list; each element contains:
+- `"term"`: the word term (string).
+- `"questions"`: the exactly fifteen question objects for that word.
+
+Do **not** include any text outside the JSON object.
+
+---
+
+### QUALITY GUIDELINES
+- **Lexile adherence:** Always within +/-50 of target; apply Guardrails and revise if needed.
+- **Explanation vs. example:** The explanation is analytical ("why"); the example is contextual ("how"). No redundancy.
+- **Plausible distractors:** Follow **Distractor Tiers**; ensure at least one Tier-2 distractor at L3-L5; <=1 Tier-3 per item.
+- **Avoid tautologies:** The `explanation` must **never** use the root of the term itself to define the word.
+- **Vary sentence structures:** Across the 15 items, vary stems, explanations, examples.
+- **Supportive tone**: avoid grading language; use encouraging, learner-friendly phrasing.
+
+---
+
+### PRE-FLIGHT CHECKLIST (apply to every item before output)
+- [ ] Exactly 15 questions generated (3 per level)?
+- [ ] Lexile proxy **within band** (+/- 50 of target)?
+- [ ] **At least one Tier-2** distractor for **all L3-L5** items; **<=1 Tier-3** per item?
+- [ ] `WORD_FORM_MC` uses **same-root minimal pairs**?
+- [ ] `NUANCE_CONTRAST_MC` has an explicit structural contrast setting up the exact nuance?
+- [ ] `REVERSE_COLLOCATION_MC` uses clues that are real, high-frequency partner words?
+- [ ] `ODD_ONE_OUT_MC_SINGLE` uses a **tight field** and the explanation **states the latent rule**?
+- [ ] `explanation` includes the target word and clarifies the specific reasoning?
+- [ ] `example_sentence` is **different** from the explanation and contextually natural?
+
+---
+**EXAMPLE**
+
+**INPUT:**
+```json
+{
+  "target_lexile_level": 1000,
+  "words": [
+    {
+      "term": "Analyze",
+      "part_of_speech": "verb",
+      "definition": "to study something closely and carefully to learn more about it",
+      "example_sentence": "The scientist needed to analyze the rock samples to determine their age."
+    }
+  ]
+}
+```
+
+**EXPECTED JSON OUTPUT:**
+```json
+{
+  "generated_question_sets": [
+    {
+      "term": "Analyze",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the primary meaning of the verb 'analyze'?",
+          "options": { "choices": ["To examine in detail", "To create something new", "To guess a solution", "To overlook the facts"] },
+          "correct_answers": ["To examine in detail"],
+          "explanation": "To 'analyze' means to study the structure or parts of something carefully. 'Create', 'guess', and 'overlook' do not involve detailed examination.",
+          "example_sentence": "Before making a purchase, he took time to analyze the costs and benefits.",
+          "lexile_score": 980        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "Which word means to study something closely and carefully to learn more about its parts?",
+          "options": { "choices": ["Analyze", "Fabricate", "Disguise", "Promote"] },
+          "correct_answers": ["Analyze"],
+          "explanation": "To 'analyze' is to break a subject down and study it closely. 'Fabricate' means to invent or fake something, while 'disguise' means to hide it.",
+          "example_sentence": "The lab technician will analyze the water sample for any impurities.",
+          "lexile_score": 950
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "If you break a complex topic down into smaller parts to understand it better, which action are you performing?",
+          "options": { "choices": ["Analyzing", "Summarizing", "Ignoring", "Broadcasting"] },
+          "correct_answers": ["Analyzing"],
+          "explanation": "Breaking something down to study its details is the core meaning of 'analyzing'. Summarizing is about making things shorter, not necessarily breaking down parts.",
+          "example_sentence": "We spent the afternoon analyzing the poem to understand its hidden themes.",
+          "lexile_score": 1010        },
+        {
+          "question_type": "SYNONYM_IN_CONTEXT_MC",
+          "question_text": "Read the sentence: 'The detective needed to analyze the evidence found at the scene before drawing conclusions.' Which word best replaces 'analyze' in this sentence?",
+          "options": { "choices": ["Inspect", "Assemble", "Conceal", "Invent"] },
+          "correct_answers": ["Inspect"],
+          "explanation": "In this context, 'inspect' is a strong synonym because both verbs involve looking at something closely. 'Assemble' means putting things together, not studying them.",
+          "example_sentence": "The mechanic had to analyze the engine closely to find the source of the noise.",
+          "lexile_score": 1000        },
+        {
+          "question_type": "ANTONYM_MC_SINGLE",
+          "question_text": "Which word is an antonym for 'analyze'?",
+          "options": { "choices": ["Synthesize", "Investigate", "Scrutinize", "Evaluate"] },
+          "correct_answers": ["Synthesize"],
+          "explanation": "To 'analyze' is to break a whole down into individual parts. To 'synthesize' is to combine parts into a whole, making it the direct opposite action.",
+          "example_sentence": "It is usually easier to analyze a completed project than to synthesize a new plan from scratch.",
+          "lexile_score": 1050        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which broad field or concept is most strongly associated with the action of analyzing?",
+          "options": { "choices": ["Scientific research", "Creative writing", "Physical exercise", "Random guessing"] },
+          "correct_answers": ["Scientific research"],
+          "explanation": "'Scientific research' relies heavily on testing and logically breaking down information, which is what it means to analyze. The other fields rely more on imagination or physical exertion.",
+          "example_sentence": "Analysts in the finance sector analyze market trends to advise their clients.",
+          "lexile_score": 1040        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "If a doctor needs to analyze a patient's unusual symptoms, what is the most likely action she will take?",
+          "options": { "choices": ["Run specific tests and carefully review the results.", "Give the patient a random medicine and hope it works.", "Tell the patient to ignore the symptoms entirely.", "Write a fictional story about the patient's background."] },
+          "correct_answers": ["Run specific tests and carefully review the results."],
+          "explanation": "To 'analyze' means to study something methodically to understand it. Running tests and reviewing results is a methodical way to study symptoms.",
+          "example_sentence": "The coach will analyze the game footage to see where the team can improve.",
+          "lexile_score": 1030        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "When an environmentalist decides to analyze local pollution levels, what outcome are they seeking?",
+          "options": { "choices": ["To discover the precise sources and amounts of the pollutants.", "To plant more trees in a neighboring city.", "To sweep the streets and pick up visible trash.", "To write a song about the beauty of nature."] },
+          "correct_answers": ["To discover the precise sources and amounts of the pollutants."],
+          "explanation": "Analyzing aims to gain deeper understanding. Finding the sources and amounts of pollution is the logical result of studying (analyzing) the environment.",
+          "example_sentence": "Experts analyze traffic patterns to design safer and more efficient roads.",
+          "lexile_score": 1020        },
+        {
+          "question_type": "REVERSE_ASSOCIATION_MC",
+          "question_text": "A microscope, a set of detailed notes, and a complex spreadsheet are clues most closely related to which action?",
+          "options": { "choices": ["Analyze", "Celebrate", "Memorize", "Demolish"] },
+          "correct_answers": ["Analyze"],
+          "explanation": "Microscopes, notes, and spreadsheets are all tools used to examine details and data closely. Therefore, they are strongly associated with the word 'analyze'.",
+          "example_sentence": "The historian used old letters to analyze the daily life of ancient citizens.",
+          "lexile_score": 990        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "Select the correct form of the word to complete the sentence: 'Her detailed _____ of the economic trends deeply impressed the board of directors.'",
+          "options": { "choices": ["analysis", "analyze", "analytical", "analyzing"] },
+          "correct_answers": ["analysis"],
+          "explanation": "The sentence requires a noun to act as the subject modified by the adjective 'detailed'. 'Analysis' is the noun form. 'Analyze' is the verb, and 'analytical' is an adjective.",
+          "example_sentence": "He possessed a highly analytical mind, making him excellent at solving puzzles.",
+          "lexile_score": 1050        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is most commonly paired as a verb with the nouns 'data', 'trends', and 'evidence'?",
+          "options": { "choices": ["Analyze", "Recite", "Fabricate", "Harvest"] },
+          "correct_answers": ["Analyze"],
+          "explanation": "In academic and professional contexts, you typically 'analyze' data, trends, or evidence to understand them. You 'recite' poetry, and you 'harvest' crops.",
+          "example_sentence": "The marketing team must analyze consumer data to create better advertisements.",
+          "lexile_score": 1040        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is frequently paired with 'samples', 'statistics', and 'results' in a laboratory setting?",
+          "options": { "choices": ["Analyze", "Propose", "Memorize", "Deliver"] },
+          "correct_answers": ["Analyze"],
+          "explanation": "A lab setting revolves around studying things closely, so you 'analyze' samples and statistics. You would 'propose' a theory or 'deliver' a speech.",
+          "example_sentence": "It took the computers three days to fully analyze the statistics from the census.",
+          "lexile_score": 1010        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group?",
+          "options": { "choices": ["Synthesize", "Analyze", "Examine", "Dissect"] },
+          "correct_answers": ["Synthesize"],
+          "explanation": "The latent rule here is 'breaking something down'. 'Analyze', 'examine', and 'dissect' all refer to breaking a subject apart to look at details. 'Synthesize' is the odd one out because it means combining parts to build something up.",
+          "example_sentence": "When you analyze a legal contract, you check every single clause for errors.",
+          "lexile_score": 1040        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'It wasn't enough to just give the document a quick glance; she had to sit down and _____ every single detail to find the error.'",
+          "options": { "choices": ["analyze", "summarize", "mention", "overlook"] },
+          "correct_answers": ["analyze"],
+          "explanation": "The sentence specifically contrasts 'a quick glance' with a much deeper, more rigorous examination. 'Analyze' perfectly captures the deep, methodical study required.",
+          "example_sentence": "Rather than just watching the film for fun, the critics analyze the director's lighting choices.",
+          "lexile_score": 980        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'Rather than simply describing the surface of the problem, the consultant was hired to deeply _____ its root causes.'",
+          "options": { "choices": ["analyze", "narrate", "ignore", "translate"] },
+          "correct_answers": ["analyze"],
+          "explanation": "The phrase 'rather than simply describing' sets up a contrast requiring a word that means digging into the mechanics of 'why' something happened. 'Analyze' is the precise term for investigating root causes.",
+          "example_sentence": "The engineers will analyze the bridge's failure to ensure it never happens again.",
+          "lexile_score": 1040        }
+      ]
+    }
+  ]
+}
+```
+
+**YOUR TASK**
+Now, process the following JSON input according to the rules, make sure the output is a JSON object strictly following the format shown above.
+
+```json
+{
+  "target_lexile_level": 850,
+  "words": [
+    {
+      "term": "grenade",
+      "part_of_speech": "noun",
+      "definition": "A small bomb that is designed to be thrown by hand.",
+      "example_sentence": "The soldier carefully pulled the pin and threw the grenade out of the trench."
+    },
+    {
+      "term": "patrol",
+      "part_of_speech": "noun",
+      "definition": "A group of soldiers, vehicles, or ships sent out to guard an area or gather information.",
+      "example_sentence": "Under the cover of darkness, the scout joined a night patrol to see where the enemy was hiding."
+    },
+    {
+      "term": "convoy",
+      "part_of_speech": "noun",
+      "definition": "A group of vehicles or ships traveling together for safety and protection.",
+      "example_sentence": "The supply ships traveled across the ocean in a large convoy to defend themselves against submarine attacks."
+    },
+    {
+      "term": "surplus",
+      "part_of_speech": "noun",
+      "definition": "An extra amount of something that is left over after all needs have been met.",
+      "example_sentence": "Because they ordered too many supplies, the military had a surplus of boots and blankets."
+    }
+  ]
+}
+```
+
+
+=== USER PROMPT ===
+(empty)
+
+=== RAW RESPONSE ===
+{
+  "generated_question_sets": [
+    {
+      "term": "grenade",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the primary meaning of the word 'grenade'?",
+          "options": {
+            "choices": [
+              "A small bomb that is designed to be thrown by hand",
+              "A heavy armor plate worn by soldiers",
+              "A large cannon used to break down walls",
+              "A sharp combat knife used in close spaces"
+            ]
+          },
+          "correct_answers": [
+            "A small bomb that is designed to be thrown by hand"
+          ],
+          "explanation": "A 'grenade' is a compact explosive weapon thrown by hand. It is not armor, a cannon, or a knife.",
+          "example_sentence": "The soldier tossed a smoke grenade into the street to hide his team's movement.",
+          "lexile_score": 830
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "Which term describes a small explosive device that you pull a pin from and throw with your hand?",
+          "options": {
+            "choices": [
+              "Grenade",
+              "Missile",
+              "Torpedo",
+              "Bayonet"
+            ]
+          },
+          "correct_answers": [
+            "Grenade"
+          ],
+          "explanation": "A 'grenade' fits the description of a small hand-tossed explosive. A missile is launched through the air, a torpedo travels underwater, and a bayonet is a blade on a rifle.",
+          "example_sentence": "During the training exercise, the recruits learned how to safely handle a live grenade.",
+          "lexile_score": 850
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "Which of the following refers to a tiny bomb meant to be hurled manually during a conflict?",
+          "options": {
+            "choices": [
+              "Grenade",
+              "Parachute",
+              "Artillery",
+              "Submarine"
+            ]
+          },
+          "correct_answers": [
+            "Grenade"
+          ],
+          "explanation": "A 'grenade' is the only device listed that is a small bomb thrown by a person. Artillery refers to large mounted guns.",
+          "example_sentence": "He carried a stun grenade on his belt just in case he needed to disorient the enemy.",
+          "lexile_score": 860
+        },
+        {
+          "question_type": "SYNONYM_IN_CONTEXT_MC",
+          "question_text": "Read the sentence: 'The fighter quickly tossed the small explosive over the barricade to clear the path.' Which word best replaces 'explosive' in this sentence?",
+          "options": {
+            "choices": [
+              "Grenade",
+              "Bullet",
+              "Shield",
+              "Helmet"
+            ]
+          },
+          "correct_answers": [
+            "Grenade"
+          ],
+          "explanation": "In this context, a 'grenade' is the exact type of small, thrown explosive being described. A bullet is fired, not thrown.",
+          "example_sentence": "The action movie hero miraculously dodged a grenade that was thrown into the room.",
+          "lexile_score": 840
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which action is most closely linked to the correct use of a grenade?",
+          "options": {
+            "choices": [
+              "Pulling a safety pin and throwing it",
+              "Aiming carefully through a sniper scope",
+              "Loading a heavy cannon with gunpowder",
+              "Steering a large armored vehicle"
+            ]
+          },
+          "correct_answers": [
+            "Pulling a safety pin and throwing it"
+          ],
+          "explanation": "A 'grenade' operates by removing a safety pin and hurling it before it detonates. Scopes and cannons involve firearms.",
+          "example_sentence": "The officer reminded the squad that a grenade has a delay of only a few seconds after the pin is pulled.",
+          "lexile_score": 870
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which field or environment is most strongly associated with a grenade?",
+          "options": {
+            "choices": [
+              "Military combat",
+              "Farming and agriculture",
+              "Medical surgery",
+              "Deep sea diving"
+            ]
+          },
+          "correct_answers": [
+            "Military combat"
+          ],
+          "explanation": "A 'grenade' is a weapon of war used by soldiers, so it is deeply associated with military combat.",
+          "example_sentence": "Many historical museums feature the types of grenade used during the First World War.",
+          "lexile_score": 820
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "If a soldier needs to clear out an enclosed bunker without stepping inside, how might a grenade be used?",
+          "options": {
+            "choices": [
+              "It can be tossed through the doorway to detonate safely away from the thrower.",
+              "It can be worn as heavy body armor to deflect incoming bullets.",
+              "It can be planted underground like a landmine to stop enemy tanks.",
+              "It can be used to scan the dark room with a red laser beam."
+            ]
+          },
+          "correct_answers": [
+            "It can be tossed through the doorway to detonate safely away from the thrower."
+          ],
+          "explanation": "A 'grenade' is designed to be thrown into spaces where a soldier cannot safely go. It is an explosive, not armor, a landmine, or a laser.",
+          "example_sentence": "The squad used a flash grenade to temporarily blind the guards inside the bunker.",
+          "lexile_score": 880
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "What is the most critical step a person must take immediately after throwing a live grenade?",
+          "options": {
+            "choices": [
+              "Take immediate cover to avoid the incoming blast.",
+              "Run forward quickly to retrieve the device.",
+              "Pull the metal ring out of the handle.",
+              "Use a remote control to steer it toward the target."
+            ]
+          },
+          "correct_answers": [
+            "Take immediate cover to avoid the incoming blast."
+          ],
+          "explanation": "Once a 'grenade' is thrown, it will explode shortly after. The thrower must hide to avoid the explosion. A grenade cannot be steered.",
+          "example_sentence": "The instructor yelled at everyone to duck behind the wall after the grenade was thrown.",
+          "lexile_score": 850
+        },
+        {
+          "question_type": "REVERSE_ASSOCIATION_MC",
+          "question_text": "A metal pin, a timed fuse, and a hand-held explosive device are clues that describe which object?",
+          "options": {
+            "choices": [
+              "Grenade",
+              "Parachute",
+              "Landmine",
+              "Telescope"
+            ]
+          },
+          "correct_answers": [
+            "Grenade"
+          ],
+          "explanation": "These are the key components of a 'grenade'. A landmine is an explosive but is stepped on rather than held, and it rarely uses a hand-pulled pin.",
+          "example_sentence": "He found an old, deactivated grenade buried in the dirt near the abandoned fort.",
+          "lexile_score": 840
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "Select the correct form of the word to complete the sentence: 'The specialized soldier, known as a _____, was expertly trained to throw small explosives over enemy walls.'",
+          "options": {
+            "choices": [
+              "grenadier",
+              "grenade",
+              "grenades",
+              "grenaded"
+            ]
+          },
+          "correct_answers": [
+            "grenadier"
+          ],
+          "explanation": "The sentence requires a singular noun referring to a person. A 'grenadier' is a soldier equipped to throw grenades. 'Grenade' is the object itself.",
+          "example_sentence": "The brave grenadier led the charge, clearing the path with several well-aimed explosives.",
+          "lexile_score": 890
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which noun is most commonly paired with the descriptive words 'smoke', 'fragmentation', and 'stun'?",
+          "options": {
+            "choices": [
+              "Grenade",
+              "Rifle",
+              "Shield",
+              "Helicopter"
+            ]
+          },
+          "correct_answers": [
+            "Grenade"
+          ],
+          "explanation": "These are all specific types of a 'grenade' used for different military or police purposes.",
+          "example_sentence": "They tossed a stun grenade to safely disarm the situation without hurting anyone.",
+          "lexile_score": 830
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is frequently paired with the action verbs 'pull the pin', 'toss', and 'detonate'?",
+          "options": {
+            "choices": [
+              "Grenade",
+              "Bayonet",
+              "Radio",
+              "Backpack"
+            ]
+          },
+          "correct_answers": [
+            "Grenade"
+          ],
+          "explanation": "You pull the pin on a 'grenade', toss it, and wait for it to detonate. You do not perform these actions with a radio or a backpack.",
+          "example_sentence": "He was nervous to pull the pin and detonate his first practice grenade.",
+          "lexile_score": 820
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group of military weapons?",
+          "options": {
+            "choices": [
+              "Grenade",
+              "Missile",
+              "Torpedo",
+              "Artillery"
+            ]
+          },
+          "correct_answers": [
+            "Grenade"
+          ],
+          "explanation": "The latent rule is 'method of launch'. Missiles, torpedoes, and artillery are launched by large machines or engines. A 'grenade' is the odd one out because it is thrown by hand.",
+          "example_sentence": "Because the tanks were too close for missiles, the soldiers had to rely on a grenade.",
+          "lexile_score": 870
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'Unlike a heavy artillery shell that must be fired from a cannon miles away, a _____ is small enough to be carried and thrown by a single soldier.'",
+          "options": {
+            "choices": [
+              "grenade",
+              "missile",
+              "landmine",
+              "barricade"
+            ]
+          },
+          "correct_answers": [
+            "grenade"
+          ],
+          "explanation": "The sentence contrasts a large weapon fired from afar with a small one thrown by hand. 'Grenade' fits this description perfectly.",
+          "example_sentence": "Every soldier in the unit was issued a single grenade to use in close combat.",
+          "lexile_score": 890
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'While a landmine is buried in the ground and passively waits for someone to step on it, a _____ is an active weapon meant to be hurled at the target.'",
+          "options": {
+            "choices": [
+              "grenade",
+              "bullet",
+              "parachute",
+              "dagger"
+            ]
+          },
+          "correct_answers": [
+            "grenade"
+          ],
+          "explanation": "The contrast is between a passive, hidden explosive and one that is actively thrown. 'Grenade' correctly fills the blank as the thrown weapon.",
+          "example_sentence": "The explosive force of the grenade blasted a hole directly through the wooden door.",
+          "lexile_score": 860
+        }
+      ]
+    },
+    {
+      "term": "patrol",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the main meaning of the noun 'patrol'?",
+          "options": {
+            "choices": [
+              "A group of soldiers or vehicles sent out to guard an area",
+              "A large concrete wall protecting a city",
+              "A type of fast airplane used for delivering mail",
+              "A dangerous weapon used by snipers"
+            ]
+          },
+          "correct_answers": [
+            "A group of soldiers or vehicles sent out to guard an area"
+          ],
+          "explanation": "A 'patrol' refers to the people or vehicles moving around an area to keep it secure or gather information.",
+          "example_sentence": "The commander sent a morning patrol to check the perimeter of the base.",
+          "lexile_score": 810
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "Which word describes a group of soldiers or ships dispatched to guard an area or gather intelligence?",
+          "options": {
+            "choices": [
+              "Patrol",
+              "Invasion",
+              "Barracks",
+              "Surplus"
+            ]
+          },
+          "correct_answers": [
+            "Patrol"
+          ],
+          "explanation": "A 'patrol' is dispatched to watch, guard, or gather information. An invasion is an attack, and barracks are where soldiers sleep.",
+          "example_sentence": "The naval patrol sailed along the coastline looking for smugglers.",
+          "lexile_score": 840
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "What do we call a small team that walks a specific route to ensure safety and security?",
+          "options": {
+            "choices": [
+              "Patrol",
+              "Ambush",
+              "Convoy",
+              "Artillery"
+            ]
+          },
+          "correct_answers": [
+            "Patrol"
+          ],
+          "explanation": "A 'patrol' checks specific routes to provide security. An ambush is a surprise attack, and a convoy is a group of vehicles traveling together.",
+          "example_sentence": "The security patrol discovered a broken window during their midnight rounds.",
+          "lexile_score": 830
+        },
+        {
+          "question_type": "SYNONYM_IN_CONTEXT_MC",
+          "question_text": "Read the sentence: 'The night guard walked around the dark camp to keep everyone safe from intruders.' Which word best replaces 'guard' in this sentence?",
+          "options": {
+            "choices": [
+              "Patrol",
+              "Attack",
+              "Retreat",
+              "Mechanic"
+            ]
+          },
+          "correct_answers": [
+            "Patrol"
+          ],
+          "explanation": "In this context, a 'patrol' acts as a mobile guard ensuring safety. An attack or retreat are opposite actions.",
+          "example_sentence": "The mountain patrol rescued the lost hikers before the snowstorm worsened.",
+          "lexile_score": 850
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "What is the primary purpose of a patrol?",
+          "options": {
+            "choices": [
+              "To monitor and protect a specific area",
+              "To completely destroy an enemy headquarters",
+              "To officially sign a peace treaty",
+              "To construct a new military base"
+            ]
+          },
+          "correct_answers": [
+            "To monitor and protect a specific area"
+          ],
+          "explanation": "A 'patrol' functions mainly as a defensive or observational group to monitor and protect. They do not typically build bases or sign treaties.",
+          "example_sentence": "The police patrol cruised through the neighborhood to discourage crime.",
+          "lexile_score": 860
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which broad concept is most strongly tied to the idea of a patrol?",
+          "options": {
+            "choices": [
+              "Security and surveillance",
+              "Farming and harvesting",
+              "Cooking and dining",
+              "Sleeping and resting"
+            ]
+          },
+          "correct_answers": [
+            "Security and surveillance"
+          ],
+          "explanation": "Because a 'patrol' watches over an area to keep it safe, it is tightly linked to security and surveillance.",
+          "example_sentence": "Security cameras cannot replace the physical presence of a night patrol.",
+          "lexile_score": 820
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "If a police officer is assigned to a neighborhood patrol, what is she likely doing?",
+          "options": {
+            "choices": [
+              "Driving around the streets to watch for crime and keep citizens safe",
+              "Sitting inside the police station organizing filing cabinets",
+              "Serving as a judge during a trial inside a courtroom",
+              "Repairing the engines of broken police cars in the garage"
+            ]
+          },
+          "correct_answers": [
+            "Driving around the streets to watch for crime and keep citizens safe"
+          ],
+          "explanation": "A 'patrol' implies movement and observation in a specific area. Filing papers or fixing cars are stationary jobs.",
+          "example_sentence": "The officer on patrol noticed a strange van parked near the bank.",
+          "lexile_score": 880
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "How might a military commander use a patrol to gather intelligence?",
+          "options": {
+            "choices": [
+              "By sending a small team to quietly observe enemy movements",
+              "By launching a massive missile strike on an empty city",
+              "By ordering all troops to sleep through the night",
+              "By broadcasting secret battle plans on an open radio"
+            ]
+          },
+          "correct_answers": [
+            "By sending a small team to quietly observe enemy movements"
+          ],
+          "explanation": "A 'patrol' gathers intelligence by sneaking out and observing. Launching a loud attack or broadcasting plans would ruin any chance to quietly gather information.",
+          "example_sentence": "A scout patrol returned to camp with vital news about the enemy's location.",
+          "lexile_score": 890
+        },
+        {
+          "question_type": "REVERSE_ASSOCIATION_MC",
+          "question_text": "Scheduled routes, security guards, and walking the perimeter are clues that describe which group or action?",
+          "options": {
+            "choices": [
+              "Patrol",
+              "Convoy",
+              "Parade",
+              "Retreat"
+            ]
+          },
+          "correct_answers": [
+            "Patrol"
+          ],
+          "explanation": "These clues represent checking an area for security, which is the definition of a 'patrol'. A convoy is for traveling safely, not just walking a perimeter.",
+          "example_sentence": "They established a regular patrol to stop anyone from sneaking over the fence.",
+          "lexile_score": 850
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "Select the correct form of the word to complete the sentence: 'The dedicated security officers spent the entire night _____ the dark hallways of the museum.'",
+          "options": {
+            "choices": [
+              "patrolling",
+              "patrol",
+              "patrolled",
+              "patrollers"
+            ]
+          },
+          "correct_answers": [
+            "patrolling"
+          ],
+          "explanation": "The sentence needs an active verb in the present participle form ('-ing') to show an ongoing action. 'Patrolling' fits correctly here.",
+          "example_sentence": "Patrolling the borders in the harsh winter requires very warm clothing.",
+          "lexile_score": 870
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is most commonly paired as a noun with the descriptive words 'border', 'highway', and 'night'?",
+          "options": {
+            "choices": [
+              "Patrol",
+              "Convoy",
+              "Surplus",
+              "Grenade"
+            ]
+          },
+          "correct_answers": [
+            "Patrol"
+          ],
+          "explanation": "We frequently talk about the 'border patrol', 'highway patrol', and 'night patrol'. Convoy and surplus do not logically pair with these words in the same way.",
+          "example_sentence": "The highway patrol issued dozens of speeding tickets over the holiday weekend.",
+          "lexile_score": 860
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which noun is frequently paired with the verbs 'conduct', 'go on', and 'send out' for security reasons?",
+          "options": {
+            "choices": [
+              "Patrol",
+              "Surrender",
+              "Attack",
+              "Helmet"
+            ]
+          },
+          "correct_answers": [
+            "Patrol"
+          ],
+          "explanation": "Military and police units 'conduct a patrol', 'go on a patrol', or 'send out a patrol' to ensure security.",
+          "example_sentence": "The sergeant decided to send out a second patrol when the first one was late.",
+          "lexile_score": 840
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group of military actions?",
+          "options": {
+            "choices": [
+              "Assault",
+              "Patrol",
+              "Reconnaissance",
+              "Watch"
+            ]
+          },
+          "correct_answers": [
+            "Assault"
+          ],
+          "explanation": "The latent rule connects words describing observation or guarding (patrol, reconnaissance, watch). 'Assault' is the odd one out because it is a direct, violent attack.",
+          "example_sentence": "The unit was merely on patrol when they were surprisingly ambushed.",
+          "lexile_score": 880
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'Unlike a massive invasion designed to capture a whole city, a _____ is a small operation meant only to observe or guard a specific area.'",
+          "options": {
+            "choices": [
+              "patrol",
+              "blockade",
+              "retreat",
+              "convoy"
+            ]
+          },
+          "correct_answers": [
+            "patrol"
+          ],
+          "explanation": "The sentence contrasts a large attacking force with a small observing force. 'Patrol' perfectly captures this small observation or guarding mission.",
+          "example_sentence": "Their patrol was instructed to observe the enemy camp without starting a fight.",
+          "lexile_score": 870
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'Rather than remaining stationary in the tall guard tower, the soldiers went on _____ to actively walk the perimeter of the base.'",
+          "options": {
+            "choices": [
+              "patrol",
+              "standby",
+              "furlough",
+              "parade"
+            ]
+          },
+          "correct_answers": [
+            "patrol"
+          ],
+          "explanation": "The contrast is between staying perfectly still ('stationary') and moving actively. A 'patrol' involves walking or driving to check an area.",
+          "example_sentence": "A ski patrol monitored the snowy mountainside for any signs of avalanches.",
+          "lexile_score": 890
+        }
+      ]
+    },
+    {
+      "term": "convoy",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the primary meaning of the word 'convoy'?",
+          "options": {
+            "choices": [
+              "A group of vehicles or ships traveling together for safety",
+              "A single fast motorcycle delivering urgent mail",
+              "A large underground bunker for military supplies",
+              "An extra amount of gear left over after a mission"
+            ]
+          },
+          "correct_answers": [
+            "A group of vehicles or ships traveling together for safety"
+          ],
+          "explanation": "A 'convoy' is specifically a group traveling together to protect each other. It is not a single vehicle, a bunker, or extra gear.",
+          "example_sentence": "The food trucks traveled in a convoy to ensure none of them were robbed on the highway.",
+          "lexile_score": 830
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "Which term describes a group of ships or trucks traveling together in a pack to defend against enemy attacks?",
+          "options": {
+            "choices": [
+              "Convoy",
+              "Patrol",
+              "Brigade",
+              "Surplus"
+            ]
+          },
+          "correct_answers": [
+            "Convoy"
+          ],
+          "explanation": "A 'convoy' is a line of vehicles traveling together for mutual protection. A patrol is for guarding, not necessarily traveling as a cargo group.",
+          "example_sentence": "During the war, merchant ships sailed in a tight convoy escorted by warships.",
+          "lexile_score": 850
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "What do we call a line of transport vehicles moving together for mutual support?",
+          "options": {
+            "choices": [
+              "Convoy",
+              "Ambulance",
+              "Grenade",
+              "Headquarters"
+            ]
+          },
+          "correct_answers": [
+            "Convoy"
+          ],
+          "explanation": "A 'convoy' is exactly a line of transports moving together. Headquarters is a base, and an ambulance is just one vehicle.",
+          "example_sentence": "The military convoy kicked up massive clouds of dust as it crossed the desert.",
+          "lexile_score": 840
+        },
+        {
+          "question_type": "SYNONYM_IN_CONTEXT_MC",
+          "question_text": "Read the sentence: 'The general ordered the large fleet of supply trucks to drive slowly through the dangerous mountain pass.' Which word best replaces 'fleet' in this sentence?",
+          "options": {
+            "choices": [
+              "Convoy",
+              "Motorcycle",
+              "Soldier",
+              "Barricade"
+            ]
+          },
+          "correct_answers": [
+            "Convoy"
+          ],
+          "explanation": "In this context, a 'convoy' is a synonymous term for a fleet or group of supply trucks moving together.",
+          "example_sentence": "It took an hour for the entire convoy of military jeeps to pass through the town.",
+          "lexile_score": 860
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which concept is most closely tied to the purpose of a convoy?",
+          "options": {
+            "choices": [
+              "Group travel for safety and defense",
+              "Flying alone on a secret spy mission",
+              "Deep sea exploration with submarines",
+              "Fighting enemies in hand-to-hand combat"
+            ]
+          },
+          "correct_answers": [
+            "Group travel for safety and defense"
+          ],
+          "explanation": "The core concept of a 'convoy' is traveling in numbers to deter attacks and provide safety.",
+          "example_sentence": "Animals naturally form a convoy-like herd to protect themselves from predators.",
+          "lexile_score": 870
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Why would merchant ships choose to form a convoy instead of sailing alone?",
+          "options": {
+            "choices": [
+              "To provide mutual defense against enemy attacks",
+              "To host a race across the ocean to see who is fastest",
+              "To randomly trade their cargo with one another",
+              "To catch more fish by stringing a giant net between them"
+            ]
+          },
+          "correct_answers": [
+            "To provide mutual defense against enemy attacks"
+          ],
+          "explanation": "Ships form a 'convoy' primarily so that military escorts can defend the entire group from submarines or pirates at once.",
+          "example_sentence": "Without the protection of the convoy, the lone cargo ship was an easy target.",
+          "lexile_score": 890
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "If a relief agency is delivering food into a dangerous region, how might they use a convoy?",
+          "options": {
+            "choices": [
+              "They would send many supply trucks traveling together with armed escorts.",
+              "They would drop single packages from a high-flying drone at night.",
+              "They would mail the supplies through the regular post office.",
+              "They would hide the food in a secret underground base."
+            ]
+          },
+          "correct_answers": [
+            "They would send many supply trucks traveling together with armed escorts."
+          ],
+          "explanation": "A 'convoy' involves grouping vehicles together for protection, which is exactly what the agency would do with the trucks.",
+          "example_sentence": "The United Nations organized a massive convoy to bring medical supplies to the refugees.",
+          "lexile_score": 880
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "What is one major vulnerability of a long convoy moving down a narrow road?",
+          "options": {
+            "choices": [
+              "If the leading vehicle breaks down, the entire line behind it gets stuck.",
+              "It always moves much faster than a single car and might easily crash.",
+              "The vehicles might get lost because they cannot see each other at all.",
+              "It requires everyone to walk instead of drive."
+            ]
+          },
+          "correct_answers": [
+            "If the leading vehicle breaks down, the entire line behind it gets stuck."
+          ],
+          "explanation": "Because a 'convoy' is a line of vehicles moving together, a stoppage at the front stops the whole group.",
+          "example_sentence": "An enemy trap halted the convoy by destroying the bridge right in front of the lead truck.",
+          "lexile_score": 860
+        },
+        {
+          "question_type": "REVERSE_ASSOCIATION_MC",
+          "question_text": "Supply trucks, armed escorts, and a long line of moving vehicles are clues that describe what?",
+          "options": {
+            "choices": [
+              "Convoy",
+              "Patrol",
+              "Grenade",
+              "Blockade"
+            ]
+          },
+          "correct_answers": [
+            "Convoy"
+          ],
+          "explanation": "These clues vividly describe a 'convoy' on the move. A blockade is meant to stop movement, not travel together.",
+          "example_sentence": "The loud rumble of engines announced that the convoy was approaching the city.",
+          "lexile_score": 830
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "Select the correct form of the word to complete the sentence: 'During the harsh winter, armored cars successfully _____ hundreds of supply trucks through the dangerous mountain pass.'",
+          "options": {
+            "choices": [
+              "convoyed",
+              "convoy",
+              "convoys",
+              "convoying"
+            ]
+          },
+          "correct_answers": [
+            "convoyed"
+          ],
+          "explanation": "The sentence requires a past-tense verb showing the action of escorting. 'Convoyed' is the correct past-tense verb form.",
+          "example_sentence": "The destroyers convoyed the merchant ships safely across the Atlantic Ocean.",
+          "lexile_score": 890
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which noun is commonly paired with the descriptive words 'truck', 'supply', and 'military' when talking about group travel?",
+          "options": {
+            "choices": [
+              "Convoy",
+              "Surplus",
+              "Base",
+              "Trench"
+            ]
+          },
+          "correct_answers": [
+            "Convoy"
+          ],
+          "explanation": "We often hear phrases like 'truck convoy', 'supply convoy', or 'military convoy'. The other words do not pair with travel in this way.",
+          "example_sentence": "A massive supply convoy was scheduled to deliver ammunition to the front lines.",
+          "lexile_score": 850
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is frequently paired with the actions 'join', 'escort', and 'ambush' in a transportation context?",
+          "options": {
+            "choices": [
+              "Convoy",
+              "Headquarters",
+              "Submarine",
+              "Grenade"
+            ]
+          },
+          "correct_answers": [
+            "Convoy"
+          ],
+          "explanation": "You can join a 'convoy', escort one, or unfortunately ambush one. You don't usually 'escort' a grenade or a headquarters.",
+          "example_sentence": "The bandits hid in the rocky cliffs, waiting to ambush the gold convoy.",
+          "lexile_score": 840
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group related to travel?",
+          "options": {
+            "choices": [
+              "Pedestrian",
+              "Convoy",
+              "Motorcade",
+              "Fleet"
+            ]
+          },
+          "correct_answers": [
+            "Pedestrian"
+          ],
+          "explanation": "The latent rule is 'groups of vehicles traveling together' (convoy, motorcade, fleet). A 'pedestrian' is a single person walking, making it the odd one out.",
+          "example_sentence": "The president's motorcade is a type of convoy used to protect important leaders.",
+          "lexile_score": 860
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'Instead of letting each merchant ship sail alone and risk being sunk by pirates, the navy organized them into a heavily guarded _____.'",
+          "options": {
+            "choices": [
+              "convoy",
+              "patrol",
+              "surplus",
+              "target"
+            ]
+          },
+          "correct_answers": [
+            "convoy"
+          ],
+          "explanation": "The contrast is between sailing alone and sailing together as a guarded group. 'Convoy' captures the idea of a guarded group perfectly.",
+          "example_sentence": "They felt much safer traveling in a convoy than braving the dark roads by themselves.",
+          "lexile_score": 870
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'While a lone scout relies on speed and stealth to survive, a _____ relies on numbers and heavy armor to safely push its cargo through enemy territory.'",
+          "options": {
+            "choices": [
+              "convoy",
+              "grenade",
+              "blockade",
+              "barracks"
+            ]
+          },
+          "correct_answers": [
+            "convoy"
+          ],
+          "explanation": "The structure contrasts a single, fast traveler with a large, heavily armed group carrying cargo. 'Convoy' fits the description of this large, forceful group.",
+          "example_sentence": "The heavy trucks of the convoy could not move fast, but their thick armor protected the drivers.",
+          "lexile_score": 880
+        }
+      ]
+    },
+    {
+      "term": "surplus",
+      "questions": [
+        {
+          "question_type": "DEFINITION_MC_SINGLE",
+          "question_text": "What is the primary meaning of the word 'surplus'?",
+          "options": {
+            "choices": [
+              "An extra amount of something left over after all needs have been met",
+              "A severe lack of essential food and water",
+              "A specialized military weapon thrown by hand",
+              "A group of soldiers actively guarding a base"
+            ]
+          },
+          "correct_answers": [
+            "An extra amount of something left over after all needs have been met"
+          ],
+          "explanation": "A 'surplus' means having more than what is needed or used. It is the opposite of a lack of food.",
+          "example_sentence": "Because the sun shined all summer, the farm produced a massive surplus of tomatoes.",
+          "lexile_score": 810
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "What do we call an amount of a resource that is greater than the required amount?",
+          "options": {
+            "choices": [
+              "Surplus",
+              "Deficit",
+              "Convoy",
+              "Patrol"
+            ]
+          },
+          "correct_answers": [
+            "Surplus"
+          ],
+          "explanation": "A 'surplus' is an excess or extra amount. A deficit means you don't have enough.",
+          "example_sentence": "The military sold their surplus jeeps to the public for a low price.",
+          "lexile_score": 830
+        },
+        {
+          "question_type": "REVERSE_DEFINITION_MC",
+          "question_text": "Which word describes having extra supplies remaining after everyone has taken what they need?",
+          "options": {
+            "choices": [
+              "Surplus",
+              "Shortage",
+              "Grenade",
+              "Ration"
+            ]
+          },
+          "correct_answers": [
+            "Surplus"
+          ],
+          "explanation": "When you have extra supplies left over, you have a 'surplus'. A shortage means there wasn't enough.",
+          "example_sentence": "We had a surplus of building materials, so we built a second shed in the yard.",
+          "lexile_score": 840
+        },
+        {
+          "question_type": "SYNONYM_IN_CONTEXT_MC",
+          "question_text": "Read the sentence: 'Because of the incredibly successful harvest, the farmers had an excess of wheat that they could sell to other towns.' Which word best replaces 'excess' in this sentence?",
+          "options": {
+            "choices": [
+              "Surplus",
+              "Shortage",
+              "Sample",
+              "Variety"
+            ]
+          },
+          "correct_answers": [
+            "Surplus"
+          ],
+          "explanation": "In this context, an 'excess' means the same thing as a 'surplus'—having more wheat than they needed for themselves.",
+          "example_sentence": "The factory generated a surplus of electricity, which was then pushed into the city's power grid.",
+          "lexile_score": 860
+        },
+        {
+          "question_type": "ANTONYM_MC_SINGLE",
+          "question_text": "Which word is a direct antonym for 'surplus'?",
+          "options": {
+            "choices": [
+              "Shortage",
+              "Abundance",
+              "Collection",
+              "Supply"
+            ]
+          },
+          "correct_answers": [
+            "Shortage"
+          ],
+          "explanation": "A 'surplus' means having too much, while a 'shortage' means not having enough. They are direct opposites.",
+          "example_sentence": "Last year we suffered a shortage of rain, but this year we have a surplus.",
+          "lexile_score": 840
+        },
+        {
+          "question_type": "CONCEPTUAL_ASSOCIATION_MC_SINGLE",
+          "question_text": "Which economic concept is most closely related to a surplus?",
+          "options": {
+            "choices": [
+              "Having more goods available than people are currently buying",
+              "A sudden, massive increase in the price of food",
+              "Running entirely out of money before payday",
+              "Borrowing heavy equipment from a local bank"
+            ]
+          },
+          "correct_answers": [
+            "Having more goods available than people are currently buying"
+          ],
+          "explanation": "A 'surplus' in economics happens when production creates extra goods that haven't been bought yet.",
+          "example_sentence": "The clothing store put their surplus winter jackets on sale during the spring.",
+          "lexile_score": 870
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "How might an army supply officer logically deal with a surplus of heavy winter coats in the middle of summer?",
+          "options": {
+            "choices": [
+              "Store the extra coats safely in a warehouse until winter returns.",
+              "Burn all of the coats because they are no longer useful to anyone.",
+              "Force the soldiers to wear the coats in the summer heat.",
+              "Use the coats as fuel for the engines of their transport vehicles."
+            ]
+          },
+          "correct_answers": [
+            "Store the extra coats safely in a warehouse until winter returns."
+          ],
+          "explanation": "A 'surplus' means you have extra. The logical step is to store the extra items for later use rather than destroying them or misusing them.",
+          "example_sentence": "The charity received a surplus of canned soup and kept it in their pantry for winter.",
+          "lexile_score": 850
+        },
+        {
+          "question_type": "APPLICATION_MC",
+          "question_text": "If a bakery produces a surplus of bread by the time they close for the night, what is a likely outcome?",
+          "options": {
+            "choices": [
+              "They might donate the leftover loaves to a local homeless shelter.",
+              "They will have to immediately turn away hungry customers.",
+              "They will magically double the price of the remaining bread.",
+              "They must send an armed convoy to retrieve more flour."
+            ]
+          },
+          "correct_answers": [
+            "They might donate the leftover loaves to a local homeless shelter."
+          ],
+          "explanation": "A 'surplus' means having leftover items. Donating leftover bread is a realistic and logical application of a food surplus.",
+          "example_sentence": "We used the surplus strawberries from the garden to make fresh jam.",
+          "lexile_score": 840
+        },
+        {
+          "question_type": "REVERSE_ASSOCIATION_MC",
+          "question_text": "Leftover supplies, an overflowing warehouse, and extra inventory are clues that describe what condition?",
+          "options": {
+            "choices": [
+              "Surplus",
+              "Famine",
+              "Poverty",
+              "Retreat"
+            ]
+          },
+          "correct_answers": [
+            "Surplus"
+          ],
+          "explanation": "These clues point to having an abundance of items beyond what is needed, which defines a 'surplus'. Famine and poverty mean lacking things.",
+          "example_sentence": "The overflowing bins of apples indicated a massive harvest surplus.",
+          "lexile_score": 830
+        },
+        {
+          "question_type": "WORD_FORM_MC",
+          "question_text": "Select the correct form of the word to complete the sentence: 'The discount store frequently bought military _____ goods to sell to campers at a low price.'",
+          "options": {
+            "choices": [
+              "surplus",
+              "surpluses",
+              "surplused",
+              "surplusing"
+            ]
+          },
+          "correct_answers": [
+            "surplus"
+          ],
+          "explanation": "In this sentence, 'surplus' acts as an adjective describing the goods (extra/leftover military items). 'Surpluses' is plural and doesn't fit as a modifier here.",
+          "example_sentence": "He bought a surplus army tent because it was cheap and very durable.",
+          "lexile_score": 880
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word is most commonly paired with the nouns 'budget', 'trade', and 'military'?",
+          "options": {
+            "choices": [
+              "Surplus",
+              "Convoy",
+              "Patrol",
+              "Grenade"
+            ]
+          },
+          "correct_answers": [
+            "Surplus"
+          ],
+          "explanation": "A 'budget surplus', 'trade surplus', and 'military surplus' are all very common phrases indicating excess money, exports, or military gear.",
+          "example_sentence": "When the city ended the year with a budget surplus, they used the extra money to fix the roads.",
+          "lexile_score": 870
+        },
+        {
+          "question_type": "REVERSE_COLLOCATION_MC",
+          "question_text": "Which word frequently follows the verbs 'generate', 'sell', and 'donate' when referring to excess items?",
+          "options": {
+            "choices": [
+              "Surplus",
+              "Uniform",
+              "Weapon",
+              "Vehicle"
+            ]
+          },
+          "correct_answers": [
+            "Surplus"
+          ],
+          "explanation": "Businesses and farms try to 'generate a surplus', which they can then 'sell' or 'donate'. The other items are specific objects, not the concept of extra supply.",
+          "example_sentence": "The solar panels on the roof generate a surplus of energy during bright summer days.",
+          "lexile_score": 860
+        },
+        {
+          "question_type": "ODD_ONE_OUT_MC_SINGLE",
+          "question_text": "Which word does not belong in this group of economic or supply terms?",
+          "options": {
+            "choices": [
+              "Deficit",
+              "Surplus",
+              "Excess",
+              "Abundance"
+            ]
+          },
+          "correct_answers": [
+            "Deficit"
+          ],
+          "explanation": "The latent rule is 'having more than enough' (surplus, excess, abundance). 'Deficit' means having less than enough, making it the odd one out.",
+          "example_sentence": "The country’s debt increased because it ran a deficit instead of a surplus.",
+          "lexile_score": 880
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'During the terrible drought, the town faced a severe water shortage; however, after weeks of massive floods, they suddenly had a _____.'",
+          "options": {
+            "choices": [
+              "surplus",
+              "deficit",
+              "convoy",
+              "patrol"
+            ]
+          },
+          "correct_answers": [
+            "surplus"
+          ],
+          "explanation": "The sentence specifically contrasts a 'shortage' (too little) with its opposite. 'Surplus' means having an abundance, perfectly completing the contrast.",
+          "example_sentence": "After struggling with empty shelves for months, the warehouse finally celebrated a surplus of supplies.",
+          "lexile_score": 860
+        },
+        {
+          "question_type": "NUANCE_CONTRAST_MC",
+          "question_text": "Complete the sentence: 'Rather than ordering just enough supplies to barely scrape by, the wise commander preferred to maintain a _____ for unexpected emergencies.'",
+          "options": {
+            "choices": [
+              "surplus",
+              "fraction",
+              "shortage",
+              "convoy"
+            ]
+          },
+          "correct_answers": [
+            "surplus"
+          ],
+          "explanation": "The structural contrast is 'barely scraping by' (having just enough) versus having extra set aside for emergencies. 'Surplus' means that extra cushion.",
+          "example_sentence": "The squirrels bury a surplus of nuts in the fall so they won't starve in the winter.",
+          "lexile_score": 890
+        }
+      ]
+    }
+  ]
+}

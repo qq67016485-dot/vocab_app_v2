@@ -12,7 +12,7 @@ from tests.factories import WordFactory, WordDefinitionFactory, DefinitionEmbedd
 class TestGetEmbedding:
     """Test embedding_service.get_embedding()"""
 
-    @patch('vocabulary.services.embedding_service._call_qwen_api')
+    @patch('vocabulary.services.embedding_service._call_embedding_api')
     def test_returns_vector_list(self, mock_api):
         mock_api.return_value = [0.1] * 768
         from vocabulary.services.embedding_service import get_embedding
@@ -20,7 +20,7 @@ class TestGetEmbedding:
         assert isinstance(result, list)
         assert len(result) == 768
 
-    @patch('vocabulary.services.embedding_service._call_qwen_api')
+    @patch('vocabulary.services.embedding_service._call_embedding_api')
     def test_calls_api_with_text(self, mock_api):
         mock_api.return_value = [0.0] * 768
         from vocabulary.services.embedding_service import get_embedding

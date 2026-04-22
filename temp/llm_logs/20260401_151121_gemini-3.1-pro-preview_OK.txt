@@ -1,0 +1,216 @@
+=== LLM CALL LOG ===
+Timestamp: 20260401_151121
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+You are a bilingual vocabulary expert for young learners (ages 8-14).
+
+You will receive a list of English vocabulary words with their definitions and example sentences.
+Your job is to provide translations into zh-CN for each item.
+
+IMPORTANT — two different translation strategies:
+
+1. For "definition_text": Do NOT translate the English description word-for-word.
+   Instead, provide the natural equivalent word or short phrase that a native zh-CN speaker would use.
+   Example: "a person forced to leave their country" → "难民" (NOT "被迫离开自己国家的人")
+
+2. For "example_sentence": Translate the full sentence naturally into zh-CN.
+   It should sound like something a native speaker would say, not a word-for-word translation.
+
+Output valid JSON with this exact structure:
+{
+  "translations": [
+    {
+      "source_field": "definition_text",
+      "source_text": "the original English text",
+      "translated_text": "native equivalent word or short phrase"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "the original English sentence",
+      "translated_text": "natural translation of the sentence"
+    }
+  ]
+}
+
+Translate each of the following items:
+- term: trench
+  definition_text: A long, deep ditch dug in the ground where soldiers hide and defend themselves from enemy fire.
+  example_sentence: The soldiers peeked over the top of the trench to see if the enemy was approaching across the muddy field.
+- term: artillery
+  definition_text: Large, heavy guns or cannons used by the military to shoot explosive shells over long distances.
+  example_sentence: The loud boom of the artillery could be heard from miles away on the battlefield.
+- term: battalion
+  definition_text: A large organized group of soldiers working together as a single unit under the command of an officer.
+  example_sentence: The brave battalion marched forward together to defend their side of the territory.
+- term: cavalry
+  definition_text: A group of soldiers who fight while riding horses or using armored vehicles.
+  example_sentence: The cavalry rode their horses quickly across the open land to deliver an urgent message to the frontline.
+- term: fortify
+  definition_text: To make a place stronger and harder to attack by building walls, fences, or other defenses.
+  example_sentence: The troops worked all night to fortify their camp with heavy sandbags and thick wooden walls.
+- term: infantry
+  definition_text: Soldiers who march and fight on foot rather than on horseback or in vehicles.
+  example_sentence: The infantry carefully crossed the ruined landscape while carrying heavy backpacks and rifles.
+- term: munition
+  definition_text: Military supplies, especially weapons, bullets, and bombs used in fighting a war.
+  example_sentence: The factory workers put in long hours to build every munition needed by the army overseas.
+- term: siege
+  definition_text: A military operation where an army surrounds a city or fort to trap the people inside and stop them from getting supplies.
+  example_sentence: During the long siege, the people inside the walled city ran dangerously low on food and water.
+- term: veteran
+  definition_text: A person who has served in the military, especially someone who has fought in a war.
+  example_sentence: My great-grandfather is a veteran who proudly shares stories about his time serving in the First World War.
+- term: warfare
+  definition_text: The act of fighting a war, or the specific weapons and methods used to fight.
+  example_sentence: The invention of airplanes and tanks completely changed the style of warfare in the early twentieth century.
+- term: garrison
+  definition_text: A group of soldiers stationed in a specific town or fort to protect it from enemies.
+  example_sentence: The local garrison stood guard at the main gates to make sure the village stayed safe from attacks.
+- term: ration
+  definition_text: A specific, limited amount of food or supplies given to a person when there is not enough for everyone to have as much as they want.
+  example_sentence: Each soldier was given a daily ration of hard biscuits, canned meat, and a small amount of tea.
+- term: blockade
+  definition_text: A barrier created by an army or navy to stop people and supplies from entering or leaving a place.
+  example_sentence: The battleships formed a blockade in the ocean to prevent cargo ships from delivering food to the enemy country.
+
+
+=== USER PROMPT ===
+Translate to zh-CN
+
+=== RAW RESPONSE ===
+{
+  "translations": [
+    {
+      "source_field": "definition_text",
+      "source_text": "A long, deep ditch dug in the ground where soldiers hide and defend themselves from enemy fire.",
+      "translated_text": "战壕"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "The soldiers peeked over the top of the trench to see if the enemy was approaching across the muddy field.",
+      "translated_text": "士兵们从战壕顶上探出头，查看敌人是否正穿过泥泞的田野逼近。"
+    },
+    {
+      "source_field": "definition_text",
+      "source_text": "Large, heavy guns or cannons used by the military to shoot explosive shells over long distances.",
+      "translated_text": "火炮"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "The loud boom of the artillery could be heard from miles away on the battlefield.",
+      "translated_text": "在战场上，几英里外都能听到火炮发出的巨大轰鸣声。"
+    },
+    {
+      "source_field": "definition_text",
+      "source_text": "A large organized group of soldiers working together as a single unit under the command of an officer.",
+      "translated_text": "作战营（或大队）"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "The brave battalion marched forward together to defend their side of the territory.",
+      "translated_text": "这支勇敢的营队齐步挺进，保卫着属于他们的领土。"
+    },
+    {
+      "source_field": "definition_text",
+      "source_text": "A group of soldiers who fight while riding horses or using armored vehicles.",
+      "translated_text": "骑兵"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "The cavalry rode their horses quickly across the open land to deliver an urgent message to the frontline.",
+      "translated_text": "骑兵们骑着马迅速穿过开阔的平原，向前线传递紧急情报。"
+    },
+    {
+      "source_field": "definition_text",
+      "source_text": "To make a place stronger and harder to attack by building walls, fences, or other defenses.",
+      "translated_text": "加固防卫 / 设防"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "The troops worked all night to fortify their camp with heavy sandbags and thick wooden walls.",
+      "translated_text": "部队彻夜工作，用沉重的沙袋和厚厚的木墙来加固营地。"
+    },
+    {
+      "source_field": "definition_text",
+      "source_text": "Soldiers who march and fight on foot rather than on horseback or in vehicles.",
+      "translated_text": "步兵"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "The infantry carefully crossed the ruined landscape while carrying heavy backpacks and rifles.",
+      "translated_text": "步兵们背着沉重的背包和步枪，小心翼翼地穿过化为废墟的土地。"
+    },
+    {
+      "source_field": "definition_text",
+      "source_text": "Military supplies, especially weapons, bullets, and bombs used in fighting a war.",
+      "translated_text": "军火弹药"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "The factory workers put in long hours to build every munition needed by the army overseas.",
+      "translated_text": "工厂工人们长时间加班加点，为海外军队制造所需的军火弹药。"
+    },
+    {
+      "source_field": "definition_text",
+      "source_text": "A military operation where an army surrounds a city or fort to trap the people inside and stop them from getting supplies.",
+      "translated_text": "围攻 / 围城战"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "During the long siege, the people inside the walled city ran dangerously low on food and water.",
+      "translated_text": "在漫长的围攻中，城墙内人们的食物和水已经少到了危险的地步。"
+    },
+    {
+      "source_field": "definition_text",
+      "source_text": "A person who has served in the military, especially someone who has fought in a war.",
+      "translated_text": "退伍老兵"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "My great-grandfather is a veteran who proudly shares stories about his time serving in the First World War.",
+      "translated_text": "我的曾祖父是一名退伍老兵，他总是自豪地分享自己参加第一次世界大战的故事。"
+    },
+    {
+      "source_field": "definition_text",
+      "source_text": "The act of fighting a war, or the specific weapons and methods used to fight.",
+      "translated_text": "作战方式 / 战争模式"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "The invention of airplanes and tanks completely changed the style of warfare in the early twentieth century.",
+      "translated_text": "飞机和坦克的发明彻底改变了二十世纪初的作战方式。"
+    },
+    {
+      "source_field": "definition_text",
+      "source_text": "A group of soldiers stationed in a specific town or fort to protect it from enemies.",
+      "translated_text": "驻防部队 / 驻军"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "The local garrison stood guard at the main gates to make sure the village stayed safe from attacks.",
+      "translated_text": "当地驻军在大门外站岗，以确保村庄安全，免受敌人的袭击。"
+    },
+    {
+      "source_field": "definition_text",
+      "source_text": "A specific, limited amount of food or supplies given to a person when there is not enough for everyone to have as much as they want.",
+      "translated_text": "配给口粮"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "Each soldier was given a daily ration of hard biscuits, canned meat, and a small amount of tea.",
+      "translated_text": "每名士兵每天都会领到一份定量的配给口粮，包括硬饼干、肉罐头和少量的茶。"
+    },
+    {
+      "source_field": "definition_text",
+      "source_text": "A barrier created by an army or navy to stop people and supplies from entering or leaving a place.",
+      "translated_text": "封锁线 / 军事封锁"
+    },
+    {
+      "source_field": "example_sentence",
+      "source_text": "The battleships formed a blockade in the ocean to prevent cargo ships from delivering food to the enemy country.",
+      "translated_text": "战舰在海上建立了一道封锁线，以阻止货船向敌国运送食物。"
+    }
+  ]
+}

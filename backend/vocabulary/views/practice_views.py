@@ -7,10 +7,11 @@ Changes from v1:
 - meaning.term.term_text → word.text
 """
 import random
-from datetime import date, datetime
+from datetime import datetime
 from collections import defaultdict
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -29,7 +30,7 @@ class NextPracticeWordView(APIView):
 
     def get(self, request, *args, **kwargs):
         user = request.user
-        today = date.today()
+        today = timezone.localdate()
 
         answer_count_today = UserAnswer.objects.filter(
             user=user, answered_at__date=today,
@@ -78,19 +79,20 @@ class NextPracticeWordView(APIView):
         word = next_record.word
         current_level = next_record.level
 
-        question = Question.objects.filter(
-            word=word,
+        lexile_q = Q(lexile_score__isnull=True) | Q(
             lexile_score__gte=user.lexile_min,
             lexile_score__lte=user.lexile_max,
+        )
+
+        question = Question.objects.filter(
+            word=word,
             suitable_levels=current_level,
-        ).order_by('?').first()
+        ).filter(lexile_q).order_by('?').first()
 
         if not question:
             question = Question.objects.filter(
                 word=word,
-                lexile_score__gte=user.lexile_min,
-                lexile_score__lte=user.lexile_max,
-            ).order_by('?').first()
+            ).filter(lexile_q).order_by('?').first()
 
         if not question:
             return Response({
@@ -127,6 +129,9 @@ class SubmitAnswerView(APIView):
         user_answer = request.data.get('user_answer')
         duration_seconds = request.data.get('duration_seconds', 0)
         answer_switches = request.data.get('answer_switches', 0)
+        is_retry = request.data.get('is_retry', False)
+        if isinstance(is_retry, str):
+            is_retry = is_retry.lower() in ('true', '1')
 
         if not question_id or user_answer is None:
             return Response(
@@ -138,6 +143,7 @@ class SubmitAnswerView(APIView):
             response_data = PracticeService.process_answer(
                 request.user, question_id, user_answer,
                 duration_seconds, answer_switches,
+                is_retry=is_retry,
             )
             return Response(response_data)
         except ValueError as e:
