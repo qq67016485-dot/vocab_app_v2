@@ -1,4 +1,16 @@
+from datetime import datetime, time
+
 from django.conf import settings
+from django.utils import timezone
+
+
+def end_of_local_day(day=None):
+    """Return the final instant of a local calendar day."""
+    target_day = day or timezone.localdate()
+    return timezone.make_aware(
+        datetime.combine(target_day, time.max),
+        timezone.get_current_timezone(),
+    )
 
 
 def get_tier_info(level):

@@ -116,7 +116,7 @@ export default function WordSetForm({ onSave, onCancel, setToEdit }) {
     );
   }
 
-  const isLocked = setToEdit && (setToEdit.generation_status === 'GENERATING' || setToEdit.generation_status === 'GENERATED');
+  const isLocked = setToEdit && ['GENERATION_REQUESTED', 'GENERATING', 'GENERATED'].includes(setToEdit.generation_status);
 
   return (
     <div className="t-modal-backdrop" onClick={(e) => e.target === e.currentTarget && onCancel()}>

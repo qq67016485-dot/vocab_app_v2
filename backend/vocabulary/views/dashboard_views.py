@@ -21,6 +21,7 @@ from ..models import UserWordProgress, MasteryLevel, UserAnswer, MasteryLevelLog
 from ..permissions import IsStudent, IsTeacherOrAdmin
 from ..serializers import WordSerializer, RosterDashboardSerializer
 from ..services.dashboard_service import DashboardService
+from ..utils import end_of_local_day
 
 
 class StudentDashboardView(APIView):
@@ -29,6 +30,7 @@ class StudentDashboardView(APIView):
     def get(self, request, *args, **kwargs):
         student = request.user
         today = timezone.localdate()
+        due_cutoff = end_of_local_day(today)
 
         lexile_filter = Q(
             word__questions__lexile_score__gte=student.lexile_min,
@@ -46,7 +48,7 @@ class StudentDashboardView(APIView):
 
         words_due_qs = UserWordProgress.objects.filter(
             user=student,
-            next_review_at__lte=timezone.now(),
+            next_review_at__lte=due_cutoff,
             instructional_status='READY',
         ).filter(lexile_filter).distinct()
 

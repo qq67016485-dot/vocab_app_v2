@@ -23,6 +23,7 @@ from ..models import UserWordProgress, Question, UserAnswer
 from ..serializers import QuestionSerializer
 from ..services.practice_service import PracticeService
 from ..constants import QUESTION_TYPE_TO_SKILL_TAG
+from ..utils import end_of_local_day
 
 
 class NextPracticeWordView(APIView):
@@ -31,6 +32,7 @@ class NextPracticeWordView(APIView):
     def get(self, request, *args, **kwargs):
         user = request.user
         today = timezone.localdate()
+        due_cutoff = end_of_local_day(today)
 
         answer_count_today = UserAnswer.objects.filter(
             user=user, answered_at__date=today,
@@ -60,7 +62,7 @@ class NextPracticeWordView(APIView):
             'word', 'level',
         ).filter(
             user=user,
-            next_review_at__lte=timezone.now(),
+            next_review_at__lte=due_cutoff,
             instructional_status='READY',
         ).filter(
             word__questions__lexile_score__gte=user.lexile_min,

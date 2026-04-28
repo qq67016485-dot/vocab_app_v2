@@ -40,6 +40,22 @@ def _can_edit_word_set(user, word_set):
     return word_set.creator == user or user.role == CustomUser.Role.ADMIN
 
 
+def _is_word_set_locked(word_set):
+    """Return True once the word set has entered the generation lifecycle."""
+    return word_set.generation_status in {
+        WordSet.GenerationStatus.GENERATION_REQUESTED,
+        WordSet.GenerationStatus.GENERATING,
+        WordSet.GenerationStatus.GENERATED,
+    }
+
+
+def _locked_response():
+    return Response(
+        {'error': 'This Word Set is locked because generation has started.'},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
 class TeacherStudentViewSet(viewsets.ModelViewSet):
     serializer_class = StudentCreateUpdateSerializer
     permission_classes = [IsAuthenticated, IsTeacherOrAdmin]
@@ -137,6 +153,10 @@ class WordSetViewSet(viewsets.ModelViewSet):
             raise serializers.ValidationError(
                 "You do not have permission to edit this Word Set.",
             )
+        if _is_word_set_locked(serializer.instance):
+            raise serializers.ValidationError(
+                "This Word Set is locked because generation has started.",
+            )
         instance = serializer.save()
         if instance.input_words and instance.generation_status == WordSet.GenerationStatus.DRAFT:
             instance.generation_status = WordSet.GenerationStatus.TO_GENERATE
@@ -146,6 +166,10 @@ class WordSetViewSet(viewsets.ModelViewSet):
         if not _can_edit_word_set(self.request.user, instance):
             raise serializers.ValidationError(
                 "You do not have permission to delete this Word Set.",
+            )
+        if _is_word_set_locked(instance):
+            raise serializers.ValidationError(
+                "This Word Set is locked because generation has started.",
             )
         instance.delete()
 
@@ -231,6 +255,8 @@ class WordSetViewSet(viewsets.ModelViewSet):
                 {'error': 'You do not have permission to edit this Word Set.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        if _is_word_set_locked(word_set):
+            return _locked_response()
         try:
             word = Word.objects.get(id=word_id)
             word_set.words.add(word)
@@ -252,6 +278,8 @@ class WordSetViewSet(viewsets.ModelViewSet):
                 {'error': 'You do not have permission to edit this Word Set.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        if _is_word_set_locked(word_set):
+            return _locked_response()
         try:
             word = Word.objects.get(id=word_id)
             word_set.words.remove(word)
@@ -296,6 +324,9 @@ class WordSetViewSet(viewsets.ModelViewSet):
                 })
             return Response(data)
 
+        if _is_word_set_locked(word_set):
+            return _locked_response()
+
         # POST: create a new pack
         label = request.data.get('label', '').strip()
         word_ids = request.data.get('word_ids', [])
@@ -330,6 +361,8 @@ class WordSetViewSet(viewsets.ModelViewSet):
                 {'error': 'Permission denied.'},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        if _is_word_set_locked(word_set):
+            return _locked_response()
         try:
             pack = word_set.packs.get(id=pack_id)
         except WordPack.DoesNotExist:

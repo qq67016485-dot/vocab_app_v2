@@ -21,6 +21,13 @@ from ..permissions import IsAdmin
 from ..services.generation_pipeline_service import run_full_pipeline, resume_pipeline
 
 
+def _immutable_word_set_response():
+    return Response(
+        {'error': 'Generated Word Sets are immutable. Create a new Word Set to add or change words.'},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
 class GenerationQueueView(APIView):
     """GET /api/admin/generation-queue/ — List word sets awaiting generation."""
     permission_classes = [IsAuthenticated, IsAdmin]
@@ -68,6 +75,15 @@ class TriggerGenerationView(APIView):
             return Response(
                 {'error': 'A generation job is already running for this word set.', 'job_id': active_job.id},
                 status=status.HTTP_409_CONFLICT,
+            )
+
+        if word_set.generation_status == WordSet.GenerationStatus.GENERATED:
+            return _immutable_word_set_response()
+
+        if word_set.generation_status == WordSet.GenerationStatus.GENERATING:
+            return Response(
+                {'error': 'Generation is already in progress for this Word Set.'},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         words = request.data.get('words', [])
@@ -330,7 +346,8 @@ class ApproveGenerationJobView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Approve all pending images for words in this job
+        # Images are generated as APPROVED; keep this endpoint as a harmless
+        # compatibility action for older UI flows that still call "Approve All".
         word_ids = list(
             job.word_set.words.filter(text__in=job.input_words).values_list('id', flat=True)
         )
@@ -340,7 +357,7 @@ class ApproveGenerationJobView(APIView):
         ).update(status=GeneratedImage.Status.APPROVED)
 
         return Response({
-            'message': 'Generation job approved.',
+            'message': 'Generated images are already auto-approved.',
             'images_approved': approved_count,
         })
 
@@ -420,54 +437,7 @@ class AddWordsAndGenerateView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        submitted_words = request.data.get('words', [])
-        if not submitted_words:
-            return Response(
-                {'error': 'Word list is required.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        submitted_words = list(dict.fromkeys(w.strip() for w in submitted_words if w.strip()))
-
-        # Filter out words already in the word set (case-insensitive)
-        existing_texts = set(
-            word_set.words.values_list('text', flat=True)
-        )
-        existing_lower = {t.lower() for t in existing_texts}
-        new_words = [w for w in submitted_words if w.strip().lower() not in existing_lower]
-
-        if not new_words:
-            return Response(
-                {'error': 'All submitted words already exist in this word set.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Append new words to word_set.input_words
-        current_input = word_set.input_words or []
-        word_set.input_words = current_input + new_words
-        word_set.generation_status = WordSet.GenerationStatus.GENERATING
-        word_set.save(update_fields=['input_words', 'generation_status'])
-
-        job = GenerationJob.objects.create(
-            word_set=word_set,
-            created_by=request.user,
-            input_words=new_words,
-            input_source_title=request.data.get('source_title', word_set.input_source_title),
-            input_source_chapter=request.data.get('source_chapter', word_set.input_source_chapter),
-            input_source_text=request.data.get('source_text', word_set.source_text),
-            target_lexile=word_set.target_lexile,
-            target_language=request.data.get('target_language', 'zh-CN'),
-        )
-
-        thread = threading.Thread(target=run_full_pipeline, args=(job.id,), daemon=True)
-        thread.start()
-
-        return Response({
-            'job_id': job.id,
-            'status': job.status,
-            'new_words': new_words,
-            'message': f'Generation started for {len(new_words)} new word(s).',
-        }, status=status.HTTP_201_CREATED)
+        return _immutable_word_set_response()
 
 
 class WordSetContentView(APIView):
@@ -609,51 +579,4 @@ class WordSetContentView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        submitted_words = request.data.get('words', [])
-        if not submitted_words:
-            return Response(
-                {'error': 'Word list is required.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        submitted_words = list(dict.fromkeys(w.strip() for w in submitted_words if w.strip()))
-
-        # Filter out words already in the word set (case-insensitive)
-        existing_texts = set(
-            word_set.words.values_list('text', flat=True)
-        )
-        existing_lower = {t.lower() for t in existing_texts}
-        new_words = [w for w in submitted_words if w.strip().lower() not in existing_lower]
-
-        if not new_words:
-            return Response(
-                {'error': 'All submitted words already exist in this word set.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Append new words to word_set.input_words
-        current_input = word_set.input_words or []
-        word_set.input_words = current_input + new_words
-        word_set.generation_status = WordSet.GenerationStatus.GENERATING
-        word_set.save(update_fields=['input_words', 'generation_status'])
-
-        job = GenerationJob.objects.create(
-            word_set=word_set,
-            created_by=request.user,
-            input_words=new_words,
-            input_source_title=request.data.get('source_title', word_set.input_source_title),
-            input_source_chapter=request.data.get('source_chapter', word_set.input_source_chapter),
-            input_source_text=request.data.get('source_text', word_set.source_text),
-            target_lexile=word_set.target_lexile,
-            target_language=request.data.get('target_language', 'zh-CN'),
-        )
-
-        thread = threading.Thread(target=run_full_pipeline, args=(job.id,), daemon=True)
-        thread.start()
-
-        return Response({
-            'job_id': job.id,
-            'status': job.status,
-            'new_words': new_words,
-            'message': f'Generation started for {len(new_words)} new word(s).',
-        }, status=status.HTTP_201_CREATED)
+        return _immutable_word_set_response()

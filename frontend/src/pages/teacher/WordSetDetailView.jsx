@@ -24,13 +24,10 @@ export default function WordSetDetailView() {
   const [searchTerm, setSearchTerm] = useState('');
 
   const [packs, setPacks] = useState([]);
-  const [newPackLabel, setNewPackLabel] = useState('');
   const [expandedPackId, setExpandedPackId] = useState(null);
 
-  const [generatingPackId, setGeneratingPackId] = useState(null);
   const [generateMessage, setGenerateMessage] = useState({});
   const [packImages, setPackImages] = useState({});
-  const [reviewingImageId, setReviewingImageId] = useState(null);
   const [latestJobId, setLatestJobId] = useState(null);
   const [latestJobStatus, setLatestJobStatus] = useState(null);
   const [requestToast, setRequestToast] = useState(null);
@@ -96,79 +93,11 @@ export default function WordSetDetailView() {
     } catch (err) { console.error("Error removing word:", err); }
   };
 
-  const handleCreatePack = async () => {
-    if (!newPackLabel.trim()) return;
-    try {
-      await apiClient.post(`/word-sets/${setId}/packs/`, { label: newPackLabel.trim(), word_ids: [] });
-      setNewPackLabel('');
-      await fetchPacks();
-    } catch (err) { console.error('Error creating pack:', err); }
-  };
-
-  const handleDeletePack = async (packId) => {
-    if (!window.confirm('Delete this pack?')) return;
-    try {
-      await apiClient.delete(`/word-sets/${setId}/packs/${packId}/`);
-      await fetchPacks();
-    } catch (err) { console.error('Error deleting pack:', err); }
-  };
-
-  const handleAddWordToPack = async (packId, wordId) => {
-    const pack = packs.find(p => p.id === packId);
-    if (!pack) return;
-    if (pack.words.length >= 9) { alert('Max 9 words per pack.'); return; }
-    const newWordIds = [...pack.words.map(w => w.id), wordId];
-    try {
-      await apiClient.patch(`/word-sets/${setId}/packs/${packId}/`, { word_ids: newWordIds });
-      await fetchPacks();
-    } catch (err) { console.error('Error adding word to pack:', err); }
-  };
-
-  const handleRemoveWordFromPack = async (packId, wordId) => {
-    const pack = packs.find(p => p.id === packId);
-    if (!pack) return;
-    const newWordIds = pack.words.filter(w => w.id !== wordId).map(w => w.id);
-    try {
-      await apiClient.patch(`/word-sets/${setId}/packs/${packId}/`, { word_ids: newWordIds });
-      await fetchPacks();
-    } catch (err) { console.error('Error removing word from pack:', err); }
-  };
-  const handleGenerateContent = async (packId) => {
-    setGeneratingPackId(packId);
-    setGenerateMessage(prev => ({ ...prev, [packId]: null }));
-    try {
-      const res = await apiClient.post(`/word-sets/${setId}/packs/${packId}/generate/`);
-      const s = res.data.summary;
-      setGenerateMessage(prev => ({
-        ...prev,
-        [packId]: { type: 'success', text: `Generated ${s.primer_cards} primer cards, ${s.cloze_items} cloze items${s.story ? ', 1 story' : ''}${s.images ? `, ${s.images} images` : ''}.` },
-      }));
-      await fetchPackImages(packId);
-    } catch (err) {
-      const msg = err.response?.data?.error || 'Generation failed.';
-      setGenerateMessage(prev => ({ ...prev, [packId]: { type: 'error', text: msg } }));
-    } finally { setGeneratingPackId(null); }
-  };
-
   const fetchPackImages = async (packId) => {
     try {
       const res = await apiClient.get(`/word-sets/${setId}/packs/${packId}/images/`);
       setPackImages(prev => ({ ...prev, [packId]: res.data }));
     } catch (err) { console.error('Error fetching images:', err); }
-  };
-
-  const handleApproveImage = async (packId, imageId) => {
-    setReviewingImageId(imageId);
-    try { await apiClient.post(`/word-sets/${setId}/packs/${packId}/images/${imageId}/approve/`); await fetchPackImages(packId); }
-    catch (err) { console.error('Error approving image:', err); }
-    finally { setReviewingImageId(null); }
-  };
-
-  const handleRejectImage = async (packId, imageId) => {
-    setReviewingImageId(imageId);
-    try { await apiClient.post(`/word-sets/${setId}/packs/${packId}/images/${imageId}/reject/`); await fetchPackImages(packId); }
-    catch (err) { console.error('Error rejecting image:', err); }
-    finally { setReviewingImageId(null); }
   };
 
   const availableWords = useMemo(() => {
@@ -233,7 +162,7 @@ export default function WordSetDetailView() {
           {wordSet.generation_status === 'GENERATION_REQUESTED' && (
             <span className="t-badge t-badge--requested" style={{ padding: '6px 12px', fontSize: '0.8rem' }}>Generation Requested</span>
           )}
-          {user?.role === 'ADMIN' && (
+          {user?.role === 'ADMIN' && wordSet.generation_status !== 'GENERATED' && wordSet.generation_status !== 'GENERATING' && (
             <button className="t-btn t-btn--primary t-btn--sm" onClick={() => navigate(`/teacher/generate/${setId}`)}>Generate Full Pipeline</button>
           )}
           {latestJobId && (
@@ -318,19 +247,13 @@ export default function WordSetDetailView() {
               <>
                 {packImages[pack.id] && packImages[pack.id].length > 0 && (
                   <div style={{ marginTop: 12, borderTop: '1px solid var(--t-border)', paddingTop: 12 }}>
-                    <p style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: 8 }}>Image Review</p>
+                    <p style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: 8 }}>Generated Images</p>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10 }}>
                       {packImages[pack.id].filter(img => img.status !== 'REJECTED').map((img) => (
-                        <div key={img.id} style={{ border: `2px solid ${img.status === 'APPROVED' ? 'var(--t-success)' : img.status === 'PENDING_REVIEW' ? 'var(--t-warning)' : 'var(--t-border)'}`, borderRadius: 'var(--t-radius)', padding: 8, textAlign: 'center' }}>
+                        <div key={img.id} style={{ border: '2px solid var(--t-success)', borderRadius: 'var(--t-radius)', padding: 8, textAlign: 'center' }}>
                           <img src={img.image_url} alt={img.term} style={{ width: '100%', borderRadius: 4, marginBottom: 4 }} />
                           <p style={{ fontSize: '0.8rem', fontWeight: 500, margin: '4px 0' }}>{img.term}</p>
-                          <p style={{ fontSize: '0.7rem', color: img.status === 'APPROVED' ? 'var(--t-success)' : 'var(--t-warning)', margin: '0 0 4px' }}>{img.status === 'APPROVED' ? 'Approved' : 'Pending Review'}</p>
-                          {img.status === 'PENDING_REVIEW' && (
-                            <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
-                              <button className="t-btn t-btn--accent t-btn--sm" onClick={() => handleApproveImage(pack.id, img.id)} disabled={reviewingImageId === img.id} style={{ fontSize: '0.72rem' }}>Approve</button>
-                              <button className="t-btn t-btn--danger t-btn--sm" onClick={() => handleRejectImage(pack.id, img.id)} disabled={reviewingImageId === img.id} style={{ fontSize: '0.72rem' }}>Reject</button>
-                            </div>
-                          )}
+                          <p style={{ fontSize: '0.7rem', color: 'var(--t-success)', margin: '0 0 4px' }}>Auto-approved</p>
                         </div>
                       ))}
                     </div>

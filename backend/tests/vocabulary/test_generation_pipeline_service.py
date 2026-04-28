@@ -509,7 +509,7 @@ class TestStepGenerateImages:
 
         assert GeneratedImage.objects.filter(word=word).count() == 1
         img = GeneratedImage.objects.get(word=word)
-        assert img.status == GeneratedImage.Status.PENDING_REVIEW
+        assert img.status == GeneratedImage.Status.APPROVED
 
     @patch('vocabulary.services.generation_pipeline_service.call_gemini_image')
     def test_updates_images_created_counter(self, mock_gemini):

@@ -3,7 +3,7 @@ RED tests for v2 API views.
 Tests written BEFORE implementation — all should fail initially.
 """
 import pytest
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -24,6 +24,13 @@ from tests.factories import (
     ClozeItemFactory, StudentGroupFactory, CurriculumFactory, LevelFactory,
     GenerationJobFactory,
 )
+
+
+def _later_today():
+    return timezone.make_aware(
+        datetime.combine(timezone.localdate(), time(23, 59)),
+        timezone.get_current_timezone(),
+    )
 
 
 def _seed_mastery_levels():
@@ -127,6 +134,16 @@ class TestNextPracticeWordView:
         response = self.client.get('/api/practice/next/')
         assert response.status_code == 200
         assert 'question_text' in response.data
+        assert response.data['term_text'] == 'bright'
+
+    def test_returns_question_due_later_today(self):
+        progress = UserWordProgress.objects.get(user=self.student, word=self.word)
+        progress.next_review_at = _later_today()
+        progress.save()
+
+        response = self.client.get('/api/practice/next/')
+
+        assert response.status_code == 200
         assert response.data['term_text'] == 'bright'
 
     def test_returns_reason_category(self):
@@ -423,6 +440,21 @@ class TestStudentDashboardView:
         assert response.data['daily_goal_min'] == self.student.daily_goal_min
         assert response.data['daily_goal_max'] == self.student.daily_goal_max
 
+    def test_counts_words_due_later_today(self):
+        word = WordFactory(text='bright')
+        question = QuestionFactory(word=word, lexile_score=650)
+        level1 = MasteryLevel.objects.get(level_id=1)
+        question.suitable_levels.add(level1)
+        UserWordProgress.objects.create(
+            user=self.student, word=word,
+            level=level1, next_review_at=_later_today(),
+        )
+
+        response = self.client.get('/api/student/dashboard/')
+
+        assert response.status_code == 200
+        assert response.data['words_due_today'] == 1
+
 
 @pytest.mark.django_db
 class TestStudentGoalPromptView:
@@ -717,6 +749,28 @@ class TestWordSetViewSet:
         response = self.client.delete(f'/api/word-sets/{ws.id}/')
         assert response.status_code == 204
 
+    def test_cannot_update_word_set_after_generation_requested(self):
+        ws = WordSetFactory(
+            creator=self.teacher,
+            generation_status=WordSet.GenerationStatus.GENERATION_REQUESTED,
+            input_words=['bright'],
+        )
+        response = self.client.patch(f'/api/word-sets/{ws.id}/', {
+            'input_words': ['bright', 'discover'],
+        }, format='json')
+        assert response.status_code == 400
+        ws.refresh_from_db()
+        assert ws.input_words == ['bright']
+
+    def test_cannot_delete_generated_word_set(self):
+        ws = WordSetFactory(
+            creator=self.teacher,
+            generation_status=WordSet.GenerationStatus.GENERATED,
+        )
+        response = self.client.delete(f'/api/word-sets/{ws.id}/')
+        assert response.status_code == 400
+        assert WordSet.objects.filter(id=ws.id).exists()
+
     def test_cannot_edit_others_word_set(self):
         other_teacher = TeacherUserFactory()
         ws = WordSetFactory(creator=other_teacher)
@@ -769,6 +823,15 @@ class TestWordSetAddRemoveWordActions:
         assert response.status_code == 200
         assert self.ws.words.filter(id=self.word.id).exists()
 
+    def test_cannot_add_word_after_generation_starts(self):
+        self.ws.generation_status = WordSet.GenerationStatus.GENERATION_REQUESTED
+        self.ws.save(update_fields=['generation_status'])
+        response = self.client.post(f'/api/word-sets/{self.ws.id}/add_word/', {
+            'word_id': self.word.id,
+        })
+        assert response.status_code == 400
+        assert not self.ws.words.filter(id=self.word.id).exists()
+
     def test_remove_word(self):
         self.ws.words.add(self.word)
         response = self.client.post(f'/api/word-sets/{self.ws.id}/remove_word/', {
@@ -776,6 +839,16 @@ class TestWordSetAddRemoveWordActions:
         })
         assert response.status_code == 200
         assert not self.ws.words.filter(id=self.word.id).exists()
+
+    def test_cannot_remove_word_after_generation_starts(self):
+        self.ws.words.add(self.word)
+        self.ws.generation_status = WordSet.GenerationStatus.GENERATING
+        self.ws.save(update_fields=['generation_status'])
+        response = self.client.post(f'/api/word-sets/{self.ws.id}/remove_word/', {
+            'word_id': self.word.id,
+        })
+        assert response.status_code == 400
+        assert self.ws.words.filter(id=self.word.id).exists()
 
 
 # =============================================================================
@@ -1055,3 +1128,18 @@ class TestGenerationViews:
         client = _make_client(student)
         response = client.get('/api/generation-jobs/1/')
         assert response.status_code == 403
+
+    def test_admin_cannot_add_words_to_generated_set(self):
+        admin = AdminUserFactory()
+        ws = WordSetFactory(
+            creator=admin,
+            generation_status=WordSet.GenerationStatus.GENERATED,
+            input_words=['bright'],
+        )
+        client = _make_client(admin)
+        response = client.post(f'/api/word-sets/{ws.id}/add-words/', {
+            'words': ['discover'],
+        }, format='json')
+        assert response.status_code == 400
+        ws.refresh_from_db()
+        assert ws.input_words == ['bright']

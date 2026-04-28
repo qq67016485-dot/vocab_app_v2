@@ -23,12 +23,9 @@ export default function GenerationWizard() {
   const { user } = useUser();
   const [step, setStep] = useState(1);
   const [wordSet, setWordSet] = useState(null);
-  const [isAddWordsMode, setIsAddWordsMode] = useState(false);
   const [jobId, setJobId] = useState(null);
   const [reviewData, setReviewData] = useState(null);
   const [activeTab, setActiveTab] = useState('words');
-  const [isApproving, setIsApproving] = useState(false);
-  const [approveMessage, setApproveMessage] = useState('');
   const [formData, setFormData] = useState({ words: '', source_title: '', source_chapter: '', source_text: '', target_language: 'zh-CN' });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -39,7 +36,6 @@ export default function GenerationWizard() {
         const res = await apiClient.get(`/word-sets/${setId}/`);
         setWordSet(res.data);
         const alreadyGenerated = res.data.generation_status === 'GENERATED';
-        setIsAddWordsMode(alreadyGenerated);
         const prefilledWords = alreadyGenerated ? '' : Array.isArray(res.data.input_words) ? res.data.input_words.join('\n') : '';
         setFormData(prev => ({ ...prev, words: prefilledWords, source_title: res.data.input_source_title || res.data.title || '', source_chapter: res.data.input_source_chapter || '', source_text: res.data.source_text || '' }));
         if (alreadyGenerated) {
@@ -68,8 +64,7 @@ export default function GenerationWizard() {
     if (wordList.length === 0) { setError('Please enter at least one word.'); return; }
     setIsSubmitting(true); setError('');
     try {
-      const endpoint = isAddWordsMode ? `/word-sets/${setId}/add-words/` : `/word-sets/${setId}/generate/`;
-      const res = await apiClient.post(endpoint, { words: wordList, source_title: formData.source_title, source_chapter: formData.source_chapter, source_text: formData.source_text, target_lexile: wordSet?.target_lexile || 650, target_language: formData.target_language });
+      const res = await apiClient.post(`/word-sets/${setId}/generate/`, { words: wordList, source_title: formData.source_title, source_chapter: formData.source_chapter, source_text: formData.source_text, target_lexile: wordSet?.target_lexile || 650, target_language: formData.target_language });
       setJobId(res.data.job_id); setStep(2);
     } catch (err) { setError(err.response?.data?.error || 'Failed to start generation.'); }
     finally { setIsSubmitting(false); }
@@ -80,13 +75,6 @@ export default function GenerationWizard() {
     catch (err) { console.error('Error fetching content for review:', err); setError('Failed to load generated content for review.'); setStep(3); }
   }, []);
   const handleJobFail = useCallback(() => {}, []);
-
-  const handleApproveAll = async () => {
-    setIsApproving(true); setApproveMessage('');
-    try { const res = await apiClient.post(`/generation-jobs/${jobId}/approve/`); setApproveMessage(`Approved. ${res.data.images_approved} image(s) approved.`); }
-    catch (err) { setApproveMessage(err.response?.data?.error || 'Approval failed.'); }
-    finally { setIsApproving(false); }
-  };
 
   const renderStepIndicator = () => (
     <div className="gen-steps">
@@ -100,15 +88,9 @@ export default function GenerationWizard() {
 
   const renderInputStep = () => (
     <div>
-      {isAddWordsMode && (
-        <div className="t-message" style={{ background: '#eff6ff', color: '#1e40af', marginBottom: 12 }}>
-          This word set already has generated content. Enter only the new words you want to add.
-          {wordSet?.input_words?.length > 0 && <div className="t-hint" style={{ marginTop: 4 }}>Existing words: {wordSet.input_words.join(', ')}</div>}
-        </div>
-      )}
       <div className="t-form-group">
-        <label className="t-form-label">{isAddWordsMode ? 'New Words to Add' : 'Word List'} (one per line or comma-separated)</label>
-        <textarea className="t-form-textarea" name="words" value={formData.words} onChange={handleChange} rows="8" placeholder={isAddWordsMode ? 'Enter new words only...' : 'abundant\nbenevolent\ncascade'} style={{ fontFamily: 'var(--t-font-mono)' }} />
+        <label className="t-form-label">Word List (one per line or comma-separated)</label>
+        <textarea className="t-form-textarea" name="words" value={formData.words} onChange={handleChange} rows="8" placeholder={'abundant\nbenevolent\ncascade'} style={{ fontFamily: 'var(--t-font-mono)' }} />
       </div>
       <div className="t-form-row">
         <div className="t-form-group"><label className="t-form-label">Source Title</label><input className="t-form-input" name="source_title" value={formData.source_title} onChange={handleChange} /></div>
@@ -123,7 +105,7 @@ export default function GenerationWizard() {
       <div className="t-form-group"><label className="t-form-label">Source Text / Passage (optional)</label><textarea className="t-form-textarea" name="source_text" value={formData.source_text} onChange={handleChange} rows="4" placeholder="Paste a passage for additional context..." /></div>
       {error && <p style={{ color: 'var(--t-danger)', marginBottom: 12, fontSize: '0.85rem' }}>{error}</p>}
       <button className="t-btn t-btn--primary" onClick={handleStartGeneration} disabled={isSubmitting}>
-        {isSubmitting ? 'Starting...' : isAddWordsMode ? 'Add Words & Generate' : 'Start Generation'}
+        {isSubmitting ? 'Starting...' : 'Start Generation'}
       </button>
     </div>
   );
@@ -151,10 +133,7 @@ export default function GenerationWizard() {
             {tabs.map(t => (<button key={t.key} onClick={() => setActiveTab(t.key)} className={`t-tab${activeTab === t.key ? ' t-tab--active' : ''}`}>{t.label}</button>))}
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            {approveMessage && <span style={{ fontSize: '0.85rem', color: approveMessage.startsWith('Approved') ? 'var(--t-success)' : 'var(--t-danger)' }}>{approveMessage}</span>}
-            <button className="t-btn t-btn--accent t-btn--sm" onClick={handleApproveAll} disabled={isApproving}>{isApproving ? 'Approving...' : 'Approve All'}</button>
             <button className="t-btn t-btn--secondary t-btn--sm" onClick={() => navigate(`/teacher/word-sets/${setId}`)}>Back to Word Set</button>
-            <button className="t-btn t-btn--secondary t-btn--sm" onClick={() => { setStep(1); setReviewData(null); setIsAddWordsMode(true); }}>Add More Words</button>
           </div>
         </div>
         {activeTab === 'words' && renderWordsTab()}
@@ -236,7 +215,7 @@ export default function GenerationWizard() {
   return (
     <div>
       <div className="t-page-header">
-        <h1 className="t-page-title">{isAddWordsMode ? 'Add Words to' : 'Generate Content for'} "{wordSet?.title || '...'}"</h1>
+        <h1 className="t-page-title">Generate Content for "{wordSet?.title || '...'}"</h1>
       </div>
       {renderStepIndicator()}
       {step === 1 && renderInputStep()}

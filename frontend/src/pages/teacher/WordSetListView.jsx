@@ -170,6 +170,7 @@ export default function WordSetListView() {
         <div>
           {filteredWordSets.map(set => {
             const badge = STATUS_BADGE[set.generation_status];
+            const isLocked = ['GENERATION_REQUESTED', 'GENERATING', 'GENERATED'].includes(set.generation_status);
             return (
               <div key={set.id} className="t-card">
                 <button
@@ -205,8 +206,12 @@ export default function WordSetListView() {
                   {(set.creator_username === user.username || user.role === 'ADMIN') && (
                     <>
                       <button className="t-btn t-btn--secondary t-btn--sm" onClick={() => navigate(`/teacher/word-sets/${set.id}`)}>Manage Words</button>
-                      <button className="t-btn t-btn--secondary t-btn--sm" onClick={() => handleEditClick(set)}>Edit Details</button>
-                      <button className="t-btn t-btn--danger t-btn--sm" onClick={() => handleDeleteClick(set.id, set.title)}>Delete</button>
+                      {!isLocked && (
+                        <>
+                          <button className="t-btn t-btn--secondary t-btn--sm" onClick={() => handleEditClick(set)}>Edit Details</button>
+                          <button className="t-btn t-btn--danger t-btn--sm" onClick={() => handleDeleteClick(set.id, set.title)}>Delete</button>
+                        </>
+                      )}
                     </>
                   )}
                 </div>

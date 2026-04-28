@@ -587,8 +587,8 @@ def _step_auto_create_packs(job, words, words_data):
     Step 5: Use LLM to group words into semantically related packs.
     Falls back to sequential chunking if LLM fails.
 
-    If packs already exist for this word set (incremental add), appends new words
-    to existing packs instead of creating duplicates.
+    If packs already exist for this word set during a resumed job, appends any
+    unpacked generated words instead of creating duplicates.
 
     Returns:
         list[WordPack]: All pack objects (existing + new).
@@ -603,7 +603,7 @@ def _step_auto_create_packs(job, words, words_data):
         .order_by('order')
     )
 
-    # Incremental mode: add new words to existing packs
+    # Resume mode: add any generated words that are not already in packs.
     if existing_packs:
         # Find which words are already in packs
         packed_word_ids = set()
@@ -657,7 +657,7 @@ def _step_auto_create_packs(job, words, words_data):
                 new_packs.append(pack)
 
         logger.info(
-            "Incremental packing: %d added to existing, %d new packs created",
+            "Resume packing: %d added to existing, %d new packs created",
             added_to_existing, len(new_packs),
         )
 
@@ -829,7 +829,7 @@ def _step_generate_primers(job, words, words_data):
 def _step_generate_stories_and_cloze(job, packs, words_data):
     """
     Step 7: Call LLM to generate micro story + cloze items for each pack.
-    Skips packs that already have stories (incremental add scenario).
+    Skips packs that already have stories when resuming a partially completed job.
     """
     start = time.time()
     try:

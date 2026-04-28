@@ -11,8 +11,6 @@ export default function GenerationReview() {
   const [job, setJob] = useState(null);
   const [content, setContent] = useState(null);
   const [activeTab, setActiveTab] = useState('words');
-  const [isApproving, setIsApproving] = useState(false);
-  const [approveMessage, setApproveMessage] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -35,13 +33,6 @@ export default function GenerationReview() {
     catch (err) { setError('Failed to load generated content.'); }
   }, []);
   const handleJobFail = useCallback((jobData) => { setJob(jobData); }, []);
-
-  const handleApproveAll = async () => {
-    setIsApproving(true); setApproveMessage('');
-    try { const res = await apiClient.post(`/generation-jobs/${jobId}/approve/`); setApproveMessage(`Approved. ${res.data.images_approved} image(s) approved.`); }
-    catch (err) { setApproveMessage(err.response?.data?.error || 'Approval failed.'); }
-    finally { setIsApproving(false); }
-  };
 
   if (user?.role !== 'ADMIN') return <p style={{ padding: '2rem' }}>Only admins can review generation jobs.</p>;
   if (error) return <p style={{ padding: '2rem', color: 'var(--t-danger)' }}>{error}</p>;
@@ -75,8 +66,6 @@ export default function GenerationReview() {
           {tabs.map(t => (<button key={t.key} onClick={() => setActiveTab(t.key)} className={`t-tab${activeTab === t.key ? ' t-tab--active' : ''}`}>{t.label}</button>))}
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          {approveMessage && <span style={{ fontSize: '0.85rem', color: approveMessage.startsWith('Approved') ? 'var(--t-success)' : 'var(--t-danger)' }}>{approveMessage}</span>}
-          <button className="t-btn t-btn--accent t-btn--sm" onClick={handleApproveAll} disabled={isApproving}>{isApproving ? 'Approving...' : 'Approve All'}</button>
           <button className="t-btn t-btn--secondary t-btn--sm" onClick={() => navigate(`/teacher/word-sets/${job.word_set_id}`)}>Back to Word Set</button>
         </div>
       </div>

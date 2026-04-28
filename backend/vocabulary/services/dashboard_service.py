@@ -24,6 +24,7 @@ from vocabulary.models import (
     Word, WordDefinition, Translation,
 )
 from vocabulary.constants import QUESTION_TYPE_TO_SKILL_TAG, QUESTION_TYPE_TO_PATTERN
+from vocabulary.utils import end_of_local_day
 
 logger = logging.getLogger(__name__)
 
@@ -226,10 +227,10 @@ class DashboardService:
                 )
                 skills_map[user_id][pattern] += 1
 
-        today_date = timezone.now().date()
+        due_cutoff = end_of_local_day()
         due_counts_qs = UserWordProgress.objects.filter(
             user_id__in=student_ids,
-            next_review_at__lte=timezone.now(),
+            next_review_at__lte=due_cutoff,
             instructional_status='READY',
         ).values('user_id').annotate(due_count=Count('id'))
 
