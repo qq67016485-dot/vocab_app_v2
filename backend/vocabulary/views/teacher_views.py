@@ -40,6 +40,11 @@ def _can_edit_word_set(user, word_set):
     return word_set.creator == user or user.role == CustomUser.Role.ADMIN
 
 
+def _can_delete_word_set(user, word_set):
+    """Return True if the user can remove the word set."""
+    return word_set.creator == user or user.role == CustomUser.Role.ADMIN
+
+
 def _is_word_set_locked(word_set):
     """Return True once the word set has entered the generation lifecycle."""
     return word_set.generation_status in {
@@ -163,11 +168,14 @@ class WordSetViewSet(viewsets.ModelViewSet):
             instance.save(update_fields=['generation_status'])
 
     def perform_destroy(self, instance):
-        if not _can_edit_word_set(self.request.user, instance):
+        if not _can_delete_word_set(self.request.user, instance):
             raise serializers.ValidationError(
                 "You do not have permission to delete this Word Set.",
             )
-        if _is_word_set_locked(instance):
+        if (
+            _is_word_set_locked(instance)
+            and self.request.user.role != CustomUser.Role.ADMIN
+        ):
             raise serializers.ValidationError(
                 "This Word Set is locked because generation has started.",
             )

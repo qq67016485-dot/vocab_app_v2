@@ -749,6 +749,25 @@ class TestWordSetViewSet:
         response = self.client.delete(f'/api/word-sets/{ws.id}/')
         assert response.status_code == 204
 
+    def test_admin_can_delete_others_word_set(self):
+        admin = AdminUserFactory()
+        ws = WordSetFactory(creator=self.teacher)
+        client = _make_client(admin)
+        response = client.delete(f'/api/word-sets/{ws.id}/')
+        assert response.status_code == 204
+        assert not WordSet.objects.filter(id=ws.id).exists()
+
+    def test_admin_can_delete_others_generated_word_set(self):
+        admin = AdminUserFactory()
+        ws = WordSetFactory(
+            creator=self.teacher,
+            generation_status=WordSet.GenerationStatus.GENERATED,
+        )
+        client = _make_client(admin)
+        response = client.delete(f'/api/word-sets/{ws.id}/')
+        assert response.status_code == 204
+        assert not WordSet.objects.filter(id=ws.id).exists()
+
     def test_cannot_update_word_set_after_generation_requested(self):
         ws = WordSetFactory(
             creator=self.teacher,
