@@ -138,7 +138,7 @@ class UserWordProgressFactory(factory.django.DjangoModelFactory):
     word = factory.SubFactory(WordFactory)
     level = factory.SubFactory(MasteryLevelFactory)
     mastery_points = 0
-    next_review_date = factory.LazyFunction(timezone.localdate)
+    next_review_at = factory.LazyFunction(timezone.now)
 
 
 class CurriculumFactory(factory.django.DjangoModelFactory):

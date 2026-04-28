@@ -4,10 +4,14 @@ These are NEW in v2 (no v1 equivalent).
 """
 import threading
 
+from django.db import transaction
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+STALE_JOB_THRESHOLD_SECONDS = 900
 
 from ..models import (
     GenerationJob, GenerationJobLog, GeneratedImage, WordSet,
@@ -57,6 +61,15 @@ class TriggerGenerationView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        active_job = word_set.generation_jobs.filter(
+            status__in=[GenerationJob.Status.PENDING, GenerationJob.Status.RUNNING],
+        ).first()
+        if active_job:
+            return Response(
+                {'error': 'A generation job is already running for this word set.', 'job_id': active_job.id},
+                status=status.HTTP_409_CONFLICT,
+            )
+
         words = request.data.get('words', [])
         if not words and word_set.input_words:
             words = word_set.input_words
@@ -65,6 +78,8 @@ class TriggerGenerationView(APIView):
                 {'error': 'Word list is required.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        words = list(dict.fromkeys(w.strip() for w in words if w.strip()))
 
         job = GenerationJob.objects.create(
             word_set=word_set,
@@ -103,6 +118,14 @@ class GenerationJobStatusView(APIView):
                 {'error': 'Job not found.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
+
+        if job.status in (GenerationJob.Status.RUNNING, GenerationJob.Status.PENDING):
+            latest_log = job.logs.order_by('-created_at').first()
+            last_activity = latest_log.created_at if latest_log else job.created_at
+            if (timezone.now() - last_activity).total_seconds() > STALE_JOB_THRESHOLD_SECONDS:
+                job.status = GenerationJob.Status.FAILED
+                job.error_message = 'Job stalled — no activity for 15 minutes. You can resume the pipeline.'
+                job.save(update_fields=['status', 'error_message'])
 
         return Response({
             'id': job.id,
@@ -328,17 +351,22 @@ class ResumeGenerationJobView(APIView):
 
     def post(self, request, job_id):
         try:
-            job = GenerationJob.objects.get(id=job_id)
+            with transaction.atomic():
+                job = GenerationJob.objects.select_for_update().get(id=job_id)
+
+                if job.status != GenerationJob.Status.FAILED:
+                    return Response(
+                        {'error': 'Only failed jobs can be resumed.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                job.status = GenerationJob.Status.RUNNING
+                job.error_message = ''
+                job.save(update_fields=['status', 'error_message'])
         except GenerationJob.DoesNotExist:
             return Response(
                 {'error': 'Job not found.'},
                 status=status.HTTP_404_NOT_FOUND,
-            )
-
-        if job.status != GenerationJob.Status.FAILED:
-            return Response(
-                {'error': 'Only failed jobs can be resumed.'},
-                status=status.HTTP_400_BAD_REQUEST,
             )
 
         thread = threading.Thread(
@@ -398,6 +426,8 @@ class AddWordsAndGenerateView(APIView):
                 {'error': 'Word list is required.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        submitted_words = list(dict.fromkeys(w.strip() for w in submitted_words if w.strip()))
 
         # Filter out words already in the word set (case-insensitive)
         existing_texts = set(
@@ -585,6 +615,8 @@ class WordSetContentView(APIView):
                 {'error': 'Word list is required.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        submitted_words = list(dict.fromkeys(w.strip() for w in submitted_words if w.strip()))
 
         # Filter out words already in the word set (case-insensitive)
         existing_texts = set(

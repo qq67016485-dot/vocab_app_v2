@@ -59,6 +59,10 @@ export default function StudentDashboard() {
   useEffect(() => {
     if (!dashboardData) return;
     const today = new Date().toISOString().slice(0, 10);
+
+    const welcomeKey = `welcome_dismissed_${user?.id || 'anon'}`;
+    if (localStorage.getItem(welcomeKey) === today) return;
+
     const lastPrompt = dashboardData.last_goal_prompt_date;
     const alreadyShownToday = lastPrompt === today;
     if (alreadyShownToday) return;
@@ -79,12 +83,13 @@ export default function StudentDashboard() {
 
   const dismissWelcome = async (adjustment) => {
     setShowWelcome(false);
+    const today = new Date().toISOString().slice(0, 10);
+    localStorage.setItem(`welcome_dismissed_${user?.id || 'anon'}`, today);
     if (adjustment !== 0) {
       const newGoal = Math.max(
         dashboardData.daily_goal_min,
         Math.min(dashboardData.daily_question_limit + adjustment, dashboardData.daily_goal_max),
       );
-      const today = new Date().toISOString().slice(0, 10);
       sessionStorage.setItem('daily_goal_override', JSON.stringify({ value: newGoal, date: today }));
     }
     if (welcomeHasGoalAdjust) {
@@ -384,3 +389,5 @@ export default function StudentDashboard() {
         </div>
       )}
     </div>
+  );
+}

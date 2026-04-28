@@ -82,7 +82,7 @@ class TestPracticeServiceProcessAnswer:
             user=self.student,
             word=self.word,
             level=level1,
-            next_review_date=timezone.localdate(),
+            next_review_at=timezone.now(),
         )
 
     def test_correct_answer_increments_mastery_points(self):
@@ -147,6 +147,94 @@ class TestPracticeServiceProcessAnswer:
 
 
 @pytest.mark.django_db
+class TestAdaptiveIntervals:
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        _seed_mastery_levels()
+        self.student = StudentUserFactory()
+        self.word = WordFactory(text='bright')
+        self.defn = WordDefinitionFactory(word=self.word)
+        self.question = QuestionFactory(
+            word=self.word,
+            correct_answers=['shining'],
+            options=['shining', 'dark', 'quiet', 'slow'],
+        )
+        level1 = MasteryLevel.objects.get(level_id=1)
+        self.mastery = UserWordProgress.objects.create(
+            user=self.student,
+            word=self.word,
+            level=level1,
+            next_review_at=timezone.now(),
+        )
+
+    def test_correct_answer_increases_learning_speed(self):
+        PracticeService.process_answer(
+            self.student, self.question.id, 'shining', 5, 0,
+        )
+        self.mastery.refresh_from_db()
+        assert self.mastery.learning_speed > 1.0
+
+    def test_incorrect_answer_decreases_learning_speed(self):
+        PracticeService.process_answer(
+            self.student, self.question.id, 'wrong', 5, 0,
+        )
+        self.mastery.refresh_from_db()
+        assert self.mastery.learning_speed < 1.0
+
+    def test_learning_speed_ema_formula(self):
+        PracticeService.process_answer(
+            self.student, self.question.id, 'shining', 5, 0,
+        )
+        self.mastery.refresh_from_db()
+        expected = 0.3 * 1.2 + 0.7 * 1.0  # 1.06
+        assert abs(self.mastery.learning_speed - expected) < 0.001
+
+    def test_next_review_at_is_datetime(self):
+        PracticeService.process_answer(
+            self.student, self.question.id, 'shining', 5, 0,
+        )
+        self.mastery.refresh_from_db()
+        assert self.mastery.next_review_at is not None
+        assert hasattr(self.mastery.next_review_at, 'hour')
+
+    def test_adaptive_interval_scales_with_learning_speed(self):
+        self.mastery.learning_speed = 1.5
+        self.mastery.save()
+        before = timezone.now()
+        PracticeService.process_answer(
+            self.student, self.question.id, 'shining', 5, 0,
+        )
+        self.mastery.refresh_from_db()
+        new_speed = 0.3 * 1.2 + 0.7 * 1.5  # 1.41
+        expected_days = self.mastery.level.interval_days * new_speed
+        actual_delta = (self.mastery.next_review_at - before).total_seconds() / 86400
+        assert abs(actual_delta - expected_days) < 0.05
+
+    def test_minimum_interval_is_half_day(self):
+        self.mastery.learning_speed = 0.1
+        self.mastery.save()
+        before = timezone.now()
+        PracticeService.process_answer(
+            self.student, self.question.id, 'wrong', 5, 0,
+        )
+        self.mastery.refresh_from_db()
+        actual_delta = (self.mastery.next_review_at - before).total_seconds() / 86400
+        assert actual_delta >= 0.49
+
+    def test_retry_does_not_update_learning_speed(self):
+        PracticeService.process_answer(
+            self.student, self.question.id, 'wrong', 5, 0,
+        )
+        self.mastery.refresh_from_db()
+        speed_after_wrong = self.mastery.learning_speed
+        PracticeService.process_answer(
+            self.student, self.question.id, 'shining', 5, 0, is_retry=True,
+        )
+        self.mastery.refresh_from_db()
+        assert self.mastery.learning_speed == speed_after_wrong
+
+
+@pytest.mark.django_db
 class TestPracticeServiceStreak:
     def test_streak_increments_on_consecutive_days(self):
         student = StudentUserFactory()
@@ -189,7 +277,7 @@ class TestDashboardServiceStudentProgress:
         level1 = MasteryLevel.objects.get(level_id=1)
         UserWordProgress.objects.create(
             user=self.student, word=self.word,
-            level=level1, next_review_date=timezone.localdate(),
+            level=level1, next_review_at=timezone.now(),
         )
 
     def test_returns_student_username(self):
@@ -444,7 +532,7 @@ class TestInstructionalServiceCompletePack:
         level1 = MasteryLevel.objects.get(level_id=1)
         UserWordProgress.objects.create(
             user=self.student, word=self.word,
-            level=level1, next_review_date=timezone.localdate(),
+            level=level1, next_review_at=timezone.now(),
             instructional_status='PENDING',
         )
 

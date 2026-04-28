@@ -3,8 +3,7 @@
 /* Warm background for the entire instructional flow */
 .instructional-shell {
   background: #fdf8f0;
-  min-height: 100vh;
-  padding: var(--space-6);
+  padding: var(--space-6) 0;
 }
 
 .instructional-header {
@@ -16,7 +15,7 @@
 
 .instructional-header h2 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1.33rem;
   color: var(--text);
 }
 
@@ -24,7 +23,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: 0.85rem;
+  font-size: 0.98rem;
   color: var(--muted);
 }
 
@@ -55,7 +54,7 @@
 }
 
 .primer-counter {
-  font-size: 0.85rem;
+  font-size: 0.98rem;
   color: var(--muted);
   margin-bottom: var(--space-4);
   text-align: center;
@@ -67,7 +66,7 @@
 }
 
 .primer-syllable-headline {
-  font-size: 2.2rem;
+  font-size: 2.33rem;
   font-weight: 800;
   color: var(--accent, #d97706);
   letter-spacing: 0.06em;
@@ -78,14 +77,14 @@
 }
 
 .primer-term-sub {
-  font-size: 1rem;
+  font-size: 1.13rem;
   font-weight: 500;
   color: var(--muted);
   margin-top: var(--space-1);
 }
 
 .primer-pos {
-  font-size: 0.9rem;
+  font-size: 1.03rem;
   color: var(--muted);
   font-style: italic;
   font-weight: 400;
@@ -101,7 +100,7 @@
 }
 
 .primer-syllable {
-  font-size: 1.15rem;
+  font-size: 1.28rem;
   color: var(--muted);
 }
 
@@ -125,21 +124,21 @@
 }
 
 .primer-definition {
-  font-size: 1.1rem;
+  font-size: 1.23rem;
   line-height: 1.5;
   color: #333333;
   margin: 0;
 }
 
 .primer-translation-text {
-  font-size: 1.2rem;
+  font-size: 1.33rem;
   color: #666666;
   margin: var(--space-2) 0 0;
   line-height: 1.4;
 }
 
 .primer-example {
-  font-size: 1.05rem;
+  font-size: 1.18rem;
   line-height: 1.5;
   color: #333333;
   margin: var(--space-3) 0;
@@ -152,7 +151,7 @@
 }
 
 .primer-ex-translation-text {
-  font-size: 1.05rem;
+  font-size: 1.18rem;
   color: #666666;
   margin: 0 0 var(--space-3);
   text-align: left;
@@ -164,7 +163,7 @@
   border: 1px dashed var(--border);
   border-radius: 99px;
   padding: 0.3rem 0.8rem;
-  font-size: 0.85rem;
+  font-size: 0.98rem;
   color: var(--muted);
   cursor: pointer;
   margin: var(--space-2) 0 0;
@@ -188,7 +187,7 @@
   border: none;
   border-radius: var(--radius-m);
   padding: 0.8rem 1.5rem;
-  font-size: 1rem;
+  font-size: 1.13rem;
   font-weight: 700;
   cursor: pointer;
   transition: background 0.15s ease;
@@ -204,13 +203,13 @@
   border: none;
   border-radius: var(--radius-m);
   padding: 0.8rem 1.5rem;
-  font-size: 1rem;
+  font-size: 1.13rem;
   font-weight: 700;
   cursor: pointer;
 }
 
 .primer-counter {
-  font-size: 0.85rem;
+  font-size: 0.98rem;
   color: var(--muted);
   margin-bottom: var(--space-4);
 }
@@ -227,7 +226,7 @@
 }
 
 .story-text {
-  font-size: 1.1rem;
+  font-size: 1.23rem;
   line-height: 1.8;
   color: var(--text);
 }
@@ -265,12 +264,12 @@
 
 .story-tooltip-word {
   font-weight: 700;
-  font-size: 1rem;
+  font-size: 1.13rem;
   margin-bottom: var(--space-2);
 }
 
 .story-tooltip-def {
-  font-size: 0.9rem;
+  font-size: 1.03rem;
   color: var(--muted);
 }
 
@@ -282,7 +281,7 @@
   border: none;
   border-radius: var(--radius-m);
   padding: 0.8rem 2rem;
-  font-size: 1rem;
+  font-size: 1.13rem;
   font-weight: 700;
   cursor: pointer;
 }
@@ -300,7 +299,7 @@
 }
 
 .cloze-sentence {
-  font-size: 1.2rem;
+  font-size: 1.33rem;
   line-height: 1.6;
   color: var(--text);
   margin-bottom: var(--space-6);
@@ -330,7 +329,8 @@
   border: 2px solid #e8ddd0;
   border-radius: var(--radius-m);
   padding: 0.75rem 1rem;
-  font-size: 1.05rem;
+  font-size: 1.18rem;
+  color: var(--text, #333);
   cursor: pointer;
   transition: all 0.15s ease;
   min-height: 44px;
@@ -368,7 +368,7 @@
   border: none;
   border-radius: var(--radius-m);
   padding: 0.7rem 1.5rem;
-  font-size: 1rem;
+  font-size: 1.13rem;
   font-weight: 700;
   cursor: pointer;
 }
@@ -386,7 +386,7 @@
 }
 
 .summary-score {
-  font-size: 2rem;
+  font-size: 2.13rem;
   font-weight: 800;
   color: #d97706;
   margin: var(--space-4) 0;
@@ -405,7 +405,7 @@
   color: #92400e;
   padding: 0.3rem 0.7rem;
   border-radius: 99px;
-  font-size: 0.9rem;
+  font-size: 1.03rem;
   font-weight: 600;
 }
 
@@ -416,7 +416,7 @@
   border: none;
   border-radius: var(--radius-m);
   padding: 0.8rem 2rem;
-  font-size: 1rem;
+  font-size: 1.13rem;
   font-weight: 700;
   cursor: pointer;
 }

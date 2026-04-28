@@ -64,7 +64,7 @@ class MasteryLevelAdmin(admin.ModelAdmin):
 
 @admin.register(UserWordProgress)
 class UserWordProgressAdmin(admin.ModelAdmin):
-    list_display = ('user', 'word', 'level', 'mastery_points', 'next_review_date', 'instructional_status')
+    list_display = ('user', 'word', 'level', 'mastery_points', 'next_review_at', 'learning_speed', 'instructional_status')
     list_filter = ('level', 'instructional_status')
     search_fields = ('user__username', 'word__text')
 

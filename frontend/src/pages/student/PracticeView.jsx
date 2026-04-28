@@ -152,6 +152,17 @@ export default function PracticeView() {
   const fetchNextQuestion = async () => {
     if (!skipGoalCheck.current && sessionGoalTotal > 0 && questionsAnsweredThisSession >= sessionGoalTotal) {
       if (sessionGoalTotal + 5 <= dailyGoalMax) {
+        try {
+          const peek = await apiClient.get('/practice/next/', {
+            params: { session_start: sessionStartTime.current, peek: true },
+          });
+          if (peek.data.message) {
+            setFinishMessage("You've reviewed everything available!");
+            return;
+          }
+        } catch {
+          // If peek fails, fall through to show the prompt anyway
+        }
         setShowKeepGoingPrompt(true);
         return;
       }
@@ -261,6 +272,7 @@ export default function PracticeView() {
 
       setTypoHint('');
       setQuestionsAnsweredThisSession((prev) => prev + 1);
+      if (data.is_correct) document.activeElement?.blur();
       playFeedbackSound(data.is_correct);
       setFeedback(data);
       if (data.is_correct) {
@@ -323,6 +335,7 @@ export default function PracticeView() {
       setTypoHint('');
 
       if (data.is_correct) {
+        document.activeElement?.blur();
         playFeedbackSound(true);
         setRetryMode(false);
         setRetryFeedback(data);
@@ -408,28 +421,31 @@ export default function PracticeView() {
     const feedbackSource = retryFeedback || feedback;
     const correctDone = feedbackSource?.is_correct && !retryMode;
 
+    const isLastQuestion = sessionGoalTotal > 0 && questionsAnsweredThisSession >= sessionGoalTotal;
+    const nextLabel = isLastQuestion ? 'Finish Session' : 'Next Question';
+
     const correctFeedbackBlock = correctDone ? (
       <div className="correct-inline-feedback" style={{ marginTop: '20px' }}>
-        <div className="feedback-header">
-          <span className="feedback-chip correct">{correctMessage || 'Correct!'}</span>
-        </div>
         {!showExplanation ? (
-          <div className="correct-actions">
-            <button
-              className="correct-action-btn outline"
-              onClick={() => setShowExplanation(true)}
-              type="button"
-            >
-              Explain
-            </button>
-            <button
-              className="correct-action-btn filled"
-              onClick={fetchNextQuestion}
-              type="button"
-            >
-              Next Question
-            </button>
-          </div>
+          <>
+            <p className="correct-encouragement">{correctMessage || 'Correct!'}</p>
+            <div className="correct-actions">
+              <button
+                className="correct-action-btn outline"
+                onClick={() => setShowExplanation(true)}
+                type="button"
+              >
+                Explain
+              </button>
+              <button
+                className="correct-action-btn filled"
+                onClick={fetchNextQuestion}
+                type="button"
+              >
+                {nextLabel}
+              </button>
+            </div>
+          </>
         ) : (
           <>
             {feedbackSource.explanation && (
@@ -452,13 +468,14 @@ export default function PracticeView() {
                 <p className="block-body">{feedbackSource.example_sentence}</p>
               </div>
             )}
+            <p className="correct-encouragement">{correctMessage || 'Correct!'}</p>
             <button
               className="correct-action-btn filled"
               onClick={fetchNextQuestion}
               type="button"
-              style={{ width: '100%', marginTop: '10px' }}
+              style={{ width: '100%' }}
             >
-              Next Question
+              {nextLabel}
             </button>
           </>
         )}
@@ -488,20 +505,22 @@ export default function PracticeView() {
       question.question_type !== 'DEFINITION_TRUE_FALSE';
 
     const retryHintBlock = retryMode ? (
-      <div className="retry-hint-block">
+      <>
         {incorrectMessage && (
-          <p className="retry-encouragement">{incorrectMessage}</p>
+          <div className="retry-encouragement-banner">
+            <span className="retry-encouragement-text">{incorrectMessage}</span>
+          </div>
         )}
         {hintText && (
-          <>
+          <div className="retry-hint-block">
             <div className="block-title">
               Hint
               <TextToSpeechButton textToSpeak={hintText} />
             </div>
             <p className="block-body"><em>{hintText}</em></p>
-          </>
+          </div>
         )}
-      </div>
+      </>
     ) : null;
 
     if (
@@ -579,7 +598,7 @@ export default function PracticeView() {
                   style={{ marginTop: '20px', width: '100%' }}
                   onClick={fetchNextQuestion}
                 >
-                  Next Question
+                  {nextLabel}
                 </button>
               )}
               {userAnswer && (

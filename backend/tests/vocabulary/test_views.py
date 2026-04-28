@@ -120,7 +120,7 @@ class TestNextPracticeWordView:
         self.question.suitable_levels.add(level1)
         UserWordProgress.objects.create(
             user=self.student, word=self.word,
-            level=level1, next_review_date=timezone.localdate(),
+            level=level1, next_review_at=timezone.now(),
         )
 
     def test_returns_question(self):
@@ -149,7 +149,7 @@ class TestNextPracticeWordView:
     def test_no_due_words_message(self):
         # Move review date to future
         progress = UserWordProgress.objects.get(user=self.student, word=self.word)
-        progress.next_review_date = timezone.localdate() + timedelta(days=7)
+        progress.next_review_at = timezone.now() + timedelta(days=7)
         progress.save()
         response = self.client.get('/api/practice/next/')
         assert response.status_code == 200
@@ -179,7 +179,7 @@ class TestSubmitAnswerView:
         level1 = MasteryLevel.objects.get(level_id=1)
         UserWordProgress.objects.create(
             user=self.student, word=self.word,
-            level=level1, next_review_date=timezone.localdate(),
+            level=level1, next_review_at=timezone.now(),
         )
 
     def test_correct_answer(self):
@@ -452,7 +452,7 @@ class TestStudentGoalPromptView:
         level1 = MasteryLevel.objects.get(level_id=1)
         UserWordProgress.objects.create(
             user=student, word=word,
-            level=level1, next_review_date=timezone.localdate(),
+            level=level1, next_review_at=timezone.now(),
         )
         client = _make_client(student)
         response = client.get('/api/student/words-by-level/1/')
@@ -651,7 +651,7 @@ class TestCompletePackView:
         level1 = MasteryLevel.objects.get(level_id=1)
         UserWordProgress.objects.create(
             user=self.student, word=self.word,
-            level=level1, next_review_date=timezone.localdate(),
+            level=level1, next_review_at=timezone.now(),
             instructional_status='PENDING',
         )
 
@@ -982,7 +982,7 @@ class TestWordViewSet:
         level1 = MasteryLevel.objects.get(level_id=1)
         UserWordProgress.objects.create(
             user=self.student, word=word,
-            level=level1, next_review_date=timezone.localdate(),
+            level=level1, next_review_at=timezone.now(),
         )
         response = self.client.get('/api/words/')
         assert response.status_code == 200

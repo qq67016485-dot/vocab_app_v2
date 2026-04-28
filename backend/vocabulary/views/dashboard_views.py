@@ -46,7 +46,7 @@ class StudentDashboardView(APIView):
 
         words_due_qs = UserWordProgress.objects.filter(
             user=student,
-            next_review_date__lte=today,
+            next_review_at__lte=timezone.now(),
             instructional_status='READY',
         ).filter(lexile_filter).distinct()
 

@@ -229,7 +229,7 @@ class DashboardService:
         today_date = timezone.now().date()
         due_counts_qs = UserWordProgress.objects.filter(
             user_id__in=student_ids,
-            next_review_date__lte=today_date,
+            next_review_at__lte=timezone.now(),
             instructional_status='READY',
         ).values('user_id').annotate(due_count=Count('id'))
 

@@ -20,6 +20,7 @@ import time
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.core.files.base import ContentFile
+from django.db import close_old_connections
 from django.utils import timezone
 
 from vocabulary.models import (
@@ -144,17 +145,20 @@ def run_full_pipeline(job_id):
     Main entry point. Runs all pipeline steps sequentially.
     Tracks last_completed_step and updates word_set.generation_status.
     """
-    job = GenerationJob.objects.select_related('word_set').get(id=job_id)
-    job.status = GenerationJob.Status.RUNNING
-    job.error_message = ''
-    job.save(update_fields=['status', 'error_message'])
-
-    # Clear any existing words from the word_set to avoid duplicates on re-run
-    job.word_set.words.clear()
-
-    words, words_data, packs = [], [], []
+    close_old_connections()
+    job = None
 
     try:
+        job = GenerationJob.objects.select_related('word_set').get(id=job_id)
+        job.status = GenerationJob.Status.RUNNING
+        job.error_message = ''
+        job.save(update_fields=['status', 'error_message'])
+
+        # Clear any existing words from the word_set to avoid duplicates on re-run
+        job.word_set.words.clear()
+
+        words, words_data, packs = [], [], []
+
         for step in PIPELINE_STEP_ORDER:
             words, words_data, packs = _run_step(
                 job, step, words, words_data, packs,
@@ -170,13 +174,18 @@ def run_full_pipeline(job_id):
         job.word_set.save(update_fields=['generation_status'])
 
     except Exception as exc:
-        logger.exception("Pipeline failed for job %s at step %s: %s", job_id, job.last_completed_step, exc)
-        job.status = GenerationJob.Status.FAILED
-        job.error_message = str(exc)
-        job.save(update_fields=['status', 'error_message'])
+        logger.exception("Pipeline failed for job %s: %s", job_id, exc)
+        try:
+            if job is None:
+                job = GenerationJob.objects.get(id=job_id)
+            job.status = GenerationJob.Status.FAILED
+            job.error_message = str(exc)
+            job.save(update_fields=['status', 'error_message'])
 
-        job.word_set.generation_status = WordSet.GenerationStatus.TO_GENERATE
-        job.word_set.save(update_fields=['generation_status'])
+            job.word_set.generation_status = WordSet.GenerationStatus.TO_GENERATE
+            job.word_set.save(update_fields=['generation_status'])
+        except Exception:
+            logger.exception("Failed to mark job %s as FAILED in database", job_id)
 
 
 def resume_pipeline(job_id):
@@ -184,31 +193,34 @@ def resume_pipeline(job_id):
     Resume a failed pipeline from the step after last_completed_step.
     Reconstructs intermediate state from DB.
     """
-    job = GenerationJob.objects.select_related('word_set').get(id=job_id)
-    if job.status != GenerationJob.Status.FAILED:
-        raise ValueError(f"Job {job_id} is not in FAILED status (current: {job.status})")
-
-    job.status = GenerationJob.Status.RUNNING
-    job.error_message = ''
-    job.save(update_fields=['status', 'error_message'])
-
-    job.word_set.generation_status = WordSet.GenerationStatus.GENERATING
-    job.word_set.save(update_fields=['generation_status'])
-
-    # Find where to resume
-    if job.last_completed_step:
-        try:
-            last_idx = PIPELINE_STEP_ORDER.index(job.last_completed_step)
-            remaining_steps = PIPELINE_STEP_ORDER[last_idx + 1:]
-        except ValueError:
-            remaining_steps = PIPELINE_STEP_ORDER
-    else:
-        remaining_steps = PIPELINE_STEP_ORDER
-
-    # Reconstruct state from DB
-    words, words_data, packs = _reconstruct_context(job)
+    close_old_connections()
+    job = None
 
     try:
+        job = GenerationJob.objects.select_related('word_set').get(id=job_id)
+        if job.status not in (GenerationJob.Status.FAILED, GenerationJob.Status.RUNNING):
+            raise ValueError(f"Job {job_id} cannot be resumed (current: {job.status})")
+
+        job.status = GenerationJob.Status.RUNNING
+        job.error_message = ''
+        job.save(update_fields=['status', 'error_message'])
+
+        job.word_set.generation_status = WordSet.GenerationStatus.GENERATING
+        job.word_set.save(update_fields=['generation_status'])
+
+        # Find where to resume
+        if job.last_completed_step:
+            try:
+                last_idx = PIPELINE_STEP_ORDER.index(job.last_completed_step)
+                remaining_steps = PIPELINE_STEP_ORDER[last_idx + 1:]
+            except ValueError:
+                remaining_steps = PIPELINE_STEP_ORDER
+        else:
+            remaining_steps = PIPELINE_STEP_ORDER
+
+        # Reconstruct state from DB
+        words, words_data, packs = _reconstruct_context(job)
+
         for step in remaining_steps:
             words, words_data, packs = _run_step(
                 job, step, words, words_data, packs,
@@ -224,13 +236,18 @@ def resume_pipeline(job_id):
         job.word_set.save(update_fields=['generation_status'])
 
     except Exception as exc:
-        logger.exception("Resume failed for job %s at step %s: %s", job_id, job.last_completed_step, exc)
-        job.status = GenerationJob.Status.FAILED
-        job.error_message = str(exc)
-        job.save(update_fields=['status', 'error_message'])
+        logger.exception("Resume failed for job %s: %s", job_id, exc)
+        try:
+            if job is None:
+                job = GenerationJob.objects.get(id=job_id)
+            job.status = GenerationJob.Status.FAILED
+            job.error_message = str(exc)
+            job.save(update_fields=['status', 'error_message'])
 
-        job.word_set.generation_status = WordSet.GenerationStatus.TO_GENERATE
-        job.word_set.save(update_fields=['generation_status'])
+            job.word_set.generation_status = WordSet.GenerationStatus.TO_GENERATE
+            job.word_set.save(update_fields=['generation_status'])
+        except Exception:
+            logger.exception("Failed to mark job %s as FAILED in database", job_id)
 
 
 def _step_word_lookup(job):
@@ -290,7 +307,16 @@ def _step_dedup_and_persist(job, words_data):
     words = []
     new_count = 0
 
+    # Deduplicate words_data by term (case-insensitive) — LLM may return duplicates
+    seen_terms = set()
+    unique_words_data = []
     for wd in words_data:
+        key = wd['term'].lower()
+        if key not in seen_terms:
+            seen_terms.add(key)
+            unique_words_data.append(wd)
+
+    for wd in unique_words_data:
         term = wd['term']
         pos = wd.get('part_of_speech', '')
         definition = wd.get('definition', '')

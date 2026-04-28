@@ -129,7 +129,7 @@ class InstructionalService:
 
     @staticmethod
     def complete_pack(user, pack_id):
-        """Mark pack done, flip words to READY, set next_review_date = today."""
+        """Mark pack done, flip words to READY, set next_review_at = now."""
         try:
             pack = WordPack.objects.prefetch_related('items__word').get(id=pack_id)
         except WordPack.DoesNotExist:
@@ -151,7 +151,7 @@ class InstructionalService:
             instructional_status='PENDING',
         ).update(
             instructional_status='READY',
-            next_review_date=timezone.localdate(),
+            next_review_at=timezone.now(),
         )
 
         return True

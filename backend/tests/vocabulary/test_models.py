@@ -188,12 +188,12 @@ class TestUserWordProgress:
         level = MasteryLevelFactory(level_id=1)
         UserWordProgress.objects.create(
             user=student, word=word, level=level,
-            next_review_date=timezone.localdate(),
+            next_review_at=timezone.now(),
         )
         with pytest.raises(Exception):
             UserWordProgress.objects.create(
                 user=student, word=word, level=level,
-                next_review_date=timezone.localdate(),
+                next_review_at=timezone.now(),
             )
 
 

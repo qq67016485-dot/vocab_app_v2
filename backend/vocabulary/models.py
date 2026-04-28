@@ -126,8 +126,12 @@ class UserWordProgress(models.Model):
     word = models.ForeignKey(Word, on_delete=models.CASCADE, related_name='user_progress')
     level = models.ForeignKey(MasteryLevel, on_delete=models.PROTECT)
     mastery_points = models.IntegerField(default=0)
-    next_review_date = models.DateField()
+    next_review_at = models.DateTimeField()
     last_reviewed_at = models.DateTimeField(null=True, blank=True)
+    learning_speed = models.FloatField(
+        default=1.0,
+        help_text='Per-student-word adaptive multiplier for review intervals.',
+    )
     instructional_status = models.CharField(
         max_length=20, choices=INSTRUCTIONAL_STATUS_CHOICES, default='READY',
     )

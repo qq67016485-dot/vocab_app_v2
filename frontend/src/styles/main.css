@@ -13,6 +13,7 @@ body {
   background-color: #f4f7f9;
   color: #333;
   margin: 0;
+  scrollbar-gutter: stable;
 }
 
 #root {

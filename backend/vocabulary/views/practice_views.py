@@ -60,12 +60,12 @@ class NextPracticeWordView(APIView):
             'word', 'level',
         ).filter(
             user=user,
-            next_review_date__lte=today,
+            next_review_at__lte=timezone.now(),
             instructional_status='READY',
         ).filter(
             word__questions__lexile_score__gte=user.lexile_min,
             word__questions__lexile_score__lte=user.lexile_max,
-        ).distinct().order_by('next_review_date')
+        ).distinct().order_by('next_review_at')
 
         if answered_word_ids:
             due_records = due_records.exclude(word_id__in=answered_word_ids)

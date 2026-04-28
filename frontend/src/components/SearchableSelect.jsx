@@ -88,7 +88,7 @@ export default function SearchableSelect({
           <li onClick={() => handleSelect('__other__')}
             style={{
               padding: '6px 12px', cursor: 'pointer', fontSize: '0.85rem', fontStyle: 'italic',
-              color: 'var(--t-primary)', borderTop: '1px solid var(--t-border-light)', background: 'none', border: 'none', borderTop: '1px solid var(--t-border-light)', margin: 0,
+              color: 'var(--t-primary)', background: 'none', border: 'none', borderTop: '1px solid var(--t-border-light)', margin: 0,
             }}
             onMouseEnter={(e) => e.currentTarget.style.background = 'var(--t-primary-light)'}
             onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}

@@ -91,7 +91,7 @@ class AssignmentService:
                     word=word,
                     defaults={
                         'level': starting_level,
-                        'next_review_date': timezone.localdate(),
+                        'next_review_at': timezone.now(),
                         'instructional_status': inst_status,
                     },
                 )

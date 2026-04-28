@@ -204,8 +204,15 @@ class PracticeService:
                         xp_earned += 5
                         bonus_info['good_old_memory'] = 5
 
-                mastery_record.next_review_date = timezone.localdate() + timedelta(
-                    days=mastery_record.level.interval_days,
+                quality = 1.2 if is_correct else 0.5
+                alpha = 0.3
+                mastery_record.learning_speed = (
+                    alpha * quality + (1 - alpha) * mastery_record.learning_speed
+                )
+
+                adaptive_days = mastery_record.level.interval_days * mastery_record.learning_speed
+                mastery_record.next_review_at = timezone.now() + timedelta(
+                    days=max(0.5, adaptive_days),
                 )
                 mastery_record.last_reviewed_at = timezone.now()
                 mastery_record.save()

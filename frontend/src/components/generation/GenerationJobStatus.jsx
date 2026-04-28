@@ -89,11 +89,10 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
                 const [jobRes, logsRes] = await Promise.all([apiClient.get(`/generation-jobs/${jobId}/`), apiClient.get(`/generation-jobs/${jobId}/logs/`)]);
                 setJob(jobRes.data); setLogs(logsRes.data);
                 if (jobRes.data.status === 'COMPLETED' || jobRes.data.status === 'PARTIALLY_COMPLETED') { clearInterval(intervalRef.current); onComplete?.(jobRes.data); }
-                else if (jobRes.data.status === 'FAILED') { clearInterval(intervalRef.current); onFail?.(jobRes.data); }
+                else if (jobRes.data.status === 'FAILED') { clearInterval(intervalRef.current); setIsResuming(false); onFail?.(jobRes.data); }
               };
               poll(); intervalRef.current = setInterval(poll, POLL_INTERVAL);
-            } catch (err) { setError(err.response?.data?.error || 'Failed to resume pipeline.'); }
-            finally { setIsResuming(false); }
+            } catch (err) { setError(err.response?.data?.error || 'Failed to resume pipeline.'); setIsResuming(false); }
           }} disabled={isResuming}>
           {isResuming ? 'Resuming...' : 'Resume Pipeline'}
         </button>
