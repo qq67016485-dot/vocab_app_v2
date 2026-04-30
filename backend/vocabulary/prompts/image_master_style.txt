@@ -1,0 +1,19 @@
+Art Style:
+- High-quality anime illustration with cinematic lighting and atmospheric depth
+- Rich, saturated color palette with strong light-shadow contrast and ambient glow
+- Detailed rendering: textured materials, environmental particles (dust motes, sparks, leaves, light rays), subtle bokeh or depth-of-field on background
+- Dynamic composition with a clear focal point — use leading lines, rim lighting, or color contrast to draw the eye
+- Professional-grade character art: expressive faces, detailed hair and clothing folds, natural poses with weight and momentum
+- Square composition (800x800), single scene, no text/letters/numbers/watermarks
+
+Rendering Quality:
+- Treat this as a key visual or poster illustration, not a simple diagram
+- Add atmosphere: time-of-day lighting (golden hour, blue hour, dramatic overhead sun), weather effects, environmental mood
+- Use color temperature contrast (warm subject against cool background, or vice versa) to create visual depth
+- Include secondary details that enrich the scene without distracting from the focal action
+
+Word: {word}
+Definition: {definition}
+Visual Scene: {visual_scene}
+
+Generate this scene as a premium anime illustration. The word's meaning must be immediately clear from the central action or subject — but render it with the production quality of a movie key frame. The scene should feel alive: rich lighting, atmospheric depth, and polished detail throughout.
