@@ -97,45 +97,77 @@ class TestCallAnthropic:
 
 
 @pytest.mark.django_db
-class TestCallGeminiImage:
-    """Test llm_service.call_gemini_image()"""
+class TestCallOpenaiImage:
+    """Test llm_service.call_openai_image()"""
 
-    @patch('vocabulary.services.llm_service.genai')
-    def test_returns_image_bytes(self, mock_genai):
+    @patch('httpx.get')
+    @patch('openai.OpenAI')
+    def test_returns_image_bytes(self, mock_openai_cls, mock_httpx_get):
         mock_client = MagicMock()
-        mock_genai.Client.return_value = mock_client
+        mock_openai_cls.return_value = mock_client
 
-        mock_image_part = MagicMock()
-        mock_image_part.inline_data.data = b'\x89PNG_FAKE_IMAGE'
-        mock_candidate = MagicMock()
-        mock_candidate.content.parts = [mock_image_part]
+        mock_image = MagicMock()
+        mock_image.url = 'https://example.com/image.png'
+        mock_image.b64_json = None
         mock_response = MagicMock()
-        mock_response.candidates = [mock_candidate]
-        mock_client.models.generate_content.return_value = mock_response
+        mock_response.data = [mock_image]
+        mock_client.images.generate.return_value = mock_response
 
-        from vocabulary.services.llm_service import call_gemini_image
-        result = call_gemini_image('A colorful illustration of a cat')
+        mock_httpx_get.return_value = MagicMock(content=b'\x89PNG_FAKE_IMAGE')
+
+        from vocabulary.services.llm_service import call_openai_image
+        result = call_openai_image('A colorful illustration of a cat')
         assert isinstance(result, bytes)
         assert result == b'\x89PNG_FAKE_IMAGE'
+        mock_httpx_get.assert_called_once_with(
+            'https://example.com/image.png', follow_redirects=True, timeout=60,
+        )
 
-    @patch('vocabulary.services.llm_service.genai')
-    def test_passes_prompt_to_client(self, mock_genai):
+    @patch('httpx.get')
+    @patch('openai.OpenAI')
+    def test_passes_prompt_to_client(self, mock_openai_cls, mock_httpx_get):
         mock_client = MagicMock()
-        mock_genai.Client.return_value = mock_client
+        mock_openai_cls.return_value = mock_client
 
-        mock_image_part = MagicMock()
-        mock_image_part.inline_data.data = b'img'
-        mock_candidate = MagicMock()
-        mock_candidate.content.parts = [mock_image_part]
+        mock_image = MagicMock()
+        mock_image.url = 'https://example.com/image.png'
+        mock_image.b64_json = None
         mock_response = MagicMock()
-        mock_response.candidates = [mock_candidate]
-        mock_client.models.generate_content.return_value = mock_response
+        mock_response.data = [mock_image]
+        mock_client.images.generate.return_value = mock_response
 
-        from vocabulary.services.llm_service import call_gemini_image
-        call_gemini_image('test prompt')
-        mock_client.models.generate_content.assert_called_once()
-        call_args = mock_client.models.generate_content.call_args
-        assert call_args.kwargs['contents'] == 'test prompt'
+        mock_httpx_get.return_value = MagicMock(content=b'img')
+
+        from vocabulary.services.llm_service import call_openai_image
+        call_openai_image('test prompt')
+        mock_client.images.generate.assert_called_once()
+        call_args = mock_client.images.generate.call_args
+        assert call_args.kwargs['prompt'] == 'test prompt'
+        assert call_args.kwargs['model'] == 'gpt-image-2'
+
+    @patch('vocabulary.services.llm_service._log_llm_call')
+    @patch('httpx.get')
+    @patch('openai.OpenAI')
+    def test_logs_image_prompt(self, mock_openai_cls, mock_httpx_get, mock_log):
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+
+        mock_image = MagicMock()
+        mock_image.url = 'https://example.com/image.png'
+        mock_image.b64_json = None
+        mock_response = MagicMock()
+        mock_response.data = [mock_image]
+        mock_client.images.generate.return_value = mock_response
+
+        mock_httpx_get.return_value = MagicMock(content=b'img')
+
+        from vocabulary.services.llm_service import call_openai_image
+        call_openai_image('exact image prompt')
+
+        mock_log.assert_called_once()
+        assert mock_log.call_args.args[0] == 'gpt-image-2_image'
+        assert mock_log.call_args.args[1] == 'OpenAI image generation'
+        assert mock_log.call_args.args[2] == 'exact image prompt'
 
 
 class TestLoadPromptTemplate:

@@ -86,15 +86,20 @@ class NextPracticeWordView(APIView):
             lexile_score__lte=user.lexile_max,
         )
 
-        question = Question.objects.filter(
-            word=word,
-            suitable_levels=current_level,
-        ).filter(lexile_q).order_by('?').first()
-
-        if not question:
+        if current_level.is_hidden:
             question = Question.objects.filter(
                 word=word,
             ).filter(lexile_q).order_by('?').first()
+        else:
+            question = Question.objects.filter(
+                word=word,
+                suitable_levels=current_level,
+            ).filter(lexile_q).order_by('?').first()
+
+            if not question:
+                question = Question.objects.filter(
+                    word=word,
+                ).filter(lexile_q).order_by('?').first()
 
         if not question:
             return Response({
@@ -126,6 +131,10 @@ class NextPracticeWordView(APIView):
 class SubmitAnswerView(APIView):
     permission_classes = [IsAuthenticated]
 
+    @staticmethod
+    def _typo_retry_key(user_id, question_id):
+        return f'typo_retry:{user_id}:{question_id}'
+
     def post(self, request, *args, **kwargs):
         question_id = request.data.get('question_id')
         user_answer = request.data.get('user_answer')
@@ -141,14 +150,26 @@ class SubmitAnswerView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        typo_retry_key = self._typo_retry_key(request.user.id, question_id)
+        had_typo_retry = False
+        if not is_retry:
+            had_typo_retry = bool(request.session.pop(typo_retry_key, False))
+
         try:
             response_data = PracticeService.process_answer(
                 request.user, question_id, user_answer,
                 duration_seconds, answer_switches,
                 is_retry=is_retry,
+                had_typo_retry=had_typo_retry,
             )
+            if response_data.get('is_typo') and not is_retry:
+                request.session[typo_retry_key] = True
+                request.session.modified = True
             return Response(response_data)
         except ValueError as e:
+            if had_typo_retry:
+                request.session[typo_retry_key] = True
+                request.session.modified = True
             return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
 
 

@@ -26,11 +26,11 @@ from django.utils import timezone
 from vocabulary.models import (
     Word, WordDefinition, DefinitionEmbedding, Translation,
     Question, MasteryLevel, WordSet, WordPack, WordPackItem, PrimerCardContent,
-    MicroStory, ClozeItem, GeneratedImage,
+    MicroStory, GraphicNovel, GraphicNovelPage, ClozeItem, GeneratedImage,
     GenerationJob, GenerationJobLog,
 )
 from vocabulary.services.llm_service import (
-    call_anthropic, call_gemini, call_gemini_image, load_prompt_template,
+    call_gemini, call_openai_image, load_prompt_template,
 )
 from vocabulary.constants import QUESTION_TYPE_LEVEL
 from vocabulary.services.embedding_service import (
@@ -40,6 +40,7 @@ from vocabulary.services.embedding_service import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = 'gemini-3.1-pro-preview'
+BACKUP_MODEL = 'gemini-3-pro-preview'
 
 # Content Lexile should be 15% below the word set's target Lexile
 # so scaffolding text is easier to read than the vocabulary being taught.
@@ -74,10 +75,18 @@ PIPELINE_STEP_ORDER = [
     GenerationJobLog.Step.QUESTION_GEN,
     GenerationJobLog.Step.PACK_CREATION,
     GenerationJobLog.Step.PRIMER_GEN,
-    GenerationJobLog.Step.STORY_CLOZE_GEN,
+    GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
+    GenerationJobLog.Step.GRAPHIC_NOVEL_IMAGES,
+    GenerationJobLog.Step.CREATIVE_DIRECTION,
     GenerationJobLog.Step.IMAGE_GEN,
     GenerationJobLog.Step.PICTURE_MATCH_GEN,
 ]
+
+
+def _validate_pipeline_step(step):
+    if step not in PIPELINE_STEP_ORDER:
+        valid_steps = ', '.join(PIPELINE_STEP_ORDER)
+        raise ValueError(f"Unknown pipeline step '{step}'. Valid steps: {valid_steps}")
 
 
 def _reconstruct_context(job):
@@ -100,39 +109,162 @@ def _reconstruct_context(job):
     return words, words_data, packs
 
 
-def _is_retryable_error(exc):
-    """Check if the exception is a transient API error worth retrying."""
-    msg = str(exc)
-    return 'bad_response_body' in msg or 'unexpected end of JSON input' in msg
+def _clear_testing_outputs_for_step(job, step, words):
+    """
+    Remove generated artifacts for a step before a manual testing rerun.
+
+    This is intentionally scoped to the job/word set and exists for prompt
+    iteration, where rerunning should not be blocked by resume-safety skips.
+    """
+    S = GenerationJobLog.Step
+    word_ids = [word.id for word in words]
+
+    if step == S.DEDUP:
+        job.word_set.words.clear()
+        job.words_created = 0
+        job.save(update_fields=['words_created'])
+
+    elif step == S.TRANSLATION and word_ids:
+        definition_ids = WordDefinition.objects.filter(
+            word_id__in=word_ids,
+        ).values_list('id', flat=True)
+        definition_ct = ContentType.objects.get_for_model(WordDefinition)
+        Translation.objects.filter(
+            content_type=definition_ct,
+            object_id__in=definition_ids,
+            language=job.target_language,
+        ).delete()
+
+    elif step == S.QUESTION_GEN:
+        Question.objects.filter(generation_job=job).exclude(
+            question_type=Question.QuestionType.PICTURE_WORD_MATCH,
+        ).delete()
+        job.questions_created = 0
+        job.save(update_fields=['questions_created'])
+
+    elif step == S.PACK_CREATION:
+        WordPack.objects.filter(word_set=job.word_set).delete()
+        job.stories_created = 0
+        job.graphic_novels_created = 0
+        job.cloze_items_created = 0
+        job.save(update_fields=[
+            'stories_created', 'graphic_novels_created', 'cloze_items_created',
+        ])
+
+    elif step == S.PRIMER_GEN and word_ids:
+        PrimerCardContent.objects.filter(word_id__in=word_ids).delete()
+        job.primer_cards_created = 0
+        job.save(update_fields=['primer_cards_created'])
+
+    elif step == S.STORY_CLOZE_GEN:
+        packs = WordPack.objects.filter(word_set=job.word_set)
+        MicroStory.objects.filter(pack__in=packs).delete()
+        ClozeItem.objects.filter(pack__in=packs).delete()
+        job.stories_created = 0
+        job.cloze_items_created = 0
+        job.save(update_fields=['stories_created', 'cloze_items_created'])
+
+    elif step == S.GRAPHIC_NOVEL_SCRIPT:
+        packs = WordPack.objects.filter(word_set=job.word_set)
+        GraphicNovel.objects.filter(pack__in=packs).delete()
+        ClozeItem.objects.filter(pack__in=packs).delete()
+        job.graphic_novels_created = 0
+        job.cloze_items_created = 0
+        job.save(update_fields=['graphic_novels_created', 'cloze_items_created'])
+
+    elif step == S.GRAPHIC_NOVEL_IMAGES:
+        packs = WordPack.objects.filter(word_set=job.word_set)
+        GraphicNovelPage.objects.filter(novel__pack__in=packs).update(
+            image='', prompt_used='',
+        )
+
+    elif step == S.CREATIVE_DIRECTION and word_ids:
+        WordDefinition.objects.filter(word_id__in=word_ids).update(visual_scene='')
+
+    elif step == S.IMAGE_GEN and word_ids:
+        GeneratedImage.objects.filter(word_id__in=word_ids).delete()
+        job.images_created = 0
+        job.save(update_fields=['images_created'])
+
+    elif step == S.PICTURE_MATCH_GEN:
+        Question.objects.filter(
+            generation_job=job,
+            question_type=Question.QuestionType.PICTURE_WORD_MATCH,
+        ).delete()
+
+
+def _clear_testing_outputs(job, steps, words):
+    for step in steps:
+        _clear_testing_outputs_for_step(job, step, words)
+
+
+def _step_uses_generation_model(step):
+    return step in {
+        GenerationJobLog.Step.WORD_LOOKUP,
+        GenerationJobLog.Step.TRANSLATION,
+        GenerationJobLog.Step.QUESTION_GEN,
+        GenerationJobLog.Step.PACK_CREATION,
+        GenerationJobLog.Step.PRIMER_GEN,
+        GenerationJobLog.Step.STORY_CLOZE_GEN,
+        GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
+        GenerationJobLog.Step.CREATIVE_DIRECTION,
+    }
 
 
 def _run_step(job, step, words, words_data, packs):
-    """Dispatch a single pipeline step. Retries once on transient API errors."""
+    """Dispatch a single pipeline step with one retry, then backup model fallback."""
     S = GenerationJobLog.Step
-    try:
-        return _execute_step(job, step, words, words_data, packs, S)
-    except Exception as exc:
-        if _is_retryable_error(exc):
-            logger.warning("Retryable error on step %s, retrying once: %s", step, exc)
-            return _execute_step(job, step, words, words_data, packs, S)
-        raise
+    attempts = [DEFAULT_MODEL, DEFAULT_MODEL]
+    if _step_uses_generation_model(step):
+        attempts.append(BACKUP_MODEL)
+
+    for attempt_number, model in enumerate(attempts, 1):
+        try:
+            return _execute_step(job, step, words, words_data, packs, S, model)
+        except Exception as exc:
+            if attempt_number == len(attempts):
+                raise
+
+            next_model = attempts[attempt_number]
+            logger.warning(
+                "Step %s failed on attempt %d using model %s; retrying with %s: %s",
+                step, attempt_number, model, next_model, exc,
+            )
+            _log_step(
+                job,
+                step,
+                GenerationJob.Status.FAILED,
+                input_data={
+                    'attempt': attempt_number,
+                    'model': model,
+                    'next_model': next_model,
+                },
+                output_data={'retrying': True},
+                error_message=str(exc),
+            )
 
 
-def _execute_step(job, step, words, words_data, packs, S):
+def _execute_step(job, step, words, words_data, packs, S, model):
     if step == S.WORD_LOOKUP:
-        words_data = _step_word_lookup(job)
+        words_data = _step_word_lookup(job, model)
     elif step == S.DEDUP:
         words = _step_dedup_and_persist(job, words_data)
     elif step == S.TRANSLATION:
-        _step_generate_translations(job, words, words_data)
+        _step_generate_translations(job, words, words_data, model)
     elif step == S.QUESTION_GEN:
-        _step_generate_questions(job, words, words_data)
+        _step_generate_questions(job, words, words_data, model)
     elif step == S.PACK_CREATION:
-        packs = _step_auto_create_packs(job, words, words_data)
+        packs = _step_auto_create_packs(job, words, words_data, model)
     elif step == S.PRIMER_GEN:
-        _step_generate_primers(job, words, words_data)
+        _step_generate_primers(job, words, words_data, model)
     elif step == S.STORY_CLOZE_GEN:
-        _step_generate_stories_and_cloze(job, packs, words_data)
+        _step_generate_stories_and_cloze(job, packs, words_data, model)
+    elif step == S.GRAPHIC_NOVEL_SCRIPT:
+        _step_graphic_novel_script(job, packs, words_data, model)
+    elif step == S.GRAPHIC_NOVEL_IMAGES:
+        _step_graphic_novel_images(job, packs)
+    elif step == S.CREATIVE_DIRECTION:
+        _step_creative_direction(job, words, model)
     elif step == S.IMAGE_GEN:
         _step_generate_images(job, words)
     elif step == S.PICTURE_MATCH_GEN:
@@ -250,7 +382,89 @@ def resume_pipeline(job_id):
             logger.exception("Failed to mark job %s as FAILED in database", job_id)
 
 
-def _step_word_lookup(job):
+def restart_pipeline_from_step(job_id, start_step, include_subsequent=True):
+    """
+    Temporary prompt-testing entry point.
+
+    Reruns one selected pipeline step, or that step and every following step.
+    Existing generated artifacts for the selected run range are cleared first so
+    step-level resume guards do not keep old prompt output around.
+    """
+    close_old_connections()
+    job = None
+    _validate_pipeline_step(start_step)
+
+    try:
+        job = GenerationJob.objects.select_related('word_set').get(id=job_id)
+        job.status = GenerationJob.Status.RUNNING
+        job.error_message = ''
+        job.completed_at = None
+        job.save(update_fields=['status', 'error_message', 'completed_at'])
+
+        job.word_set.generation_status = WordSet.GenerationStatus.GENERATING
+        job.word_set.save(update_fields=['generation_status'])
+
+        start_idx = PIPELINE_STEP_ORDER.index(start_step)
+        steps = (
+            PIPELINE_STEP_ORDER[start_idx:]
+            if include_subsequent
+            else [PIPELINE_STEP_ORDER[start_idx]]
+        )
+
+        words, words_data, packs = _reconstruct_context(job)
+        _clear_testing_outputs(job, steps, words)
+
+        if start_step == GenerationJobLog.Step.WORD_LOOKUP:
+            words, words_data, packs = [], [], []
+        elif start_step == GenerationJobLog.Step.DEDUP:
+            words, packs = [], []
+        elif start_step == GenerationJobLog.Step.PACK_CREATION:
+            packs = []
+
+        _log_step(
+            job,
+            start_step,
+            GenerationJob.Status.RUNNING,
+            output_data={
+                'message': 'Testing restart requested.',
+                'include_subsequent': include_subsequent,
+                'steps': list(steps),
+            },
+        )
+
+        for step in steps:
+            words, words_data, packs = _run_step(
+                job, step, words, words_data, packs,
+            )
+            job.last_completed_step = step
+            job.save(update_fields=['last_completed_step'])
+
+        job.status = GenerationJob.Status.COMPLETED
+        job.completed_at = timezone.now()
+        job.save(update_fields=['status', 'completed_at'])
+
+        job.word_set.generation_status = WordSet.GenerationStatus.GENERATED
+        job.word_set.save(update_fields=['generation_status'])
+
+    except Exception as exc:
+        logger.exception(
+            "Testing restart failed for job %s from %s: %s",
+            job_id, start_step, exc,
+        )
+        try:
+            if job is None:
+                job = GenerationJob.objects.get(id=job_id)
+            job.status = GenerationJob.Status.FAILED
+            job.error_message = str(exc)
+            job.save(update_fields=['status', 'error_message'])
+
+            job.word_set.generation_status = WordSet.GenerationStatus.TO_GENERATE
+            job.word_set.save(update_fields=['generation_status'])
+        except Exception:
+            logger.exception("Failed to mark job %s as FAILED in database", job_id)
+
+
+def _step_word_lookup(job, model=DEFAULT_MODEL):
     """
     Step 1: Call LLM to look up definitions for the input word list.
 
@@ -263,6 +477,7 @@ def _step_word_lookup(job):
         words_str = ', '.join(job.input_words)
         user_prompt = (
             f"Words to look up: {words_str}\n"
+            f"Target Lexile level: {job.target_lexile}L\n"
             f"Source: {job.input_source_title}"
         )
         if job.input_source_chapter:
@@ -270,7 +485,7 @@ def _step_word_lookup(job):
         if job.input_source_text:
             user_prompt += f"\n\nSource passage:\n{job.input_source_text}"
 
-        result = call_gemini(DEFAULT_MODEL, template, user_prompt)
+        result = call_gemini(model, template, user_prompt)
         words_data = result.get('words', [])
 
         duration = time.time() - start
@@ -325,6 +540,10 @@ def _step_dedup_and_persist(job, words_data):
         existing = find_duplicate_definition(term, pos, definition)
         if existing:
             logger.info("Dedup: reusing existing Word '%s' (id=%s)", term, existing.id)
+            image_category = wd.get('image_category', '')
+            if image_category and not existing.image_category:
+                existing.image_category = image_category
+                existing.save(update_fields=['image_category'])
             words.append(existing)
             job.word_set.words.add(existing)
             continue
@@ -339,6 +558,7 @@ def _step_dedup_and_persist(job, words_data):
         word = Word.objects.create(
             text=term,
             part_of_speech=pos,
+            image_category=wd.get('image_category', ''),
             source_context=source_context,
         )
 
@@ -381,7 +601,7 @@ def _step_dedup_and_persist(job, words_data):
     return words
 
 
-def _step_generate_translations(job, words, words_data):
+def _step_generate_translations(job, words, words_data, model=DEFAULT_MODEL):
     """
     Step 3: Call LLM to generate translations for definitions and examples.
 
@@ -408,7 +628,7 @@ def _step_generate_translations(job, words, words_data):
             items_to_translate=items_str,
         )
 
-        result = call_gemini(DEFAULT_MODEL, prompt, f"Translate to {target_language}")
+        result = call_gemini(model, prompt, f"Translate to {target_language}")
         translations = result.get('translations', [])
 
         # Get ContentType for WordDefinition
@@ -469,7 +689,7 @@ def _step_generate_translations(job, words, words_data):
 QUESTION_BATCH_SIZE = 6
 
 
-def _step_generate_questions(job, words, words_data):
+def _step_generate_questions(job, words, words_data, model=DEFAULT_MODEL):
     """
     Step 4: Call LLM to generate practice questions for each word.
 
@@ -521,7 +741,7 @@ def _step_generate_questions(job, words, words_data):
             }, indent=2)
 
             prompt_text = template.replace('{input_json}', input_json)
-            result = call_gemini(DEFAULT_MODEL, prompt_text, '')
+            result = call_gemini(model, prompt_text, '')
             question_sets = result.get('generated_question_sets', [])
 
             for qs in question_sets:
@@ -582,7 +802,7 @@ def _step_generate_questions(job, words, words_data):
         raise
 
 
-def _step_auto_create_packs(job, words, words_data):
+def _step_auto_create_packs(job, words, words_data, model=DEFAULT_MODEL):
     """
     Step 5: Use LLM to group words into semantically related packs.
     Falls back to sequential chunking if LLM fails.
@@ -693,7 +913,7 @@ def _step_auto_create_packs(job, words, words_data):
         prompt_text = template.replace('{num_packs}', str(num_packs))
         prompt_text = prompt_text.replace('{max_per_pack}', str(max_per_pack))
         user_prompt = '\n'.join(word_info_parts)
-        result = call_gemini(DEFAULT_MODEL, prompt_text, user_prompt)
+        result = call_gemini(model, prompt_text, user_prompt)
         llm_packs = result.get('packs', [])
 
         # Validate: every word must appear exactly once
@@ -753,7 +973,7 @@ def _step_auto_create_packs(job, words, words_data):
     return packs
 
 
-def _step_generate_primers(job, words, words_data):
+def _step_generate_primers(job, words, words_data, model=DEFAULT_MODEL):
     """
     Step 6: Call LLM to generate primer card content for each word.
     Uses definition and example_sentence from step 1 (word lookup).
@@ -777,7 +997,7 @@ def _step_generate_primers(job, words, words_data):
 
         user_prompt = '\n'.join(word_info_parts)
         prompt_text = template.replace('{target_lexile}', str(_content_lexile(job)))
-        result = call_gemini(DEFAULT_MODEL, prompt_text, user_prompt)
+        result = call_gemini(model, prompt_text, user_prompt)
         primers = result.get('primer_cards', [])
 
         word_map = {w.text.lower(): w for w in words}
@@ -826,7 +1046,7 @@ def _step_generate_primers(job, words, words_data):
         raise
 
 
-def _step_generate_stories_and_cloze(job, packs, words_data):
+def _step_generate_stories_and_cloze(job, packs, words_data, model=DEFAULT_MODEL):
     """
     Step 7: Call LLM to generate micro story + cloze items for each pack.
     Skips packs that already have stories when resuming a partially completed job.
@@ -870,7 +1090,7 @@ def _step_generate_stories_and_cloze(job, packs, words_data):
             )
             system_prompt = template.format(target_lexile=content_lexile)
 
-            result = call_gemini(DEFAULT_MODEL, system_prompt, user_prompt)
+            result = call_gemini(model, system_prompt, user_prompt)
 
             # Create MicroStory — try both field names for robustness
             story_data = result.get('micro_passage', result.get('micro_story', {}))
@@ -927,12 +1147,327 @@ def _step_generate_stories_and_cloze(job, packs, words_data):
         raise
 
 
+def _page_vocab_words(page_data):
+    words = []
+    for panel in page_data.get('panels', []):
+        for word in panel.get('vocab_words', []):
+            if word and word not in words:
+                words.append(word)
+    for word in page_data.get('vocab_words', []):
+        if word and word not in words:
+            words.append(word)
+    return words
+
+
+def _step_graphic_novel_script(job, packs, words_data, model=DEFAULT_MODEL):
+    """
+    Step 7A: Generate a graphic novel script and cloze items for each pack.
+
+    The script step creates the novel/page records without images so image
+    generation can resume independently.
+    """
+    start = time.time()
+    try:
+        template = load_prompt_template('graphic_novel_script')
+        total_novels = 0
+        total_cloze = 0
+
+        for pack in packs:
+            if hasattr(pack, 'graphic_novel'):
+                logger.info("Pack '%s' already has a graphic novel, skipping", pack.label)
+                continue
+
+            pack_word_texts = list(pack.items.values_list('word__text', flat=True))
+            pack_word_keys = {text.lower() for text in pack_word_texts}
+            pack_words_data = [
+                wd for wd in words_data
+                if wd['term'].lower() in pack_word_keys
+            ]
+
+            word_info = '\n'.join(
+                f"- {wd['term']} ({wd.get('part_of_speech', '')}): {wd.get('definition', '')}"
+                for wd in pack_words_data
+            )
+            content_lexile = _content_lexile(job)
+            user_prompt = (
+                f"Pack Label: {pack.label}\n"
+                f"Text Type: {pack.text_type}\n"
+                f"Target Lexile: {content_lexile}\n\n"
+                f"Target words:\n{word_info}"
+            )
+            system_prompt = template.replace('{target_lexile}', str(content_lexile))
+            result = call_gemini(model, system_prompt, user_prompt)
+
+            novel = GraphicNovel.objects.create(
+                pack=pack,
+                title=result.get('title', f'{pack.label} Graphic Novel'),
+                synopsis=result.get('synopsis', ''),
+                style_prompt=result.get(
+                    'style_prompt',
+                    result.get('style_notes', 'Middle-grade graphic novel art with clear readable lettering.'),
+                ),
+                reading_level=result.get('reading_level', content_lexile),
+            )
+            total_novels += 1
+
+            for idx, page_data in enumerate(result.get('pages', []), 1):
+                panel_descriptions = page_data.get('panels', [])
+                GraphicNovelPage.objects.create(
+                    novel=novel,
+                    page_number=page_data.get('page_number', idx),
+                    panel_count=page_data.get('panel_count', len(panel_descriptions) or 1),
+                    layout_description=page_data.get('layout_description', ''),
+                    panel_descriptions=panel_descriptions,
+                    vocab_words_used=_page_vocab_words(page_data),
+                )
+
+            word_map = {
+                item.word.text.lower(): item.word
+                for item in pack.items.select_related('word').all()
+            }
+            for idx, ci in enumerate(result.get('cloze_items', [])):
+                term = ci.get('term', '').lower()
+                word = word_map.get(term)
+                if not word:
+                    continue
+
+                ClozeItem.objects.create(
+                    pack=pack,
+                    word=word,
+                    sentence_text=ci.get('sentence_text', ''),
+                    correct_answer=ci.get('correct_answer', ''),
+                    distractors=ci.get('distractors', []),
+                    order=idx,
+                )
+                total_cloze += 1
+
+        job.graphic_novels_created = GraphicNovel.objects.filter(pack__in=packs).count()
+        job.cloze_items_created = ClozeItem.objects.filter(pack__in=packs).count()
+        job.save(update_fields=['graphic_novels_created', 'cloze_items_created'])
+
+        duration = time.time() - start
+        _log_step(
+            job, GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
+            GenerationJob.Status.COMPLETED,
+            duration=duration,
+            output_data={
+                'graphic_novels_created': total_novels,
+                'cloze_items_created': total_cloze,
+            },
+        )
+
+    except Exception as exc:
+        duration = time.time() - start
+        _log_step(
+            job, GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
+            GenerationJob.Status.FAILED,
+            duration=duration,
+            error_message=str(exc),
+        )
+        raise
+
+
+def _step_graphic_novel_images(job, packs):
+    """
+    Step 7B: Generate one full-page image for each graphic novel page.
+
+    Continues on individual page failures so a later resume can fill gaps.
+    """
+    _log_step(
+        job, GenerationJobLog.Step.GRAPHIC_NOVEL_IMAGES,
+        GenerationJob.Status.RUNNING,
+        output_data={'message': 'Starting graphic novel image generation'},
+    )
+    start = time.time()
+    template = load_prompt_template('graphic_novel_page')
+    created_count = 0
+    pending_count = 0
+    failed_pages = []
+
+    pages = list(
+        GraphicNovelPage.objects.filter(novel__pack__in=packs)
+        .select_related('novel', 'novel__pack')
+        .order_by('novel_id', 'page_number')
+    )
+
+    for page in pages:
+        if page.image:
+            continue
+        pending_count += 1
+
+        vocab_words = ', '.join(page.vocab_words_used)
+        panel_details = json.dumps(page.panel_descriptions, indent=2)
+        prompt = template.format(
+            title=page.novel.title,
+            synopsis=page.novel.synopsis,
+            style_prompt=page.novel.style_prompt,
+            page_number=page.page_number,
+            panel_count=page.panel_count,
+            layout_description=page.layout_description,
+            panel_details=panel_details,
+            vocab_words=vocab_words or 'the target vocabulary words',
+        )
+
+        try:
+            image_bytes = call_openai_image(prompt, size="1792x1024")
+            title_slug = ''.join(
+                c if c.isalnum() else '_' for c in page.novel.title.lower()
+            ).strip('_')[:60] or 'graphic_novel'
+            filename = f"{title_slug}_page_{page.page_number}.png"
+            page.image.save(filename, ContentFile(image_bytes), save=False)
+            page.prompt_used = prompt
+            page.save(update_fields=['image', 'prompt_used'])
+            created_count += 1
+
+        except Exception as exc:
+            label = f"{page.novel.pack.label} page {page.page_number}"
+            logger.warning("Graphic novel image generation failed for %s: %s", label, exc)
+            failed_pages.append(label)
+            continue
+
+    duration = time.time() - start
+    if pending_count > 0 and created_count == 0:
+        _log_step(
+            job, GenerationJobLog.Step.GRAPHIC_NOVEL_IMAGES,
+            GenerationJob.Status.FAILED,
+            duration=duration,
+            output_data={
+                'pages_created': 0,
+                'failed_pages': failed_pages,
+            },
+            error_message=f"All {pending_count} graphic novel page generations failed.",
+        )
+        raise RuntimeError(
+            f"Graphic novel image generation failed for all {pending_count} pages."
+        )
+
+    _log_step(
+        job, GenerationJobLog.Step.GRAPHIC_NOVEL_IMAGES,
+        GenerationJob.Status.COMPLETED,
+        duration=duration,
+        output_data={
+            'pages_created': created_count,
+            'failed_pages': failed_pages,
+        },
+    )
+
+
+CREATIVE_DIRECTION_GROUPS = {
+    'character': ['ICONIC_CHARACTER', 'EMOTION_STATE', 'SENSORY_TRAIT'],
+    'action': ['DYNAMIC_ACTION', 'EPIC_SCALE', 'SPATIAL_RELATION'],
+    'elemental': ['INVISIBLE_PROCESS', 'ABSTRACT_METAPHOR', 'PORTABLE_OBJECT'],
+}
+
+# Reverse lookup: category -> group name
+_CATEGORY_TO_GROUP = {
+    cat: group
+    for group, cats in CREATIVE_DIRECTION_GROUPS.items()
+    for cat in cats
+}
+
+
+def _step_creative_direction(job, words, model=DEFAULT_MODEL):
+    """
+    Generate visual scene descriptions for each word based on its image_category.
+    Groups words by category type and calls LLM with category-specific prompts.
+    """
+    _log_step(
+        job, GenerationJobLog.Step.CREATIVE_DIRECTION,
+        GenerationJob.Status.RUNNING,
+        output_data={'message': 'Starting creative direction'},
+    )
+    start = time.time()
+
+    defn_map = {}
+    for d in WordDefinition.objects.filter(word__in=words).order_by('word_id', 'id'):
+        defn_map.setdefault(d.word_id, d)
+
+    # Skip words that already have a visual_scene (resume safety)
+    words_needing_scene = [
+        w for w in words
+        if w.id in defn_map and not defn_map[w.id].visual_scene
+    ]
+
+    if not words_needing_scene:
+        duration = time.time() - start
+        _log_step(
+            job, GenerationJobLog.Step.CREATIVE_DIRECTION,
+            GenerationJob.Status.COMPLETED,
+            duration=duration,
+            output_data={'scenes_generated': 0, 'skipped': len(words)},
+        )
+        return
+
+    # Group words by creative direction template
+    groups: dict[str, list] = {'character': [], 'action': [], 'elemental': []}
+    for word in words_needing_scene:
+        group = _CATEGORY_TO_GROUP.get(word.image_category, 'elemental')
+        groups[group].append(word)
+
+    total_scenes = 0
+    for group_name, group_words in groups.items():
+        if not group_words:
+            continue
+
+        template = load_prompt_template(f'creative_direction_{group_name}')
+
+        words_json = json.dumps([
+            {
+                'term': w.text,
+                'definition': defn_map[w.id].definition_text,
+            }
+            for w in group_words
+        ], indent=2)
+
+        prompt_text = template.replace('{words_json}', words_json)
+        result = call_gemini(model, prompt_text, '')
+
+        scenes = result.get('scenes', [])
+        scene_map = {}
+        for scene_item in scenes:
+            term = scene_item.get('term') if isinstance(scene_item, dict) else None
+            visual_scene = (
+                scene_item.get('visual_scene') if isinstance(scene_item, dict) else None
+            )
+            if not term or not visual_scene:
+                logger.warning(
+                    "Skipping malformed creative direction scene for group '%s': %s",
+                    group_name, scene_item,
+                )
+                continue
+            scene_map[term.lower()] = visual_scene
+
+        for w in group_words:
+            scene = scene_map.get(w.text.lower(), '')
+            if scene:
+                defn = defn_map[w.id]
+                defn.visual_scene = scene
+                defn.save(update_fields=['visual_scene'])
+                total_scenes += 1
+
+    duration = time.time() - start
+    _log_step(
+        job, GenerationJobLog.Step.CREATIVE_DIRECTION,
+        GenerationJob.Status.COMPLETED,
+        duration=duration,
+        output_data={
+            'scenes_generated': total_scenes,
+            'total_words': len(words),
+        },
+    )
+
+
 def _step_generate_images(job, words):
     """
-    Step 8: Call Gemini to generate images for each word.
+    Step 8: Generate images for each word via OpenAI GPT-Image-2.
 
     Continues on individual image failures — partial success is acceptable.
     """
+    _log_step(
+        job, GenerationJobLog.Step.IMAGE_GEN,
+        GenerationJob.Status.RUNNING,
+        output_data={'message': 'Starting image generation'},
+    )
     start = time.time()
     created_count = 0
     failed_words = []
@@ -954,17 +1489,21 @@ def _step_generate_images(job, words):
 
         defn = defn_map.get(word.id)
         definition_text = defn.definition_text if defn else word.text
+        visual_scene = defn.visual_scene if defn else ''
 
-        prompt = (
-            f"Create a simple, colorful illustration for a children's vocabulary card. "
-            f"The word is '{word.text}' which means '{definition_text}'. "
-            f"The image should be clear, age-appropriate for children aged 8-14, "
-            f"and help illustrate the meaning of the word. No text in the image. "
-            f"Square format, 512x512 pixels, 1:1 aspect ratio."
-        )
+        if visual_scene:
+            template = load_prompt_template('image_master_style')
+            prompt = template.format(
+                word=word.text,
+                definition=definition_text,
+                visual_scene=visual_scene,
+            )
+        else:
+            template = load_prompt_template('image_generation')
+            prompt = template.format(word=word.text, definition=definition_text)
 
         try:
-            image_bytes = call_gemini_image(prompt)
+            image_bytes = call_openai_image(prompt)
 
             filename = f"{word.text.lower().replace(' ', '_')}_{word.id}.png"
             image_file = ContentFile(image_bytes, name=filename)

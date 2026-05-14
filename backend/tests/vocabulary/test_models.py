@@ -7,7 +7,7 @@ from vocabulary.models import (
     MasteryLevel, UserWordProgress, MasteryLevelLog,
     Question, PracticeSession, UserAnswer,
     Curriculum, Level, WordSet, StudentWordSetAssignment,
-    WordPack, WordPackItem, PrimerCardContent, MicroStory,
+    WordPack, WordPackItem, PrimerCardContent, MicroStory, GraphicNovel,
     ClozeItem, GeneratedImage, StudentPackCompletion,
     GenerationJob, GenerationJobLog,
 )
@@ -15,7 +15,8 @@ from tests.factories import (
     TagFactory, WordFactory, WordDefinitionFactory, DefinitionEmbeddingFactory,
     MasteryLevelFactory, UserWordProgressFactory, WordSetFactory,
     WordPackFactory, WordPackItemFactory, PrimerCardContentFactory,
-    MicroStoryFactory, ClozeItemFactory, QuestionFactory,
+    MicroStoryFactory, GraphicNovelFactory, GraphicNovelPageFactory,
+    ClozeItemFactory, QuestionFactory,
     GenerationJobFactory, GenerationJobLogFactory,
     AdminUserFactory, TeacherUserFactory, StudentUserFactory,
     CurriculumFactory, LevelFactory,
@@ -168,11 +169,43 @@ class TestTranslation:
 class TestMasteryLevel:
     def test_create_and_retrieve_levels(self):
         """Verify mastery levels can be created and retrieved."""
-        MasteryLevelFactory(level_id=1, level_name='Novice', interval_days=1, points_to_promote=2)
-        MasteryLevelFactory(level_id=5, level_name='Mastered', interval_days=20, points_to_promote=999)
-        assert MasteryLevel.objects.count() == 2
+        MasteryLevel.objects.update_or_create(
+            level_id=1,
+            defaults={
+                'level_name': 'Novice',
+                'interval_days': 1,
+                'points_to_promote': 2,
+                'is_hidden': False,
+            },
+        )
+        MasteryLevel.objects.update_or_create(
+            level_id=5,
+            defaults={
+                'level_name': 'Mastered',
+                'interval_days': 17,
+                'points_to_promote': 15,
+                'is_hidden': False,
+            },
+        )
+        assert MasteryLevel.objects.count() >= 7
         assert MasteryLevel.objects.get(level_id=1).level_name == 'Novice'
         assert MasteryLevel.objects.get(level_id=5).level_name == 'Mastered'
+        assert MasteryLevel.objects.get(level_id=5).interval_days == 17
+        assert MasteryLevel.objects.get(level_id=5).points_to_promote == 15
+
+    def test_hidden_level_flag(self):
+        MasteryLevel.objects.update_or_create(
+            level_id=7,
+            defaults={
+                'level_name': 'Long-Term Mastery',
+                'interval_days': 60,
+                'points_to_promote': 999,
+                'is_hidden': True,
+            },
+        )
+        level = MasteryLevel.objects.get(level_id=7)
+        assert level.is_hidden is True
+        assert level.points_to_promote == 999
 
 
 @pytest.mark.django_db
@@ -287,6 +320,22 @@ class TestInstructionalModels:
         assert '**word**' in story.story_text
         assert story.reading_level == 500
 
+    def test_graphic_novel_one_to_one_pack(self):
+        pack = WordPackFactory()
+        novel = GraphicNovelFactory(pack=pack, reading_level=500)
+        assert novel.pack == pack
+        assert novel.reading_level == 500
+        with pytest.raises(Exception):
+            GraphicNovelFactory(pack=pack)
+
+    def test_graphic_novel_page_ordering(self):
+        novel = GraphicNovelFactory()
+        GraphicNovelPageFactory(novel=novel, page_number=2)
+        GraphicNovelPageFactory(novel=novel, page_number=1)
+        pages = list(novel.pages.all())
+        assert pages[0].page_number == 1
+        assert pages[1].page_number == 2
+
     def test_cloze_item(self):
         cloze = ClozeItemFactory()
         assert '_______' in cloze.sentence_text
@@ -326,6 +375,7 @@ class TestGenerationJob:
         assert job.questions_created == 0
         assert job.primer_cards_created == 0
         assert job.stories_created == 0
+        assert job.graphic_novels_created == 0
         assert job.cloze_items_created == 0
         assert job.images_created == 0
 
@@ -354,6 +404,9 @@ class TestGenerationJobLog:
         assert 'PACK_CREATION' in steps
         assert 'PRIMER_GEN' in steps
         assert 'STORY_CLOZE_GEN' in steps
+        assert 'GRAPHIC_NOVEL_SCRIPT' in steps
+        assert 'GRAPHIC_NOVEL_IMAGES' in steps
+        assert 'CREATIVE_DIRECTION' in steps
         assert 'IMAGE_GEN' in steps
         assert 'PICTURE_MATCH_GEN' in steps
-        assert len(steps) == 9
+        assert len(steps) == 12

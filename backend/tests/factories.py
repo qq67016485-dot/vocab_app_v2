@@ -9,7 +9,7 @@ from vocabulary.models import (
     Question, PracticeSession, UserAnswer,
     Curriculum, Level, WordSet, StudentWordSetAssignment,
     WordPack, WordPackItem, PrimerCardContent, MicroStory,
-    ClozeItem, GeneratedImage, StudentPackCompletion,
+    GraphicNovel, GraphicNovelPage, ClozeItem, GeneratedImage, StudentPackCompletion,
     GenerationJob, GenerationJobLog,
 )
 
@@ -128,6 +128,7 @@ class MasteryLevelFactory(factory.django.DjangoModelFactory):
     level_name = 'Novice'
     interval_days = 1
     points_to_promote = 2
+    is_hidden = False
 
 
 class UserWordProgressFactory(factory.django.DjangoModelFactory):
@@ -199,6 +200,38 @@ class MicroStoryFactory(factory.django.DjangoModelFactory):
     pack = factory.SubFactory(WordPackFactory)
     story_text = 'Once upon a time, there was a **word**.'
     reading_level = 650
+
+
+class GraphicNovelFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = GraphicNovel
+
+    pack = factory.SubFactory(WordPackFactory)
+    title = factory.Sequence(lambda n: f'Graphic Novel {n}')
+    synopsis = 'A short adventure with recurring characters.'
+    style_prompt = 'Bright middle-grade comic art with readable lettering.'
+    reading_level = 650
+
+
+class GraphicNovelPageFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = GraphicNovelPage
+
+    novel = factory.SubFactory(GraphicNovelFactory)
+    page_number = factory.Sequence(lambda n: n + 1)
+    panel_count = 2
+    layout_description = 'Two equal panels side by side.'
+    panel_descriptions = factory.LazyFunction(lambda: [
+        {
+            'panel_number': 1,
+            'scene_description': 'A student discovers a glowing map.',
+            'narration': 'The signal was bright.',
+            'dialogue': [],
+            'vocab_words': ['bright'],
+            'alt_text': 'A student looks at a glowing map.',
+        }
+    ])
+    vocab_words_used = ['bright']
 
 
 class ClozeItemFactory(factory.django.DjangoModelFactory):

@@ -18,8 +18,24 @@ class Tag(models.Model):
 
 class Word(models.Model):
     """Replaces v1 Term + WordMeaning. One record per word+POS combination."""
+
+    class ImageCategory(models.TextChoices):
+        EMOTION_STATE = 'EMOTION_STATE', 'Emotion & State'
+        DYNAMIC_ACTION = 'DYNAMIC_ACTION', 'Dynamic Action'
+        INVISIBLE_PROCESS = 'INVISIBLE_PROCESS', 'Invisible Process'
+        SENSORY_TRAIT = 'SENSORY_TRAIT', 'Sensory Trait'
+        SPATIAL_RELATION = 'SPATIAL_RELATION', 'Spatial Relation'
+        ABSTRACT_METAPHOR = 'ABSTRACT_METAPHOR', 'Abstract Metaphor'
+        PORTABLE_OBJECT = 'PORTABLE_OBJECT', 'Portable Object'
+        EPIC_SCALE = 'EPIC_SCALE', 'Epic Scale'
+        ICONIC_CHARACTER = 'ICONIC_CHARACTER', 'Iconic Character'
+
     text = models.CharField(max_length=100, db_index=True)
     part_of_speech = models.CharField(max_length=50, blank=True, default='')
+    image_category = models.CharField(
+        max_length=30, choices=ImageCategory.choices, blank=True, default='',
+        help_text='Visual category for image generation creative direction.',
+    )
     source_context = models.CharField(
         max_length=255, blank=True, default='',
         help_text='e.g., "From the book Cosmos"',
@@ -38,6 +54,10 @@ class WordDefinition(models.Model):
     word = models.ForeignKey(Word, on_delete=models.CASCADE, related_name='definitions')
     definition_text = models.TextField()
     example_sentence = models.TextField(blank=True, default='')
+    visual_scene = models.TextField(
+        blank=True, default='',
+        help_text='LLM-generated visual scene description for image generation.',
+    )
     lexile_score = models.IntegerField(
         null=True, blank=True,
         help_text='The estimated Lexile score for this definition and example.',
@@ -108,6 +128,10 @@ class MasteryLevel(models.Model):
     level_name = models.CharField(max_length=50)
     interval_days = models.IntegerField(help_text='Days to wait for next review at this level')
     points_to_promote = models.IntegerField(help_text='Points needed to graduate from this level')
+    is_hidden = models.BooleanField(
+        default=False,
+        help_text='Hidden levels are used for scheduling but not shown in student mastery summaries.',
+    )
 
     def __str__(self):
         return self.level_name
@@ -443,6 +467,44 @@ class MicroStory(models.Model):
         return f"Story for {self.pack.label} (Lexile {self.reading_level})"
 
 
+class GraphicNovel(models.Model):
+    pack = models.OneToOneField(
+        WordPack, on_delete=models.CASCADE, related_name='graphic_novel',
+    )
+    title = models.CharField(max_length=200)
+    synopsis = models.TextField(help_text='Story synopsis for character/scene continuity')
+    style_prompt = models.TextField(help_text='Art style directive used for all pages')
+    reading_level = models.IntegerField(help_text='Lexile score')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Graphic novel for {self.pack.label}: {self.title}"
+
+
+class GraphicNovelPage(models.Model):
+    novel = models.ForeignKey(GraphicNovel, on_delete=models.CASCADE, related_name='pages')
+    page_number = models.IntegerField()
+    image = models.ImageField(upload_to='graphic_novels/', blank=True)
+    prompt_used = models.TextField(blank=True)
+    panel_count = models.IntegerField(help_text='Number of panels on this page (1-4)')
+    layout_description = models.TextField(blank=True)
+    panel_descriptions = models.JSONField(
+        default=list,
+        help_text='Per-panel metadata for accessibility/tooltips',
+    )
+    vocab_words_used = models.JSONField(
+        default=list,
+        help_text='All vocab words appearing on this page',
+    )
+
+    class Meta:
+        ordering = ['page_number']
+        unique_together = ('novel', 'page_number')
+
+    def __str__(self):
+        return f"{self.novel.title} page {self.page_number}"
+
+
 class ClozeItem(models.Model):
     pack = models.ForeignKey(WordPack, on_delete=models.CASCADE, related_name='cloze_items')
     word = models.ForeignKey(Word, on_delete=models.CASCADE, related_name='cloze_items')
@@ -527,6 +589,7 @@ class GenerationJob(models.Model):
     questions_created = models.IntegerField(default=0)
     primer_cards_created = models.IntegerField(default=0)
     stories_created = models.IntegerField(default=0)
+    graphic_novels_created = models.IntegerField(default=0)
     cloze_items_created = models.IntegerField(default=0)
     images_created = models.IntegerField(default=0)
 
@@ -551,6 +614,9 @@ class GenerationJobLog(models.Model):
         PACK_CREATION = 'PACK_CREATION', 'Pack Creation'
         PRIMER_GEN = 'PRIMER_GEN', 'Primer Generation'
         STORY_CLOZE_GEN = 'STORY_CLOZE_GEN', 'Story & Cloze Generation'
+        GRAPHIC_NOVEL_SCRIPT = 'GRAPHIC_NOVEL_SCRIPT', 'Graphic Novel Script'
+        GRAPHIC_NOVEL_IMAGES = 'GRAPHIC_NOVEL_IMAGES', 'Graphic Novel Images'
+        CREATIVE_DIRECTION = 'CREATIVE_DIRECTION', 'Creative Direction'
         IMAGE_GEN = 'IMAGE_GEN', 'Image Generation'
         PICTURE_MATCH_GEN = 'PICTURE_MATCH_GEN', 'Picture-Word Match Generation'
 

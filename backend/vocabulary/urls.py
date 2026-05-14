@@ -73,4 +73,5 @@ urlpatterns = [
     path('generation-jobs/<int:job_id>/content/', generation_views.GenerationJobContentView.as_view(), name='generation-job-content'),
     path('generation-jobs/<int:job_id>/approve/', generation_views.ApproveGenerationJobView.as_view(), name='generation-job-approve'),
     path('generation-jobs/<int:job_id>/resume/', generation_views.ResumeGenerationJobView.as_view(), name='generation-job-resume'),
+    path('generation-jobs/<int:job_id>/restart-step/', generation_views.RestartGenerationStepView.as_view(), name='generation-job-restart-step'),
 ]

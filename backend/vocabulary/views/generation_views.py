@@ -18,7 +18,12 @@ from ..models import (
     WordPack, PrimerCardContent, MicroStory, ClozeItem, Question,
 )
 from ..permissions import IsAdmin
-from ..services.generation_pipeline_service import run_full_pipeline, resume_pipeline
+from ..services.generation_pipeline_service import (
+    PIPELINE_STEP_ORDER,
+    restart_pipeline_from_step,
+    run_full_pipeline,
+    resume_pipeline,
+)
 
 
 def _immutable_word_set_response():
@@ -377,9 +382,19 @@ class ResumeGenerationJobView(APIView):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
 
+                resume_from_step = _next_resume_step(job.last_completed_step)
                 job.status = GenerationJob.Status.RUNNING
                 job.error_message = ''
                 job.save(update_fields=['status', 'error_message'])
+
+                GenerationJobLog.objects.create(
+                    job=job,
+                    step=resume_from_step,
+                    status=GenerationJob.Status.RUNNING,
+                    output_data={
+                        'message': f'Resuming pipeline from after step: {job.last_completed_step or "start"}.',
+                    },
+                )
         except GenerationJob.DoesNotExist:
             return Response(
                 {'error': 'Job not found.'},
@@ -396,6 +411,89 @@ class ResumeGenerationJobView(APIView):
             'status': 'RUNNING',
             'message': f'Resuming pipeline from after step: {job.last_completed_step or "start"}.',
         })
+
+
+class RestartGenerationStepView(APIView):
+    """POST /api/generation-jobs/{id}/restart-step/ - testing-only manual rerun."""
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, job_id):
+        step = request.data.get('step')
+        include_subsequent = _parse_bool(
+            request.data.get('include_subsequent', request.data.get('run_subsequent', True)),
+        )
+
+        if step not in PIPELINE_STEP_ORDER:
+            return Response(
+                {
+                    'error': 'Invalid pipeline step.',
+                    'valid_steps': PIPELINE_STEP_ORDER,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with transaction.atomic():
+                job = GenerationJob.objects.select_for_update().get(id=job_id)
+
+                if job.status in (GenerationJob.Status.PENDING, GenerationJob.Status.RUNNING):
+                    return Response(
+                        {'error': 'A generation job is already running.'},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                job.status = GenerationJob.Status.RUNNING
+                job.error_message = ''
+                job.save(update_fields=['status', 'error_message'])
+
+                GenerationJobLog.objects.create(
+                    job=job,
+                    step=step,
+                    status=GenerationJob.Status.RUNNING,
+                    output_data={
+                        'message': 'Testing restart queued.',
+                        'include_subsequent': include_subsequent,
+                    },
+                )
+        except GenerationJob.DoesNotExist:
+            return Response(
+                {'error': 'Job not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        thread = threading.Thread(
+            target=restart_pipeline_from_step,
+            args=(job.id, step, include_subsequent),
+            daemon=True,
+        )
+        thread.start()
+
+        return Response({
+            'job_id': job.id,
+            'status': GenerationJob.Status.RUNNING,
+            'step': step,
+            'include_subsequent': include_subsequent,
+            'message': 'Testing restart started.',
+        })
+
+
+def _next_resume_step(last_completed_step):
+    if not last_completed_step:
+        return PIPELINE_STEP_ORDER[0]
+    try:
+        return PIPELINE_STEP_ORDER[PIPELINE_STEP_ORDER.index(last_completed_step) + 1]
+    except ValueError:
+        return PIPELINE_STEP_ORDER[0]
+    except IndexError:
+        return PIPELINE_STEP_ORDER[-1]
+
+
+def _parse_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in ('false', '0', 'no', 'off')
+    return bool(value)
 
 
 class LatestGenerationJobView(APIView):

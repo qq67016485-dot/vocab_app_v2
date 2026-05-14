@@ -4,6 +4,7 @@ Tests written BEFORE implementation — all should fail initially.
 """
 import pytest
 from datetime import datetime, time, timedelta
+from unittest.mock import patch
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -11,8 +12,8 @@ from rest_framework.test import APIClient
 from users.models import CustomUser, StudentGroup
 from vocabulary.models import (
     Word, WordDefinition, Question, WordSet, MasteryLevel,
-    UserWordProgress, UserAnswer, WordPack, WordPackItem,
-    PrimerCardContent, MicroStory, ClozeItem, GeneratedImage,
+    UserWordProgress, UserAnswer, MasteryLevelLog, WordPack, WordPackItem,
+    PrimerCardContent, MicroStory, GraphicNovel, GraphicNovelPage, ClozeItem, GeneratedImage,
     StudentWordSetAssignment, StudentPackCompletion,
     GenerationJob, GenerationJobLog, Curriculum, Level,
 )
@@ -35,16 +36,23 @@ def _later_today():
 
 def _seed_mastery_levels():
     levels = [
-        (1, 'Novice', 1, 2),
-        (2, 'Familiar', 3, 4),
-        (3, 'Confident', 7, 7),
-        (4, 'Proficient', 10, 10),
-        (5, 'Mastered', 20, 999),
+        (1, 'Novice', 1, 2, False),
+        (2, 'Familiar', 3, 4, False),
+        (3, 'Confident', 7, 7, False),
+        (4, 'Proficient', 10, 10, False),
+        (5, 'Mastered', 17, 15, False),
+        (6, 'Long-Term Retention', 30, 25, True),
+        (7, 'Long-Term Mastery', 60, 999, True),
     ]
-    for lid, name, interval, pts in levels:
-        MasteryLevel.objects.get_or_create(
+    for lid, name, interval, pts, is_hidden in levels:
+        MasteryLevel.objects.update_or_create(
             level_id=lid,
-            defaults={'level_name': name, 'interval_days': interval, 'points_to_promote': pts},
+            defaults={
+                'level_name': name,
+                'interval_days': interval,
+                'points_to_promote': pts,
+                'is_hidden': is_hidden,
+            },
         )
 
 
@@ -180,6 +188,33 @@ class TestNextPracticeWordView:
         response = self.client.get('/api/practice/next/')
         assert response.status_code == 200
         assert 'message' in response.data
+
+    def test_hidden_mastery_level_uses_questions_from_any_suitable_level(self):
+        progress = UserWordProgress.objects.get(user=self.student, word=self.word)
+        progress.delete()
+
+        hidden_level = MasteryLevel.objects.get(level_id=6)
+        level1 = MasteryLevel.objects.get(level_id=1)
+        hidden_word = WordFactory(text='settled')
+        question = QuestionFactory(
+            word=hidden_word,
+            question_text='What does settled mean?',
+            correct_answers=['stable'],
+            lexile_score=650,
+        )
+        question.suitable_levels.add(level1)
+        UserWordProgress.objects.create(
+            user=self.student,
+            word=hidden_word,
+            level=hidden_level,
+            next_review_at=timezone.now(),
+        )
+
+        response = self.client.get('/api/practice/next/')
+
+        assert response.status_code == 200
+        assert response.data['term_text'] == 'settled'
+        assert response.data['question_text'] == 'What does settled mean?'
 
 
 @pytest.mark.django_db
@@ -352,6 +387,43 @@ class TestSubmitAnswerView:
         answer.refresh_from_db()
         assert answer.retry_count == 2
 
+    def test_typo_retry_flag_makes_next_correct_answer_fragile(self):
+        self.question.correct_answers = ['bright']
+        self.question.save()
+        for index, duration in enumerate(range(2, 17)):
+            history_word = WordFactory(text=f'history_{index}')
+            history_question = QuestionFactory(
+                word=history_word,
+                question_type=self.question.question_type,
+                correct_answers=['answer'],
+            )
+            UserAnswer.objects.create(
+                user=self.student,
+                question=history_question,
+                user_answer='answer',
+                is_correct=True,
+                duration_seconds=duration,
+            )
+
+        typo_response = self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'brigt',
+            'duration_seconds': 8,
+        })
+        assert typo_response.status_code == 200
+        assert typo_response.data['is_typo'] is True
+
+        correct_response = self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'bright',
+            'duration_seconds': 8,
+        })
+
+        assert correct_response.status_code == 200
+        assert correct_response.data['is_correct'] is True
+        assert correct_response.data['response_quality'] == 'typo_retry_correct'
+        assert correct_response.data['is_fragile'] is True
+
 
 @pytest.mark.django_db
 class TestSessionSummaryView:
@@ -455,6 +527,57 @@ class TestStudentDashboardView:
         assert response.status_code == 200
         assert response.data['words_due_today'] == 1
 
+    def test_rolls_hidden_mastery_levels_into_mastered_breakdown(self):
+        hidden_level = MasteryLevel.objects.get(level_id=6)
+        word = WordFactory(text='settled')
+        UserWordProgress.objects.create(
+            user=self.student,
+            word=word,
+            level=hidden_level,
+            next_review_at=timezone.now(),
+        )
+
+        response = self.client.get('/api/student/dashboard/')
+
+        assert response.status_code == 200
+        level_names = [item['level_name'] for item in response.data['mastery_breakdown']]
+        assert 'Long-Term Retention' not in level_names
+        assert 'Long-Term Mastery' not in level_names
+        mastered = next(
+            item for item in response.data['mastery_breakdown']
+            if item['level_name'] == 'Mastered'
+        )
+        assert mastered['word_count'] == 1
+
+    def test_hidden_mastery_transitions_do_not_change_mastered_deltas(self):
+        level5 = MasteryLevel.objects.get(level_id=5)
+        level6 = MasteryLevel.objects.get(level_id=6)
+        level7 = MasteryLevel.objects.get(level_id=7)
+        word = WordFactory(text='settled')
+
+        for old_level, new_level in [
+            (level5, level6),
+            (level6, level7),
+            (level7, level6),
+            (level6, level5),
+        ]:
+            MasteryLevelLog.objects.create(
+                user=self.student,
+                word=word,
+                old_level=old_level,
+                new_level=new_level,
+            )
+
+        response = self.client.get('/api/student/dashboard/')
+
+        assert response.status_code == 200
+        mastered = next(
+            item for item in response.data['mastery_breakdown']
+            if item['level_name'] == 'Mastered'
+        )
+        assert mastered['delta_today'] == 0
+        assert mastered['delta_week'] == 0
+
 
 @pytest.mark.django_db
 class TestStudentGoalPromptView:
@@ -491,6 +614,30 @@ class TestStudentGoalPromptView:
         assert response.status_code == 200
         assert len(response.data) == 1
         assert response.data[0]['text'] == 'bright'
+
+    def test_mastered_word_list_includes_hidden_levels(self):
+        _seed_mastery_levels()
+        student = StudentUserFactory()
+        visible_word = WordFactory(text='mastered')
+        hidden_word = WordFactory(text='settled')
+        WordDefinitionFactory(word=visible_word)
+        WordDefinitionFactory(word=hidden_word)
+        level5 = MasteryLevel.objects.get(level_id=5)
+        level7 = MasteryLevel.objects.get(level_id=7)
+        UserWordProgress.objects.create(
+            user=student, word=visible_word,
+            level=level5, next_review_at=timezone.now(),
+        )
+        UserWordProgress.objects.create(
+            user=student, word=hidden_word,
+            level=level7, next_review_at=timezone.now(),
+        )
+        client = _make_client(student)
+
+        response = client.get('/api/student/words-by-level/5/')
+
+        assert response.status_code == 200
+        assert {item['text'] for item in response.data} == {'mastered', 'settled'}
 
 
 @pytest.mark.django_db
@@ -651,6 +798,51 @@ class TestInstructionalPackView:
         assert response.status_code == 200
         assert response.data['pack_id'] == self.pack.id
         assert response.data['label'] == 'Pack 1'
+
+    def test_returns_legacy_micro_story_with_type(self):
+        MicroStory.objects.create(
+            pack=self.pack,
+            story_text='The **bright** sun rose.',
+            reading_level=650,
+        )
+        client = _make_client(self.student)
+
+        response = client.get(f'/api/instructional/packs/{self.pack.id}/')
+
+        assert response.status_code == 200
+        assert response.data['story']['type'] == 'micro_story'
+        assert response.data['story']['story_text'] == 'The **bright** sun rose.'
+
+    def test_returns_graphic_novel_before_micro_story(self):
+        MicroStory.objects.create(
+            pack=self.pack,
+            story_text='The **bright** sun rose.',
+            reading_level=650,
+        )
+        novel = GraphicNovel.objects.create(
+            pack=self.pack,
+            title='The Bright Signal',
+            synopsis='A student follows a signal.',
+            style_prompt='Readable comic art.',
+            reading_level=650,
+        )
+        GraphicNovelPage.objects.create(
+            novel=novel,
+            page_number=1,
+            panel_count=1,
+            layout_description='Single splash page.',
+            panel_descriptions=[{'panel_number': 1, 'vocab_words': ['bright']}],
+            vocab_words_used=['bright'],
+        )
+        client = _make_client(self.student)
+
+        response = client.get(f'/api/instructional/packs/{self.pack.id}/')
+
+        assert response.status_code == 200
+        assert response.data['story']['type'] == 'graphic_novel'
+        assert response.data['story']['title'] == 'The Bright Signal'
+        assert response.data['story']['pages'][0]['page_number'] == 1
+        assert response.data['story']['pages'][0]['vocab_words'] == ['bright']
 
     def test_unassigned_student_gets_403(self):
         unassigned = StudentUserFactory()
@@ -1141,6 +1333,85 @@ class TestGenerationViews:
         response = client.get(f'/api/generation-jobs/{job.id}/logs/')
         assert response.status_code == 200
         assert len(response.data) >= 1
+
+    @patch('vocabulary.views.generation_views.threading.Thread')
+    def test_resume_job_records_fresh_running_activity(self, mock_thread):
+        admin = AdminUserFactory()
+        ws = WordSetFactory(creator=admin)
+        job = GenerationJobFactory(
+            word_set=ws,
+            created_by=admin,
+            status=GenerationJob.Status.FAILED,
+            last_completed_step=GenerationJobLog.Step.WORD_LOOKUP,
+            error_message='Previous failure',
+        )
+        old_log = GenerationJobLog.objects.create(
+            job=job,
+            step=GenerationJobLog.Step.WORD_LOOKUP,
+            status=GenerationJob.Status.FAILED,
+            error_message='Previous failure',
+        )
+        GenerationJobLog.objects.filter(id=old_log.id).update(
+            created_at=timezone.now() - timedelta(minutes=20),
+        )
+
+        client = _make_client(admin)
+        response = client.post(f'/api/generation-jobs/{job.id}/resume/')
+
+        assert response.status_code == 200
+        assert response.data['status'] == GenerationJob.Status.RUNNING
+        mock_thread.return_value.start.assert_called_once()
+
+        job.refresh_from_db()
+        assert job.status == GenerationJob.Status.RUNNING
+        assert job.error_message == ''
+
+        running_log = GenerationJobLog.objects.filter(
+            job=job,
+            status=GenerationJob.Status.RUNNING,
+        ).latest('created_at')
+        assert running_log.step == GenerationJobLog.Step.DEDUP
+
+        status_response = client.get(f'/api/generation-jobs/{job.id}/')
+        assert status_response.status_code == 200
+        assert status_response.data['status'] == GenerationJob.Status.RUNNING
+
+    @patch('vocabulary.views.generation_views.threading.Thread')
+    def test_admin_can_restart_generation_step_for_testing(self, mock_thread):
+        admin = AdminUserFactory()
+        ws = WordSetFactory(creator=admin)
+        job = GenerationJobFactory(
+            word_set=ws,
+            created_by=admin,
+            status=GenerationJob.Status.COMPLETED,
+            last_completed_step=GenerationJobLog.Step.PICTURE_MATCH_GEN,
+        )
+
+        client = _make_client(admin)
+        response = client.post(
+            f'/api/generation-jobs/{job.id}/restart-step/',
+            {
+                'step': GenerationJobLog.Step.QUESTION_GEN,
+                'include_subsequent': True,
+            },
+            format='json',
+        )
+
+        assert response.status_code == 200
+        assert response.data['status'] == GenerationJob.Status.RUNNING
+        assert response.data['step'] == GenerationJobLog.Step.QUESTION_GEN
+        mock_thread.return_value.start.assert_called_once()
+
+        job.refresh_from_db()
+        assert job.status == GenerationJob.Status.RUNNING
+        assert job.error_message == ''
+
+        running_log = GenerationJobLog.objects.filter(
+            job=job,
+            step=GenerationJobLog.Step.QUESTION_GEN,
+            status=GenerationJob.Status.RUNNING,
+        ).latest('created_at')
+        assert running_log.output_data['include_subsequent'] is True
 
     def test_student_cannot_access_jobs(self):
         student = StudentUserFactory()

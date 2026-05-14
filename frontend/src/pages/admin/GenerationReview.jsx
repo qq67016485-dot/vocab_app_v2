@@ -61,6 +61,9 @@ export default function GenerationReview() {
   return (
     <div>
       <div className="t-page-header"><h1 className="t-page-title">Review: {content.word_set_title}</h1></div>
+      <div style={{ marginBottom: 16 }}>
+        <GenerationJobStatus jobId={jobId} onComplete={handleJobComplete} onFail={handleJobFail} />
+      </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div className="t-tabs" style={{ marginBottom: 0, borderBottom: 'none' }}>
           {tabs.map(t => (<button key={t.key} onClick={() => setActiveTab(t.key)} className={`t-tab${activeTab === t.key ? ' t-tab--active' : ''}`}>{t.label}</button>))}

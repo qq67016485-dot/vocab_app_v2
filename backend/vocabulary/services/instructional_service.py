@@ -58,6 +58,7 @@ class InstructionalService:
                 ).order_by('order')),
                 'cloze_items__word',
                 'stories',
+                'graphic_novel__pages',
             ).get(id=pack_id)
         except WordPack.DoesNotExist:
             raise ValueError("Pack not found.")
@@ -100,12 +101,37 @@ class InstructionalService:
                 'example_translation': example_translation,
             })
 
-        # Select Lexile-matched story
+        # Select the new graphic novel format first; fall back to legacy stories.
+        graphic_novel = getattr(pack, 'graphic_novel', None)
         stories = list(pack.stories.all())
         story = None
-        if stories:
+        if graphic_novel:
+            pages_data = []
+            for page in graphic_novel.pages.all():
+                pages_data.append({
+                    'page_number': page.page_number,
+                    'image_url': page.image.url if page.image else '',
+                    'panel_count': page.panel_count,
+                    'layout_description': page.layout_description,
+                    'panel_descriptions': page.panel_descriptions,
+                    'vocab_words': page.vocab_words_used,
+                })
+            story_data = {
+                'type': 'graphic_novel',
+                'title': graphic_novel.title,
+                'reading_level': graphic_novel.reading_level,
+                'pages': pages_data,
+            }
+        elif stories:
             user_mid = (user.lexile_min + user.lexile_max) / 2
             story = min(stories, key=lambda s: abs(s.reading_level - user_mid))
+            story_data = {
+                'type': 'micro_story',
+                'story_text': story.story_text,
+                'reading_level': story.reading_level,
+            }
+        else:
+            story_data = None
 
         # Cloze items
         cloze_items = [{
@@ -120,10 +146,7 @@ class InstructionalService:
             'pack_id': pack.id,
             'label': pack.label,
             'primer_cards': primer_cards,
-            'story': {
-                'story_text': story.story_text,
-                'reading_level': story.reading_level,
-            } if story else None,
+            'story': story_data,
             'cloze_items': cloze_items,
         }
 

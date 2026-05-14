@@ -51,13 +51,26 @@ class DashboardService:
     def get_student_progress(student):
         # Section 1: Mastery Level Breakdown
         mastery_counts_data = list(
-            MasteryLevel.objects.annotate(
+            MasteryLevel.objects.filter(is_hidden=False).annotate(
                 word_count=Count(
                     'userwordprogress',
                     filter=Q(userwordprogress__user=student),
                 )
-            ).values('level_name', 'word_count').order_by('level_id')
+            ).values('level_id', 'level_name', 'word_count').order_by('level_id')
         )
+        mastered_level_id = MasteryLevel.objects.filter(
+            is_hidden=False,
+        ).order_by('-level_id').values_list('level_id', flat=True).first()
+        if mastered_level_id:
+            hidden_word_count = UserWordProgress.objects.filter(
+                user=student, level__is_hidden=True,
+            ).count()
+            for item in mastery_counts_data:
+                if item['level_id'] == mastered_level_id:
+                    item['word_count'] += hidden_word_count
+                    break
+        for item in mastery_counts_data:
+            item.pop('level_id', None)
 
         # Section 2: Recent Activity (Last 50 Answers)
         recent_answers_qs = UserAnswer.objects.filter(

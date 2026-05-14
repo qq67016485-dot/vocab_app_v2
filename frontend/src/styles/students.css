@@ -18,3 +18,4 @@
 @import './students/pages/patterns.css' layer(pages);
 @import './students/fixes.css' layer(pages);
 @import './instructional.css' layer(pages);
+@import './graphic-novel-reader.css' layer(pages);

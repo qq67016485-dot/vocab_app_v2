@@ -4,7 +4,7 @@ Low-level LLM wrapper service.
 Provides:
 - call_anthropic(model, system_prompt, user_prompt) — Call Claude, return parsed JSON
 - call_gemini(model, system_prompt, user_prompt) — Call Gemini, return parsed JSON
-- call_gemini_image(prompt) — Call Gemini image generation, return raw image bytes
+- call_openai_image(prompt) — Call OpenAI GPT-Image-2, return raw image bytes
 - load_prompt_template(name) — Load a .txt prompt template from vocabulary/prompts/
 """
 import json
@@ -221,37 +221,64 @@ def call_gemini(model, system_prompt, user_prompt):
         raise
 
 
-def call_gemini_image(prompt):
+def call_openai_image(prompt: str, size: str = "1024x1024") -> bytes:
     """
-    Generate an image using the Gemini API.
+    Generate an image using OpenAI's GPT-Image-2 model.
 
     Args:
         prompt: Text prompt describing the image to generate.
+        size: Image dimensions requested from the API.
 
     Returns:
         bytes: Raw image bytes (PNG).
     """
-    api_key = settings.IMAGE_API_KEY or settings.GEMINI_API_KEY
-    base_url = settings.IMAGE_BASE_URL or settings.GEMINI_BASE_URL
-    client_kwargs = {'api_key': api_key}
-    if base_url:
-        client_kwargs['http_options'] = types.HttpOptions(base_url=base_url)
-    client = genai.Client(**client_kwargs)
+    import openai
 
-    logger.info("Generating image via Gemini")
+    model = "gpt-image-2"
+    api_key = settings.OPENAI_API_KEY
+    client_kwargs = {'api_key': api_key}
+    if settings.OPENAI_BASE_URL:
+        client_kwargs['base_url'] = settings.OPENAI_BASE_URL
+    client = openai.OpenAI(**client_kwargs)
+
+    logger.info("Generating image via OpenAI %s", model)
     logger.debug("Image prompt: %s", prompt)
 
-    response = client.models.generate_content(
-        model="gemini-3.1-flash-image-preview",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_modalities=["IMAGE"],
-        ),
-    )
+    try:
+        response = client.images.generate(
+            model=model,
+            prompt=prompt,
+            n=1,
+            size=size,
+        )
 
-    image_part = response.candidates[0].content.parts[0]
-    image_data = image_part.inline_data.data
+        image_item = response.data[0]
+        if image_item.b64_json:
+            image_bytes = base64.b64decode(image_item.b64_json)
+            _log_llm_call(
+                f'{model}_image',
+                'OpenAI image generation',
+                prompt,
+                f'Image generated successfully from b64_json ({len(image_bytes)} bytes).',
+            )
+            return image_bytes
 
-    if isinstance(image_data, bytes):
-        return image_data
-    return base64.b64decode(image_data)
+        import httpx
+        img_response = httpx.get(image_item.url, follow_redirects=True, timeout=60)
+        img_response.raise_for_status()
+        _log_llm_call(
+            f'{model}_image',
+            'OpenAI image generation',
+            prompt,
+            f'Image generated successfully from URL: {image_item.url}',
+        )
+        return img_response.content
+    except Exception as e:
+        _log_llm_call(
+            f'{model}_image',
+            'OpenAI image generation',
+            prompt,
+            '',
+            error=str(e),
+        )
+        raise

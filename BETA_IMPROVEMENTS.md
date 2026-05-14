@@ -1,6 +1,6 @@
 # Beta Readiness Improvements
 
-Status: Updated 2026-04-03
+Status: Updated 2026-04-30
 
 ## Critical
 
@@ -23,7 +23,7 @@ Status: Updated 2026-04-03
 
 | # | Item | Status | Notes |
 |---|------|--------|-------|
-| 8 | LLM pipeline retry logic | Pending | Transient Gemini/Anthropic failures fail the whole job. |
+| 8 | LLM pipeline retry logic | Partial | Single retry on transient API errors (bad_response_body, unexpected end of JSON). Full exponential backoff not implemented. |
 | 9 | Health check endpoint | Pending | Needed for load balancer / uptime monitoring. |
 | 10 | Django logging config | Pending | No `LOGGING` dict in settings.py — errors go to stdout only. |
 | 11 | DRF exception handler | Pending | Error response format inconsistent across views. |

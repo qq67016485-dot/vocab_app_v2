@@ -5,7 +5,7 @@ from .models import (
     Question, PracticeSession, UserAnswer,
     Curriculum, Level, WordSet, StudentWordSetAssignment,
     WordPack, WordPackItem, PrimerCardContent, MicroStory,
-    ClozeItem, GeneratedImage, StudentPackCompletion,
+    GraphicNovel, GraphicNovelPage, ClozeItem, GeneratedImage, StudentPackCompletion,
     GenerationJob, GenerationJobLog,
 )
 
@@ -59,7 +59,7 @@ class TranslationAdmin(admin.ModelAdmin):
 
 @admin.register(MasteryLevel)
 class MasteryLevelAdmin(admin.ModelAdmin):
-    list_display = ('level_id', 'level_name', 'interval_days', 'points_to_promote')
+    list_display = ('level_id', 'level_name', 'interval_days', 'points_to_promote', 'is_hidden')
 
 
 @admin.register(UserWordProgress)
@@ -137,6 +137,25 @@ class PrimerCardContentAdmin(admin.ModelAdmin):
 @admin.register(MicroStory)
 class MicroStoryAdmin(admin.ModelAdmin):
     list_display = ('pack', 'reading_level')
+
+
+class GraphicNovelPageInline(admin.TabularInline):
+    model = GraphicNovelPage
+    extra = 0
+    readonly_fields = ('image', 'prompt_used')
+
+
+@admin.register(GraphicNovel)
+class GraphicNovelAdmin(admin.ModelAdmin):
+    list_display = ('title', 'pack', 'reading_level', 'created_at')
+    search_fields = ('title', 'pack__label', 'pack__word_set__title')
+    inlines = [GraphicNovelPageInline]
+
+
+@admin.register(GraphicNovelPage)
+class GraphicNovelPageAdmin(admin.ModelAdmin):
+    list_display = ('novel', 'page_number', 'panel_count')
+    list_filter = ('panel_count',)
 
 
 @admin.register(ClozeItem)

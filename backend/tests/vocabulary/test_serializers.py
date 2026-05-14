@@ -41,13 +41,20 @@ factory = APIRequestFactory()
 
 def _seed_mastery_levels():
     levels = [
-        (1, 'Novice', 1, 2),
-        (2, 'Familiar', 3, 4),
+        (1, 'Novice', 1, 2, False),
+        (2, 'Familiar', 3, 4, False),
+        (6, 'Long-Term Retention', 30, 25, True),
+        (7, 'Long-Term Mastery', 60, 999, True),
     ]
-    for lid, name, interval, pts in levels:
-        MasteryLevel.objects.get_or_create(
+    for lid, name, interval, pts, is_hidden in levels:
+        MasteryLevel.objects.update_or_create(
             level_id=lid,
-            defaults={'level_name': name, 'interval_days': interval, 'points_to_promote': pts},
+            defaults={
+                'level_name': name,
+                'interval_days': interval,
+                'points_to_promote': pts,
+                'is_hidden': is_hidden,
+            },
         )
 
 

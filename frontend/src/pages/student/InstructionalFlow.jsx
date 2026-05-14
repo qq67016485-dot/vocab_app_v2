@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import apiClient from '../../api/axiosConfig.js';
 import PrimerCard from '../../components/PrimerCard.jsx';
 import MicroStoryView from '../../components/MicroStoryView.jsx';
+import GraphicNovelReader from '../../components/GraphicNovelReader.jsx';
 import ClozeQuiz from '../../components/ClozeQuiz.jsx';
 import InstructionalSummary from '../../components/InstructionalSummary.jsx';
 
@@ -86,11 +87,19 @@ export default function InstructionalFlow() {
       )}
 
       {step === 'story' && (
-        <MicroStoryView
-          story={packData.story}
-          primerCards={packData.primer_cards}
-          onDone={handleStoryDone}
-        />
+        packData.story?.type === 'graphic_novel' ? (
+          <GraphicNovelReader
+            story={packData.story}
+            primerCards={packData.primer_cards}
+            onDone={handleStoryDone}
+          />
+        ) : (
+          <MicroStoryView
+            story={packData.story}
+            primerCards={packData.primer_cards}
+            onDone={handleStoryDone}
+          />
+        )
       )}
 
       {step === 'quiz' && (

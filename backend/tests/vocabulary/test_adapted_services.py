@@ -32,18 +32,25 @@ from tests.factories import (
 
 
 def _seed_mastery_levels():
-    """Create 5 mastery levels for tests."""
+    """Create visible and hidden mastery levels for tests."""
     levels = [
-        (1, 'Novice', 1, 2),
-        (2, 'Familiar', 3, 4),
-        (3, 'Confident', 7, 7),
-        (4, 'Proficient', 10, 10),
-        (5, 'Mastered', 20, 999),
+        (1, 'Novice', 1, 2, False),
+        (2, 'Familiar', 3, 4, False),
+        (3, 'Confident', 7, 7, False),
+        (4, 'Proficient', 10, 10, False),
+        (5, 'Mastered', 17, 15, False),
+        (6, 'Long-Term Retention', 30, 25, True),
+        (7, 'Long-Term Mastery', 60, 999, True),
     ]
-    for lid, name, interval, pts in levels:
-        MasteryLevel.objects.get_or_create(
+    for lid, name, interval, pts, is_hidden in levels:
+        MasteryLevel.objects.update_or_create(
             level_id=lid,
-            defaults={'level_name': name, 'interval_days': interval, 'points_to_promote': pts},
+            defaults={
+                'level_name': name,
+                'interval_days': interval,
+                'points_to_promote': pts,
+                'is_hidden': is_hidden,
+            },
         )
 
 
@@ -119,6 +126,38 @@ class TestPracticeServiceProcessAnswer:
         assert result['did_level_up_word'] is True
         assert result['current_level_name'] == 'Familiar'
 
+    def test_mastered_words_promote_to_hidden_long_term_level(self):
+        level5 = MasteryLevel.objects.get(level_id=5)
+        self.mastery.level = level5
+        self.mastery.mastery_points = 15
+        self.mastery.save()
+
+        result = PracticeService.process_answer(
+            self.student, self.question.id, 'shining', 5, 0,
+        )
+
+        self.mastery.refresh_from_db()
+        assert result['did_level_up_word'] is True
+        assert self.mastery.level.level_id == 6
+        assert self.mastery.level.is_hidden is True
+
+    def test_hidden_long_term_level_promotes_to_level_7(self):
+        level6 = MasteryLevel.objects.get(level_id=6)
+        self.mastery.level = level6
+        self.mastery.mastery_points = 25
+        self.mastery.save()
+
+        result = PracticeService.process_answer(
+            self.student, self.question.id, 'shining', 5, 0,
+        )
+
+        self.mastery.refresh_from_db()
+        assert result['did_level_up_word'] is True
+        assert self.mastery.level.level_id == 7
+        assert self.mastery.level.interval_days == 60
+        assert self.mastery.level.points_to_promote == 999
+        assert self.mastery.level.is_hidden is True
+
     def test_remediation_feedback_on_incorrect(self):
         # Create a translation for remediation
         ct = ContentType.objects.get_for_model(WordDefinition)
@@ -167,6 +206,23 @@ class TestAdaptiveIntervals:
             next_review_at=timezone.now(),
         )
 
+    def _add_timing_history(self, durations, question_type=None):
+        question_type = question_type or self.question.question_type
+        for index, duration in enumerate(durations):
+            word = WordFactory(text=f'history_{index}_{duration}')
+            question = QuestionFactory(
+                word=word,
+                question_type=question_type,
+                correct_answers=['answer'],
+            )
+            UserAnswer.objects.create(
+                user=self.student,
+                question=question,
+                user_answer='answer',
+                is_correct=True,
+                duration_seconds=duration,
+            )
+
     def test_correct_answer_increases_learning_speed(self):
         PracticeService.process_answer(
             self.student, self.question.id, 'shining', 5, 0,
@@ -181,13 +237,15 @@ class TestAdaptiveIntervals:
         self.mastery.refresh_from_db()
         assert self.mastery.learning_speed < 1.0
 
-    def test_learning_speed_ema_formula(self):
-        PracticeService.process_answer(
+    def test_unclassified_correct_uses_existing_ema_formula_without_enough_history(self):
+        result = PracticeService.process_answer(
             self.student, self.question.id, 'shining', 5, 0,
         )
         self.mastery.refresh_from_db()
         expected = 0.3 * 1.2 + 0.7 * 1.0  # 1.06
         assert abs(self.mastery.learning_speed - expected) < 0.001
+        assert result['response_quality'] == 'insufficient_timing_baseline'
+        assert result['is_fragile'] is False
 
     def test_next_review_at_is_datetime(self):
         PracticeService.process_answer(
@@ -210,7 +268,7 @@ class TestAdaptiveIntervals:
         actual_delta = (self.mastery.next_review_at - before).total_seconds() / 86400
         assert abs(actual_delta - expected_days) < 0.05
 
-    def test_minimum_interval_is_half_day(self):
+    def test_minimum_interval_is_one_day(self):
         self.mastery.learning_speed = 0.1
         self.mastery.save()
         before = timezone.now()
@@ -219,7 +277,7 @@ class TestAdaptiveIntervals:
         )
         self.mastery.refresh_from_db()
         actual_delta = (self.mastery.next_review_at - before).total_seconds() / 86400
-        assert actual_delta >= 0.49
+        assert actual_delta >= 0.99
 
     def test_retry_does_not_update_learning_speed(self):
         PracticeService.process_answer(
@@ -232,6 +290,123 @@ class TestAdaptiveIntervals:
         )
         self.mastery.refresh_from_db()
         assert self.mastery.learning_speed == speed_after_wrong
+
+    def test_timing_baseline_requires_15_valid_same_question_type_samples(self):
+        self._add_timing_history([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 100, 120])
+        self._add_timing_history(
+            [2, 3, 4, 5, 6],
+            question_type=Question.QuestionType.SYNONYM_MC_SINGLE,
+        )
+
+        result = PracticeService.process_answer(
+            self.student, self.question.id, 'shining', 2, 0,
+        )
+
+        self.mastery.refresh_from_db()
+        assert result['response_quality'] == 'insufficient_timing_baseline'
+        expected = 0.3 * 1.2 + 0.7 * 1.0
+        assert abs(self.mastery.learning_speed - expected) < 0.001
+
+    def test_fast_correct_uses_same_question_type_baseline(self):
+        self._add_timing_history(range(2, 17))
+
+        before = timezone.now()
+        result = PracticeService.process_answer(
+            self.student, self.question.id, 'shining', 2, 0,
+        )
+
+        self.mastery.refresh_from_db()
+        expected_speed = 0.3 * 1.25 + 0.7 * 1.0
+        expected_days = self.mastery.level.interval_days * expected_speed * 1.15
+        actual_delta = (self.mastery.next_review_at - before).total_seconds() / 86400
+        assert result['response_quality'] == 'fast_correct'
+        assert result['is_fragile'] is False
+        assert abs(self.mastery.learning_speed - expected_speed) < 0.001
+        assert abs(actual_delta - expected_days) < 0.05
+
+    def test_slow_correct_is_fragile_when_baseline_exists(self):
+        level3 = MasteryLevel.objects.get(level_id=3)
+        self.mastery.level = level3
+        self.mastery.save()
+        self._add_timing_history(range(2, 17))
+
+        before = timezone.now()
+        result = PracticeService.process_answer(
+            self.student, self.question.id, 'shining', 16, 0,
+        )
+
+        self.mastery.refresh_from_db()
+        expected_speed = 0.3 * 0.85 + 0.7 * 1.0
+        expected_days = level3.interval_days * expected_speed * 0.85
+        actual_delta = (self.mastery.next_review_at - before).total_seconds() / 86400
+        assert result['response_quality'] == 'slow_correct'
+        assert result['is_fragile'] is True
+        assert abs(self.mastery.learning_speed - expected_speed) < 0.001
+        assert abs(actual_delta - expected_days) < 0.05
+
+    def test_switched_correct_is_fragile_when_baseline_exists(self):
+        self._add_timing_history(range(2, 17))
+
+        result = PracticeService.process_answer(
+            self.student, self.question.id, 'shining', 8, 1,
+        )
+
+        self.mastery.refresh_from_db()
+        expected_speed = 0.3 * 0.9 + 0.7 * 1.0
+        assert result['response_quality'] == 'switched_correct'
+        assert result['is_fragile'] is True
+        assert abs(self.mastery.learning_speed - expected_speed) < 0.001
+
+    def test_typo_retry_correct_is_fragile_when_baseline_exists(self):
+        self._add_timing_history(range(2, 17))
+
+        result = PracticeService.process_answer(
+            self.student, self.question.id, 'shining', 8, 0,
+            had_typo_retry=True,
+        )
+
+        self.mastery.refresh_from_db()
+        expected_speed = 0.3 * 0.9 + 0.7 * 1.0
+        assert result['response_quality'] == 'typo_retry_correct'
+        assert result['is_fragile'] is True
+        assert abs(self.mastery.learning_speed - expected_speed) < 0.001
+
+    def test_incorrect_uses_schedule_adjustment_without_timing_history(self):
+        level3 = MasteryLevel.objects.get(level_id=3)
+        self.mastery.level = level3
+        self.mastery.mastery_points = 7
+        self.mastery.save()
+
+        before = timezone.now()
+        result = PracticeService.process_answer(
+            self.student, self.question.id, 'wrong', 8, 0,
+        )
+
+        self.mastery.refresh_from_db()
+        expected_speed = 0.3 * 0.5 + 0.7 * 1.0
+        expected_days = self.mastery.level.interval_days * expected_speed * 0.5
+        actual_delta = (self.mastery.next_review_at - before).total_seconds() / 86400
+        assert result['response_quality'] == 'incorrect'
+        assert result['is_fragile'] is True
+        assert abs(self.mastery.learning_speed - expected_speed) < 0.001
+        assert abs(actual_delta - expected_days) < 0.05
+
+    def test_fragile_promotion_caps_interval_at_old_level_interval(self):
+        self.mastery.mastery_points = 2
+        self.mastery.save()
+        self._add_timing_history(range(2, 17))
+
+        before = timezone.now()
+        result = PracticeService.process_answer(
+            self.student, self.question.id, 'shining', 16, 0,
+        )
+
+        self.mastery.refresh_from_db()
+        actual_delta = (self.mastery.next_review_at - before).total_seconds() / 86400
+        assert result['did_level_up_word'] is True
+        assert self.mastery.level.level_id == 2
+        assert result['response_quality'] == 'slow_correct'
+        assert actual_delta < 1.05
 
 
 @pytest.mark.django_db
@@ -288,6 +463,24 @@ class TestDashboardServiceStudentProgress:
         result = DashboardService.get_student_progress(self.student)
         assert 'mastery_counts' in result
         assert len(result['mastery_counts']) >= 1
+
+    def test_rolls_hidden_mastery_counts_into_mastered(self):
+        hidden_level = MasteryLevel.objects.get(level_id=6)
+        hidden_word = WordFactory(text='settled')
+        UserWordProgress.objects.create(
+            user=self.student,
+            word=hidden_word,
+            level=hidden_level,
+            next_review_at=timezone.now(),
+        )
+
+        result = DashboardService.get_student_progress(self.student)
+
+        level_names = [item['level_name'] for item in result['mastery_counts']]
+        assert 'Long-Term Retention' not in level_names
+        assert 'Long-Term Mastery' not in level_names
+        mastered = next(item for item in result['mastery_counts'] if item['level_name'] == 'Mastered')
+        assert mastered['word_count'] == 1
 
     def test_returns_recent_answers(self):
         UserAnswer.objects.create(

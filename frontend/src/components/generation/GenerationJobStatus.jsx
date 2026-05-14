@@ -9,6 +9,7 @@ const PIPELINE_STEPS = [
   { key: 'PACK_CREATION', label: 'Pack Creation' },
   { key: 'PRIMER_GEN', label: 'Primer Generation' },
   { key: 'STORY_CLOZE_GEN', label: 'Story & Cloze Generation' },
+  { key: 'CREATIVE_DIRECTION', label: 'Creative Direction' },
   { key: 'IMAGE_GEN', label: 'Image Generation' },
   { key: 'PICTURE_MATCH_GEN', label: 'Picture-Word Match' },
 ];
@@ -20,6 +21,9 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
   const [logs, setLogs] = useState([]);
   const [error, setError] = useState('');
   const [isResuming, setIsResuming] = useState(false);
+  const [restartStep, setRestartStep] = useState('QUESTION_GEN');
+  const [includeSubsequent, setIncludeSubsequent] = useState(true);
+  const [isRestartingStep, setIsRestartingStep] = useState(false);
   const intervalRef = useRef(null);
 
   useEffect(() => {
@@ -79,12 +83,63 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
       {job.status === 'FAILED' && job.error_message && (
         <div className="t-message t-message--error" style={{ marginTop: 12 }}><strong>Error:</strong> {job.error_message}</div>
       )}
+      {job.status !== 'RUNNING' && job.status !== 'PENDING' && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--t-border)' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+            <select
+              value={restartStep}
+              onChange={(event) => setRestartStep(event.target.value)}
+              style={{ minWidth: 190, padding: '6px 8px', borderRadius: 6, border: '1px solid var(--t-border)' }}
+            >
+              {PIPELINE_STEPS.map((step) => (
+                <option key={step.key} value={step.key}>{step.label}</option>
+              ))}
+            </select>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.85rem' }}>
+              <input
+                type="checkbox"
+                checked={includeSubsequent}
+                onChange={(event) => setIncludeSubsequent(event.target.checked)}
+              />
+              Run following steps
+            </label>
+            <button
+              className="t-btn t-btn--sm"
+              onClick={async () => {
+                setIsRestartingStep(true);
+                setError('');
+                try {
+                  const restartRes = await apiClient.post(`/generation-jobs/${jobId}/restart-step/`, {
+                    step: restartStep,
+                    include_subsequent: includeSubsequent,
+                  });
+                  setJob(prev => prev ? { ...prev, ...restartRes.data, status: 'RUNNING', error_message: '' } : restartRes.data);
+                  clearInterval(intervalRef.current);
+                  const poll = async () => {
+                    const [jobRes, logsRes] = await Promise.all([apiClient.get(`/generation-jobs/${jobId}/`), apiClient.get(`/generation-jobs/${jobId}/logs/`)]);
+                    setJob(jobRes.data); setLogs(logsRes.data);
+                    if (jobRes.data.status === 'COMPLETED' || jobRes.data.status === 'PARTIALLY_COMPLETED') { clearInterval(intervalRef.current); setIsRestartingStep(false); onComplete?.(jobRes.data); }
+                    else if (jobRes.data.status === 'FAILED') { clearInterval(intervalRef.current); setIsRestartingStep(false); onFail?.(jobRes.data); }
+                  };
+                  poll(); intervalRef.current = setInterval(poll, POLL_INTERVAL);
+                } catch (err) { setError(err.response?.data?.error || 'Failed to restart pipeline step.'); setIsRestartingStep(false); }
+              }}
+              disabled={isRestartingStep}
+            >
+              {isRestartingStep ? 'Restarting...' : 'Restart Step'}
+            </button>
+          </div>
+        </div>
+      )}
       {job.status === 'FAILED' && (
         <button className="t-btn t-btn--sm" style={{ marginTop: 10, background: 'var(--t-warning)', color: '#fff' }}
           onClick={async () => {
             setIsResuming(true);
+            setError('');
             try {
-              await apiClient.post(`/generation-jobs/${jobId}/resume/`);
+              const resumeRes = await apiClient.post(`/generation-jobs/${jobId}/resume/`);
+              setJob(prev => prev ? { ...prev, ...resumeRes.data, status: 'RUNNING', error_message: '' } : resumeRes.data);
+              clearInterval(intervalRef.current);
               const poll = async () => {
                 const [jobRes, logsRes] = await Promise.all([apiClient.get(`/generation-jobs/${jobId}/`), apiClient.get(`/generation-jobs/${jobId}/logs/`)]);
                 setJob(jobRes.data); setLogs(logsRes.data);

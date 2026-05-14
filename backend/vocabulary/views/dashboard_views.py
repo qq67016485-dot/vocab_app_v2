@@ -73,9 +73,24 @@ class StudentDashboardView(APIView):
                 student.save(update_fields=['current_practice_streak'])
 
         # Mastery breakdown with deltas
-        current_counts = list(MasteryLevel.objects.annotate(
+        current_counts = list(MasteryLevel.objects.filter(is_hidden=False).annotate(
             word_count=Count('userwordprogress', filter=Q(userwordprogress__user=student)),
         ).values('level_id', 'level_name', 'word_count').order_by('level_id'))
+        mastered_level_id = MasteryLevel.objects.filter(
+            is_hidden=False,
+        ).order_by('-level_id').values_list('level_id', flat=True).first()
+        hidden_level_ids = set(
+            MasteryLevel.objects.filter(is_hidden=True).values_list('level_id', flat=True)
+        )
+
+        if mastered_level_id:
+            hidden_word_count = UserWordProgress.objects.filter(
+                user=student, level__is_hidden=True,
+            ).count()
+            for item in current_counts:
+                if item['level_id'] == mastered_level_id:
+                    item['word_count'] += hidden_word_count
+                    break
 
         deltas = {item['level_id']: {'today': 0, 'week': 0} for item in current_counts}
 
@@ -87,16 +102,25 @@ class StudentDashboardView(APIView):
             user=student, timestamp__gte=start_of_week,
         ).select_related('old_level', 'new_level')
 
+        def display_level_id(level):
+            if level.level_id in hidden_level_ids:
+                return mastered_level_id
+            return level.level_id
+
         for log in recent_logs:
-            if log.new_level.level_id in deltas:
-                deltas[log.new_level.level_id]['week'] += 1
-            if log.old_level.level_id in deltas:
-                deltas[log.old_level.level_id]['week'] -= 1
+            new_level_id = display_level_id(log.new_level)
+            old_level_id = display_level_id(log.old_level)
+            if new_level_id == old_level_id:
+                continue
+            if new_level_id in deltas:
+                deltas[new_level_id]['week'] += 1
+            if old_level_id in deltas:
+                deltas[old_level_id]['week'] -= 1
             if log.timestamp >= start_of_today:
-                if log.new_level.level_id in deltas:
-                    deltas[log.new_level.level_id]['today'] += 1
-                if log.old_level.level_id in deltas:
-                    deltas[log.old_level.level_id]['today'] -= 1
+                if new_level_id in deltas:
+                    deltas[new_level_id]['today'] += 1
+                if old_level_id in deltas:
+                    deltas[old_level_id]['today'] -= 1
 
         mastery_breakdown = [
             {
@@ -158,8 +182,16 @@ class WordsByLevelView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, level_id, *args, **kwargs):
+        mastered_level_id = MasteryLevel.objects.filter(
+            is_hidden=False,
+        ).order_by('-level_id').values_list('level_id', flat=True).first()
+        level_filter = Q(level__level_id=level_id, level__is_hidden=False)
+        if level_id == mastered_level_id:
+            level_filter |= Q(level__is_hidden=True)
+
         mastery_records = UserWordProgress.objects.filter(
-            user=request.user, level__level_id=level_id,
+            level_filter,
+            user=request.user,
         ).select_related('word').prefetch_related('word__definitions')
 
         words = [record.word for record in mastery_records]

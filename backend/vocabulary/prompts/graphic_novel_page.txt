@@ -1,0 +1,20 @@
+Create one complete 1792x1024 landscape comic book page for a K-8 graphic novel.
+
+Title: {title}
+Page number: {page_number}
+Art style: {style_prompt}
+
+Story continuity:
+{synopsis}
+
+Page composition:
+Create a single landscape page containing {panel_count} panels. Use clear panel borders, gutters, and professional comic-book composition. Follow this layout: {layout_description}
+
+Panel content:
+{panel_details}
+
+Vocabulary highlighting:
+Render the words {vocab_words} in a distinct glowing gold or bright colored style wherever they appear in captions or speech bubbles. The highlighted words must remain readable.
+
+Text and format constraints:
+Use speech bubbles for dialogue and caption boxes for narration. Keep all lettering large, clean, and readable. Do not add watermarks, signatures, logos, extra captions, extra panels, or unrelated text.

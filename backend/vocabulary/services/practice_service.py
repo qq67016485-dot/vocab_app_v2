@@ -8,6 +8,7 @@ V2 changes from v1:
 - definition_chinese → Translation model lookup
 """
 from datetime import timedelta
+import math
 import string
 import logging
 
@@ -28,6 +29,58 @@ logger = logging.getLogger(__name__)
 
 
 class PracticeService:
+    MIN_TIMING_BASELINE_SAMPLES = 15
+    TIMING_BASELINE_LIMIT = 50
+    MIN_VALID_DURATION_SECONDS = 1
+    MAX_VALID_DURATION_SECONDS = 100
+    MIN_REVIEW_INTERVAL_DAYS = 1.0
+    ALPHA = 0.3
+
+    RESPONSE_QUALITY_RULES = {
+        'fast_correct': {
+            'quality': 1.25,
+            'interval_factor': 1.15,
+            'is_fragile': False,
+            'schedule_reason': 'fast_correct',
+        },
+        'solid_correct': {
+            'quality': 1.10,
+            'interval_factor': 1.00,
+            'is_fragile': False,
+            'schedule_reason': 'solid_correct',
+        },
+        'slow_correct': {
+            'quality': 0.85,
+            'interval_factor': 0.85,
+            'is_fragile': True,
+            'schedule_reason': 'slow_correct',
+        },
+        'switched_correct': {
+            'quality': 0.90,
+            'interval_factor': 0.85,
+            'is_fragile': True,
+            'schedule_reason': 'switched_correct',
+        },
+        'typo_retry_correct': {
+            'quality': 0.90,
+            'interval_factor': 0.85,
+            'is_fragile': True,
+            'schedule_reason': 'typo_retry_correct',
+        },
+        'incorrect': {
+            'quality': 0.50,
+            'interval_factor': 0.50,
+            'is_fragile': True,
+            'schedule_reason': 'incorrect',
+        },
+        'unclassified_correct': {
+            'quality': 1.20,
+            'interval_factor': 1.00,
+            'is_fragile': False,
+            'schedule_reason': 'insufficient_timing_baseline',
+        },
+    }
+
     @classmethod
     def update_xp_and_level(cls, user, xp_to_add):
         user.xp_points += xp_to_add
@@ -112,7 +165,112 @@ class PracticeService:
             return ''
 
     @classmethod
-    def process_answer(cls, user, question_id, user_answer, duration_seconds, answer_switches, is_retry=False):
+    def _valid_duration_filter(cls):
+        return {
+            'duration_seconds__gt': cls.MIN_VALID_DURATION_SECONDS,
+            'duration_seconds__lt': cls.MAX_VALID_DURATION_SECONDS,
+        }
+
+    @staticmethod
+    def _percentile(sorted_values, percentile):
+        if not sorted_values:
+            return None
+        if len(sorted_values) == 1:
+            return float(sorted_values[0])
+
+        rank = (len(sorted_values) - 1) * percentile
+        lower = math.floor(rank)
+        upper = math.ceil(rank)
+        if lower == upper:
+            return float(sorted_values[int(rank)])
+
+        weight = rank - lower
+        return (
+            sorted_values[lower] * (1 - weight)
+            + sorted_values[upper] * weight
+        )
+
+    @classmethod
+    def _get_timing_baseline(cls, user, question_type):
+        durations = list(
+            UserAnswer.objects.filter(
+                user=user,
+                question__question_type=question_type,
+                **cls._valid_duration_filter(),
+            )
+            .order_by('-answered_at')
+            .values_list('duration_seconds', flat=True)[:cls.TIMING_BASELINE_LIMIT]
+        )
+
+        if len(durations) < cls.MIN_TIMING_BASELINE_SAMPLES:
+            return None
+
+        sorted_durations = sorted(durations)
+        return {
+            'fast_threshold': cls._percentile(sorted_durations, 0.25),
+            'slow_threshold': cls._percentile(sorted_durations, 0.80),
+            'sample_count': len(sorted_durations),
+        }
+
+    @classmethod
+    def _classify_response_quality(
+        cls, user, question, is_correct, duration_seconds,
+        answer_switches, had_typo_retry,
+    ):
+        if not is_correct:
+            return cls.RESPONSE_QUALITY_RULES['incorrect'].copy()
+
+        baseline = cls._get_timing_baseline(user, question.question_type)
+        if not baseline:
+            return cls.RESPONSE_QUALITY_RULES['unclassified_correct'].copy()
+
+        candidates = []
+        try:
+            duration_value = float(duration_seconds)
+        except (TypeError, ValueError):
+            duration_value = None
+
+        if (
+            duration_value is not None
+            and baseline['fast_threshold'] is not None
+            and duration_value <= baseline['fast_threshold']
+        ):
+            candidates.append('fast_correct')
+        elif (
+            duration_value is not None
+            and baseline['slow_threshold'] is not None
+            and duration_value >= baseline['slow_threshold']
+        ):
+            candidates.append('slow_correct')
+        else:
+            candidates.append('solid_correct')
+
+        try:
+            switch_count = int(answer_switches or 0)
+        except (TypeError, ValueError):
+            switch_count = 0
+
+        if switch_count > 0:
+            candidates.append('switched_correct')
+        if had_typo_retry:
+            candidates.append('typo_retry_correct')
+
+        best_name = min(
+            candidates,
+            key=lambda name: (
+                cls.RESPONSE_QUALITY_RULES[name]['quality'],
+                cls.RESPONSE_QUALITY_RULES[name]['interval_factor'],
+            ),
+        )
+        rule = cls.RESPONSE_QUALITY_RULES[best_name].copy()
+        rule['baseline_sample_count'] = baseline['sample_count']
+        return rule
+
+    @classmethod
+    def process_answer(
+        cls, user, question_id, user_answer, duration_seconds, answer_switches,
+        is_retry=False, had_typo_retry=False,
+    ):
         with transaction.atomic():
             if not is_retry:
                 cls.update_practice_streak(user)
@@ -158,12 +316,23 @@ class PracticeService:
                         }
 
             current_mastery_level_before_update = mastery_record.level
+            old_learning_speed = mastery_record.learning_speed
             did_level_up_word = False
             did_level_up_user = False
             xp_earned = 0
             bonus_info = {}
+            schedule_info = None
 
             if not is_retry:
+                response_quality = cls._classify_response_quality(
+                    user=user,
+                    question=question,
+                    is_correct=is_correct,
+                    duration_seconds=duration_seconds,
+                    answer_switches=answer_switches,
+                    had_typo_retry=had_typo_retry,
+                )
+
                 if is_correct:
                     mastery_record.mastery_points += 1
                     if mastery_record.mastery_points >= current_mastery_level_before_update.points_to_promote:
@@ -204,18 +373,36 @@ class PracticeService:
                         xp_earned += 5
                         bonus_info['good_old_memory'] = 5
 
-                quality = 1.2 if is_correct else 0.5
-                alpha = 0.3
                 mastery_record.learning_speed = (
-                    alpha * quality + (1 - alpha) * mastery_record.learning_speed
+                    cls.ALPHA * response_quality['quality']
+                    + (1 - cls.ALPHA) * mastery_record.learning_speed
                 )
 
-                adaptive_days = mastery_record.level.interval_days * mastery_record.learning_speed
+                adaptive_days = (
+                    mastery_record.level.interval_days
+                    * mastery_record.learning_speed
+                    * response_quality['interval_factor']
+                )
+                if response_quality['is_fragile'] and mastery_record.level != level_before:
+                    pre_promotion_days = (
+                        current_mastery_level_before_update.interval_days
+                        * old_learning_speed
+                    )
+                    adaptive_days = min(adaptive_days, pre_promotion_days)
+
+                review_interval_days = max(cls.MIN_REVIEW_INTERVAL_DAYS, adaptive_days)
                 mastery_record.next_review_at = timezone.now() + timedelta(
-                    days=max(0.5, adaptive_days),
+                    days=review_interval_days,
                 )
                 mastery_record.last_reviewed_at = timezone.now()
                 mastery_record.save()
+                schedule_info = {
+                    'response_quality': response_quality['schedule_reason'],
+                    'is_fragile': response_quality['is_fragile'],
+                    'review_interval_days': review_interval_days,
+                    'next_review_at': mastery_record.next_review_at,
+                    'schedule_reason': response_quality['schedule_reason'],
+                }
 
                 UserAnswer.objects.create(
                     user=user,
@@ -265,5 +452,7 @@ class PracticeService:
                     "bonus_info": bonus_info,
                     "did_level_up_user": did_level_up_user,
                 })
+                if schedule_info:
+                    response.update(schedule_info)
 
             return response

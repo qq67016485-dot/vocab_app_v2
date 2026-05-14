@@ -2,6 +2,72 @@
 
 All notable changes to Vocab App V2 are documented in this file.
 
+## [Unreleased] - 2026-05-14
+
+### Graphic Novel Instructional Flow
+- Replaced new full-pipeline micro-story generation with AI-generated graphic novels for the instructional Read step
+- Added `GraphicNovel` and `GraphicNovelPage` models plus migration `0018_graphic_novel`; each page stores one complete 1792x1024 landscape comic image and panel metadata
+- Added `GenerationJob.graphic_novels_created` and new pipeline log steps `GRAPHIC_NOVEL_SCRIPT` and `GRAPHIC_NOVEL_IMAGES`
+- Updated `PIPELINE_STEP_ORDER` to run `GRAPHIC_NOVEL_SCRIPT` and `GRAPHIC_NOVEL_IMAGES` after `PRIMER_GEN`; legacy `STORY_CLOZE_GEN` remains available for existing logs/manual use but is no longer used for new full-pipeline content
+- Added `graphic_novel_script.txt` and `graphic_novel_page.txt` prompt templates
+- `call_openai_image()` now accepts a `size` parameter; graphic novel pages request `1792x1024`, while existing vocabulary card images keep the default `1024x1024`
+- `GET /api/instructional/packs/<pack_id>/` now returns `story.type = "graphic_novel"` with page data for new packs and falls back to `story.type = "micro_story"` for legacy packs
+- Added `GraphicNovelReader` with 16:9 page display, arrow/keyboard/swipe navigation, page dots, tap-to-open vocabulary overlay, and final-page completion
+- Added factories and focused tests for graphic novel models, generation steps, instructional API fallback, and OpenAI image size compatibility
+
+## [Unreleased] - 2026-05-13
+
+### Response-Quality-Aware Scheduling
+- `PracticeService` now classifies first-attempt answer quality using persisted `UserAnswer.duration_seconds`, `UserAnswer.answer_switches`, and `Question.question_type`
+- Correct answers use per-learner, per-question-type timing baselines only after 15 valid samples from the latest 50 first-attempt answers, filtering to `1 < duration_seconds < 100`
+- Correct answers without enough timing history use the previous behavior as `unclassified_correct`
+- Answer qualities now include `fast_correct`, `solid_correct`, `slow_correct`, `switched_correct`, `typo_retry_correct`, `incorrect`, and `unclassified_correct`
+- `learning_speed` still uses an EMA, but each quality has its own quality value and immediate interval factor
+- Incorrect answers always use the `incorrect` schedule adjustment, even without timing history
+- Replaced the 0.5-day minimum review interval with a 1-day minimum so a student does not see the same word again on the same day
+- Fragile correct answers may still promote, but if promotion happens, the next interval is capped by the old-level schedule
+- Typo retries are now tracked server-side in the Django session after an `is_typo` response; the next first-attempt correct answer for that question becomes `typo_retry_correct`
+- `/api/practice/submit/` responses now include scheduling metadata: `response_quality`, `is_fragile`, `review_interval_days`, `next_review_at`, and `schedule_reason`
+
+## [Unreleased] - 2026-05-01
+
+### Mastery Schedule & Hidden Long-Term Levels
+- Added `MasteryLevel.is_hidden` and migration `0017_hidden_mastery_level`
+- Current mastery schedule: Level 1 `1d/2pts`, Level 2 `3d/4pts`, Level 3 `7d/7pts`, Level 4 `10d/10pts`, Level 5 `17d/15pts`, Level 6 `30d/25pts` hidden, Level 7 `60d/999pts` hidden
+- Level 6 and 7 words are rolled into the student-facing Mastered accordion/list instead of appearing as separate levels
+- Student dashboard daily/weekly mastery deltas ignore transitions that stay within the displayed Mastered bucket, including 5->6, 6->7, 7->6, and 6->5
+- Practice questions for hidden levels ignore `Question.suitable_levels` and may use any question for the word within the student's Lexile range
+
+### Generation Pipeline Reliability & Observability
+- Set content-generation default model to `gemini-3.1-pro-preview` with backup model `gemini-3-pro-preview`
+- Added per-step retry policy for Gemini-backed content steps: one retry with the current model, then one retry with the backup model
+- Retry attempts are persisted as `GenerationJobLog` entries with attempt/model/next_model/error details
+- Resume endpoint now writes a fresh RUNNING job log before starting the background thread so status polling does not immediately mark resumed jobs stale
+- Generation status UI now shows the CREATIVE_DIRECTION step and switches to RUNNING immediately after resume
+- OpenAI image generation now writes exact final image prompts to `temp/llm_logs/`; prompts remain stored on `GeneratedImage.prompt_used`
+
+## [Unreleased] — 2026-04-30
+
+### Image Generation Pipeline — Educational Value Rewrite
+- Rewrote all 3 creative direction prompts (`creative_direction_character.txt`, `creative_direction_action.txt`, `creative_direction_elemental.txt`) to prioritize definition clarity over stylistic flourish
+- Removed Hoyoverse/Genshin Impact aesthetic framing from creative direction and image generation prompts
+- Added "Definition Clarity Check" instruction: LLM must verify a child could guess the word's meaning from the image alone
+- Scenes now grounded in real-world contexts (gym, nature, classroom) instead of fantasy/elemental settings
+- Anime cel-shading retained as rendering style only, not compositional driver
+- Rewrote `image_master_style.txt` to emphasize definition as the most prominent visual element
+- Updated `image_generation.txt` fallback prompt for consistency
+
+### Image Generation Pipeline — Creative Direction Step (prior unreleased)
+- Added 10-step pipeline (was 8): new CREATIVE_DIRECTION (step 8) and PICTURE_MATCH_GEN (step 10)
+- Added `image_category` field on Word model (9 categories: EMOTION_STATE, DYNAMIC_ACTION, INVISIBLE_PROCESS, SENSORY_TRAIT, SPATIAL_RELATION, ABSTRACT_METAPHOR, PORTABLE_OBJECT, EPIC_SCALE, ICONIC_CHARACTER)
+- Added `visual_scene` field on WordDefinition model
+- Word lookup step now classifies each word into an image category
+- Creative direction step routes words to category-specific prompts and generates visual_scene descriptions
+- Image generation switched from Gemini to OpenAI GPT-Image-2
+- Migration `0015_add_image_category_to_word`, `0016_add_visual_scene_and_creative_direction_step`
+
+---
+
 ## [Unreleased] — 2026-04-23
 
 ### Daily Goal System
@@ -51,6 +117,8 @@ All notable changes to Vocab App V2 are documented in this file.
 - `0011_backfill_picture_word_match_lexile` — backfill lexile scores on PICTURE_WORD_MATCH questions
 - `0012_add_retry_count_to_useranswer` — retry_count field on UserAnswer
 - `0013_update_mastery_level_intervals` — updated spaced repetition intervals
+
+- `0017_hidden_mastery_level` - adds hidden long-term mastery levels and updates the current spaced repetition schedule
 
 ### Tests
 - Expanded test coverage: views, serializers, models, adapted services, embedding service
