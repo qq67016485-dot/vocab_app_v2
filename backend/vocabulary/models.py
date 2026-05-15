@@ -19,23 +19,8 @@ class Tag(models.Model):
 class Word(models.Model):
     """Replaces v1 Term + WordMeaning. One record per word+POS combination."""
 
-    class ImageCategory(models.TextChoices):
-        EMOTION_STATE = 'EMOTION_STATE', 'Emotion & State'
-        DYNAMIC_ACTION = 'DYNAMIC_ACTION', 'Dynamic Action'
-        INVISIBLE_PROCESS = 'INVISIBLE_PROCESS', 'Invisible Process'
-        SENSORY_TRAIT = 'SENSORY_TRAIT', 'Sensory Trait'
-        SPATIAL_RELATION = 'SPATIAL_RELATION', 'Spatial Relation'
-        ABSTRACT_METAPHOR = 'ABSTRACT_METAPHOR', 'Abstract Metaphor'
-        PORTABLE_OBJECT = 'PORTABLE_OBJECT', 'Portable Object'
-        EPIC_SCALE = 'EPIC_SCALE', 'Epic Scale'
-        ICONIC_CHARACTER = 'ICONIC_CHARACTER', 'Iconic Character'
-
     text = models.CharField(max_length=100, db_index=True)
     part_of_speech = models.CharField(max_length=50, blank=True, default='')
-    image_category = models.CharField(
-        max_length=30, choices=ImageCategory.choices, blank=True, default='',
-        help_text='Visual category for image generation creative direction.',
-    )
     source_context = models.CharField(
         max_length=255, blank=True, default='',
         help_text='e.g., "From the book Cosmos"',
@@ -54,10 +39,6 @@ class WordDefinition(models.Model):
     word = models.ForeignKey(Word, on_delete=models.CASCADE, related_name='definitions')
     definition_text = models.TextField()
     example_sentence = models.TextField(blank=True, default='')
-    visual_scene = models.TextField(
-        blank=True, default='',
-        help_text='LLM-generated visual scene description for image generation.',
-    )
     lexile_score = models.IntegerField(
         null=True, blank=True,
         help_text='The estimated Lexile score for this definition and example.',
@@ -214,7 +195,6 @@ class Question(models.Model):
         REVERSE_ASSOCIATION_MC = 'REVERSE_ASSOCIATION_MC', 'Reverse Association MC'
         REVERSE_COLLOCATION_MC = 'REVERSE_COLLOCATION_MC', 'Reverse Collocation MC'
         NUANCE_CONTRAST_MC = 'NUANCE_CONTRAST_MC', 'Nuance Contrast MC'
-        PICTURE_WORD_MATCH = 'PICTURE_WORD_MATCH', 'Picture-Word Match'
 
     word = models.ForeignKey(Word, on_delete=models.CASCADE, related_name='questions')
     question_type = models.CharField(max_length=50, choices=QuestionType.choices)
@@ -482,10 +462,25 @@ class GraphicNovel(models.Model):
 
 
 class GraphicNovelPage(models.Model):
+    class GenerationStatus(models.TextChoices):
+        PENDING = 'PENDING', 'Pending'
+        RUNNING = 'RUNNING', 'Running'
+        COMPLETED = 'COMPLETED', 'Completed'
+        FAILED = 'FAILED', 'Failed'
+
     novel = models.ForeignKey(GraphicNovel, on_delete=models.CASCADE, related_name='pages')
     page_number = models.IntegerField()
     image = models.ImageField(upload_to='graphic_novels/', blank=True)
     prompt_used = models.TextField(blank=True)
+    generation_status = models.CharField(
+        max_length=20,
+        choices=GenerationStatus.choices,
+        default=GenerationStatus.PENDING,
+    )
+    generation_attempts = models.IntegerField(default=0)
+    generation_error = models.TextField(blank=True, default='')
+    generation_started_at = models.DateTimeField(null=True, blank=True)
+    generation_completed_at = models.DateTimeField(null=True, blank=True)
     panel_count = models.IntegerField(help_text='Number of panels on this page (1-4)')
     layout_description = models.TextField(blank=True)
     panel_descriptions = models.JSONField(
@@ -495,6 +490,10 @@ class GraphicNovelPage(models.Model):
     vocab_words_used = models.JSONField(
         default=list,
         help_text='All vocab words appearing on this page',
+    )
+    is_review_page = models.BooleanField(
+        default=False,
+        help_text='True for the final vocabulary review page',
     )
 
     class Meta:
@@ -518,22 +517,6 @@ class ClozeItem(models.Model):
 
     def __str__(self):
         return f"Cloze for '{self.word.text}' in {self.pack.label}"
-
-
-class GeneratedImage(models.Model):
-    class Status(models.TextChoices):
-        PENDING_REVIEW = 'PENDING_REVIEW', 'Pending Review'
-        APPROVED = 'APPROVED', 'Approved'
-        REJECTED = 'REJECTED', 'Rejected'
-
-    word = models.ForeignKey(Word, on_delete=models.CASCADE, related_name='generated_images')
-    image = models.ImageField(upload_to='generated_images/', blank=True)
-    prompt_used = models.TextField()
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING_REVIEW)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"Image for '{self.word.text}' ({self.status})"
 
 
 class StudentPackCompletion(models.Model):
@@ -591,7 +574,6 @@ class GenerationJob(models.Model):
     stories_created = models.IntegerField(default=0)
     graphic_novels_created = models.IntegerField(default=0)
     cloze_items_created = models.IntegerField(default=0)
-    images_created = models.IntegerField(default=0)
 
     error_message = models.TextField(blank=True, default='')
     last_completed_step = models.CharField(
@@ -616,9 +598,6 @@ class GenerationJobLog(models.Model):
         STORY_CLOZE_GEN = 'STORY_CLOZE_GEN', 'Story & Cloze Generation'
         GRAPHIC_NOVEL_SCRIPT = 'GRAPHIC_NOVEL_SCRIPT', 'Graphic Novel Script'
         GRAPHIC_NOVEL_IMAGES = 'GRAPHIC_NOVEL_IMAGES', 'Graphic Novel Images'
-        CREATIVE_DIRECTION = 'CREATIVE_DIRECTION', 'Creative Direction'
-        IMAGE_GEN = 'IMAGE_GEN', 'Image Generation'
-        PICTURE_MATCH_GEN = 'PICTURE_MATCH_GEN', 'Picture-Word Match Generation'
 
     job = models.ForeignKey(GenerationJob, on_delete=models.CASCADE, related_name='logs')
     step = models.CharField(max_length=30, choices=Step.choices)

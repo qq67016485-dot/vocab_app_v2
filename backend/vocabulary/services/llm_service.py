@@ -221,13 +221,15 @@ def call_gemini(model, system_prompt, user_prompt):
         raise
 
 
-def call_openai_image(prompt: str, size: str = "1024x1024") -> bytes:
+def call_openai_image(prompt: str, size: str = "1024x1024", reference_image: bytes | None = None) -> bytes:
     """
     Generate an image using OpenAI's GPT-Image-2 model.
 
     Args:
         prompt: Text prompt describing the image to generate.
         size: Image dimensions requested from the API.
+        reference_image: Optional PNG bytes of a previous page to use as
+            a style/continuity reference via the images.edit endpoint.
 
     Returns:
         bytes: Raw image bytes (PNG).
@@ -241,16 +243,25 @@ def call_openai_image(prompt: str, size: str = "1024x1024") -> bytes:
         client_kwargs['base_url'] = settings.OPENAI_BASE_URL
     client = openai.OpenAI(**client_kwargs)
 
-    logger.info("Generating image via OpenAI %s", model)
+    logger.info("Generating image via OpenAI %s (reference=%s)", model, bool(reference_image))
     logger.debug("Image prompt: %s", prompt)
 
     try:
-        response = client.images.generate(
-            model=model,
-            prompt=prompt,
-            n=1,
-            size=size,
-        )
+        if reference_image:
+            response = client.images.edit(
+                model=model,
+                image=reference_image,
+                prompt=prompt,
+                n=1,
+                size=size,
+            )
+        else:
+            response = client.images.generate(
+                model=model,
+                prompt=prompt,
+                n=1,
+                size=size,
+            )
 
         image_item = response.data[0]
         if image_item.b64_json:

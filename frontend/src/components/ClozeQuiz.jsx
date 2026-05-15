@@ -86,7 +86,7 @@ export default function ClozeQuiz({ items, primerCards, onComplete }) {
       </div>
 
       <div className="cloze-sentence" style={{ marginTop: '1.5rem' }}>
-        {currentItem.sentence_text.split('_______').map((part, i, arr) => (
+        {currentItem.sentence_text.split(/_{3,}/).map((part, i, arr) => (
           <span key={i}>
             {part}
             {i < arr.length - 1 && (

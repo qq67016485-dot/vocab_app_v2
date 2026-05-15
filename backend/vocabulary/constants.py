@@ -3,7 +3,6 @@ QUESTION_TYPE_TO_SKILL_TAG = {
     'DEFINITION_TRUE_FALSE': 'definition_recall',
     'DEFINITION_MATCHING': 'definition_recall',
     'REVERSE_DEFINITION_MC': 'definition_recall',
-    'PICTURE_WORD_MATCH': 'definition_recall',
     'CONTEXT_MC_SINGLE': 'context_nuance',
     'CONTEXT_FILL_IN_BLANK': 'context_nuance',
     'CONNOTATION_SORTING': 'context_nuance',
@@ -34,7 +33,6 @@ QUESTION_TYPE_TO_PATTERN = {
     'DEFINITION_MC_SINGLE': 'Definition Recall',
     'DEFINITION_TRUE_FALSE': 'Definition Recall',
     'REVERSE_DEFINITION_MC': 'Definition Recall',
-    'PICTURE_WORD_MATCH': 'Definition Recall',
     'CONTEXT_MC_SINGLE': 'Context & Nuance',
     'APPLICATION_MC': 'Context & Nuance',
     'REVERSE_ASSOCIATION_MC': 'Context & Nuance',
@@ -61,7 +59,6 @@ QUESTION_TYPE_LEVEL = {
     'DEFINITION_MC_SINGLE': 1,
     'DEFINITION_TRUE_FALSE': 1,
     'REVERSE_DEFINITION_MC': 1,
-    'PICTURE_WORD_MATCH': 1,
     # Level 2 – Relationships
     'SYNONYM_MC_SINGLE': 2,
     'SYNONYM_IN_CONTEXT_MC': 2,

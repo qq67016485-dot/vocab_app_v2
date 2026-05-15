@@ -8,13 +8,11 @@ const PIPELINE_STEPS = [
   { key: 'QUESTION_GEN', label: 'Question Generation' },
   { key: 'PACK_CREATION', label: 'Pack Creation' },
   { key: 'PRIMER_GEN', label: 'Primer Generation' },
-  { key: 'STORY_CLOZE_GEN', label: 'Story & Cloze Generation' },
-  { key: 'CREATIVE_DIRECTION', label: 'Creative Direction' },
-  { key: 'IMAGE_GEN', label: 'Image Generation' },
-  { key: 'PICTURE_MATCH_GEN', label: 'Picture-Word Match' },
+  { key: 'GRAPHIC_NOVEL_SCRIPT', label: 'Graphic Novel Script' },
+  { key: 'GRAPHIC_NOVEL_IMAGES', label: 'Graphic Novel Images' },
 ];
 
-const POLL_INTERVAL = 3000;
+const POLL_INTERVAL = 10000;
 
 export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
   const [job, setJob] = useState(null);
@@ -50,13 +48,14 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
   const logMap = {};
   logs.forEach(log => { logMap[log.step] = log; });
   const getStepStatus = (stepKey) => logMap[stepKey]?.status || 'PENDING';
+  const graphicNovelImagePages = job.graphic_novel_image_pages || [];
 
   const statusIcon = (s) => s === 'COMPLETED' ? '\u2713' : s === 'FAILED' ? '\u2717' : s === 'RUNNING' ? '\u25CF' : '\u25CB';
   const statusCls = (s) => s === 'COMPLETED' ? 'pipeline-icon--done' : s === 'FAILED' ? 'pipeline-icon--failed' : s === 'RUNNING' ? 'pipeline-icon--running' : 'pipeline-icon--pending';
   const stepCls = (s) => s === 'RUNNING' ? 'pipeline-step--running' : s === 'FAILED' ? 'pipeline-step--failed' : '';
 
   return (
-    <div style={{ maxWidth: 500 }}>
+    <div style={{ maxWidth: 680 }}>
       <div style={{ marginBottom: 12 }}>
         <span className={`t-badge ${job.status === 'COMPLETED' || job.status === 'PARTIALLY_COMPLETED' ? 't-badge--generated' : job.status === 'FAILED' ? 't-badge--failed' : 't-badge--generating'}`}
           style={{ padding: '4px 10px', fontSize: '0.78rem' }}>{job.status}</span>
@@ -68,16 +67,44 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
           return (
             <div key={step.key} className={`pipeline-step ${stepCls(s)}`}>
               <span className={`pipeline-icon ${statusCls(s)}`}>{statusIcon(s)}</span>
-              <span style={{ flex: 1, fontSize: '0.9rem', fontWeight: s === 'RUNNING' ? 600 : 400, color: s === 'PENDING' ? 'var(--t-text-tertiary)' : 'inherit' }}>{step.label}</span>
+              <span style={{ flex: 1, fontSize: '0.9rem', fontWeight: s === 'RUNNING' ? 600 : 400, color: s === 'PENDING' ? 'var(--t-text-tertiary)' : 'inherit' }}>
+                {step.label}
+                {step.key === 'GRAPHIC_NOVEL_IMAGES' && graphicNovelImagePages.length > 0 && (
+                  <span style={{ marginLeft: 8, fontSize: '0.78rem', color: 'var(--t-text-secondary)', fontWeight: 400 }}>
+                    {graphicNovelImagePages.filter(page => page.status === 'COMPLETED').length}/{graphicNovelImagePages.length} pages
+                  </span>
+                )}
+              </span>
               {log?.duration_seconds != null && <span className="pipeline-duration">{log.duration_seconds.toFixed(1)}s</span>}
               {log?.error_message && <span style={{ fontSize: '0.8rem', color: 'var(--t-danger)' }} title={log.error_message}>Error</span>}
             </div>
           );
         })}
       </div>
+      {graphicNovelImagePages.length > 0 && (
+        <div style={{ marginTop: 8, padding: '8px 10px', border: '1px solid var(--t-border)', borderRadius: 6, background: 'var(--t-bg-secondary)' }}>
+          <div style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: 6 }}>Graphic Novel Pages</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {graphicNovelImagePages.map((page) => {
+              const s = page.status || (page.has_image ? 'COMPLETED' : 'PENDING');
+              return (
+                <div key={page.id} style={{ display: 'grid', gridTemplateColumns: '22px minmax(0, 1fr) auto', gap: 8, alignItems: 'center', fontSize: '0.82rem' }}>
+                  <span className={`pipeline-icon ${statusCls(s)}`}>{statusIcon(s)}</span>
+                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${page.pack_label} - ${page.novel_title}`}>
+                    {page.pack_label} · Page {page.page_number}
+                  </span>
+                  <span style={{ color: s === 'FAILED' ? 'var(--t-danger)' : 'var(--t-text-secondary)' }} title={page.error_message || ''}>
+                    {s}{page.attempts ? ` · try ${page.attempts}` : ''}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       {(job.status === 'COMPLETED' || job.status === 'PARTIALLY_COMPLETED') && (
         <div className="t-message t-message--success" style={{ marginTop: 12 }}>
-          <strong>Summary:</strong> {job.words_created} words, {job.questions_created} questions, {job.primer_cards_created} primers, {job.stories_created} stories, {job.cloze_items_created} cloze items, {job.images_created} images
+          <strong>Summary:</strong> {job.words_created} words, {job.questions_created} questions, {job.primer_cards_created} primers, {job.graphic_novels_created || 0} graphic novels, {job.cloze_items_created} cloze items
         </div>
       )}
       {job.status === 'FAILED' && job.error_message && (

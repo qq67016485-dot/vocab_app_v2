@@ -8,7 +8,7 @@ from vocabulary.models import (
     Question, PracticeSession, UserAnswer,
     Curriculum, Level, WordSet, StudentWordSetAssignment,
     WordPack, WordPackItem, PrimerCardContent, MicroStory, GraphicNovel,
-    ClozeItem, GeneratedImage, StudentPackCompletion,
+    ClozeItem, StudentPackCompletion,
     GenerationJob, GenerationJobLog,
 )
 from tests.factories import (
@@ -242,7 +242,7 @@ class TestQuestion:
         assert q.word is not None
 
     def test_all_question_types(self):
-        assert len(Question.QuestionType.choices) == 29
+        assert len(Question.QuestionType.choices) == 28
 
     def test_generation_job_nullable(self):
         q = QuestionFactory()
@@ -336,18 +336,16 @@ class TestInstructionalModels:
         assert pages[0].page_number == 1
         assert pages[1].page_number == 2
 
+    def test_graphic_novel_page_generation_status_defaults(self):
+        page = GraphicNovelPageFactory()
+        assert page.generation_status == 'PENDING'
+        assert page.generation_attempts == 0
+        assert page.generation_error == ''
+
     def test_cloze_item(self):
         cloze = ClozeItemFactory()
         assert '_______' in cloze.sentence_text
         assert len(cloze.distractors) == 2
-
-    def test_generated_image_status(self):
-        word = WordFactory()
-        img = GeneratedImage.objects.create(
-            word=word,
-            prompt_used='A test prompt',
-        )
-        assert img.status == GeneratedImage.Status.PENDING_REVIEW
 
     def test_student_pack_completion(self):
         student = StudentUserFactory()
@@ -377,7 +375,6 @@ class TestGenerationJob:
         assert job.stories_created == 0
         assert job.graphic_novels_created == 0
         assert job.cloze_items_created == 0
-        assert job.images_created == 0
 
     def test_status_choices(self):
         statuses = [s[0] for s in GenerationJob.Status.choices]
@@ -406,7 +403,4 @@ class TestGenerationJobLog:
         assert 'STORY_CLOZE_GEN' in steps
         assert 'GRAPHIC_NOVEL_SCRIPT' in steps
         assert 'GRAPHIC_NOVEL_IMAGES' in steps
-        assert 'CREATIVE_DIRECTION' in steps
-        assert 'IMAGE_GEN' in steps
-        assert 'PICTURE_MATCH_GEN' in steps
-        assert len(steps) == 12
+        assert len(steps) == 9

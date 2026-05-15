@@ -13,7 +13,7 @@ from users.models import CustomUser, StudentGroup
 from vocabulary.models import (
     Word, WordDefinition, Question, WordSet, MasteryLevel,
     UserWordProgress, UserAnswer, MasteryLevelLog, WordPack, WordPackItem,
-    PrimerCardContent, MicroStory, GraphicNovel, GraphicNovelPage, ClozeItem, GeneratedImage,
+    PrimerCardContent, MicroStory, GraphicNovel, GraphicNovelPage, ClozeItem,
     StudentWordSetAssignment, StudentPackCompletion,
     GenerationJob, GenerationJobLog, Curriculum, Level,
 )
@@ -1111,20 +1111,6 @@ class TestPackManagement:
         )
         assert response.status_code == 204
 
-    def test_pack_images(self):
-        pack = WordPackFactory(word_set=self.ws)
-        WordPackItem.objects.create(pack=pack, word=self.word, order=0)
-        GeneratedImage.objects.create(
-            word=self.word,
-            prompt_used='test prompt',
-        )
-        response = self.client.get(
-            f'/api/word-sets/{self.ws.id}/packs/{pack.id}/images/',
-        )
-        assert response.status_code == 200
-        assert len(response.data) >= 1
-
-
 # =============================================================================
 # TEACHER STUDENT MANAGEMENT VIEWS
 # =============================================================================
@@ -1322,6 +1308,83 @@ class TestGenerationViews:
         assert response.status_code == 200
         assert response.data['status'] == 'PENDING'
 
+    def test_job_status_includes_graphic_novel_page_statuses(self):
+        admin = AdminUserFactory()
+        ws = WordSetFactory(creator=admin)
+        job = GenerationJobFactory(word_set=ws, created_by=admin)
+        pack = WordPack.objects.create(word_set=ws, label='Pack 1', order=0)
+        novel = GraphicNovel.objects.create(
+            pack=pack,
+            title='Page Status Novel',
+            synopsis='A test synopsis.',
+            style_prompt='Readable comic art.',
+            reading_level=650,
+        )
+        page = GraphicNovelPage.objects.create(
+            novel=novel,
+            page_number=1,
+            generation_status=GraphicNovelPage.GenerationStatus.FAILED,
+            generation_attempts=2,
+            generation_error='API timeout',
+            panel_count=1,
+        )
+
+        client = _make_client(admin)
+        response = client.get(f'/api/generation-jobs/{job.id}/')
+
+        assert response.status_code == 200
+        assert response.data['graphic_novel_image_pages'][0]['id'] == page.id
+        assert response.data['graphic_novel_image_pages'][0]['status'] == 'FAILED'
+        assert response.data['graphic_novel_image_pages'][0]['attempts'] == 2
+        assert response.data['graphic_novel_image_pages'][0]['error_message'] == 'API timeout'
+
+    def test_stale_running_job_marks_running_graphic_page_failed(self):
+        admin = AdminUserFactory()
+        ws = WordSetFactory(creator=admin)
+        job = GenerationJobFactory(
+            word_set=ws,
+            created_by=admin,
+            status=GenerationJob.Status.RUNNING,
+        )
+        pack = WordPack.objects.create(word_set=ws, label='Pack 1', order=0)
+        novel = GraphicNovel.objects.create(
+            pack=pack,
+            title='Stale Page Novel',
+            synopsis='A test synopsis.',
+            style_prompt='Readable comic art.',
+            reading_level=650,
+        )
+        page = GraphicNovelPage.objects.create(
+            novel=novel,
+            page_number=1,
+            generation_status=GraphicNovelPage.GenerationStatus.RUNNING,
+            generation_started_at=timezone.now() - timedelta(minutes=20),
+            panel_count=1,
+        )
+        old_log = GenerationJobLog.objects.create(
+            job=job,
+            step=GenerationJobLog.Step.GRAPHIC_NOVEL_IMAGES,
+            status=GenerationJob.Status.RUNNING,
+        )
+        GenerationJobLog.objects.filter(id=old_log.id).update(
+            created_at=timezone.now() - timedelta(minutes=20),
+        )
+
+        client = _make_client(admin)
+        response = client.get(f'/api/generation-jobs/{job.id}/')
+
+        assert response.status_code == 200
+        assert response.data['status'] == GenerationJob.Status.FAILED
+        page.refresh_from_db()
+        ws.refresh_from_db()
+        assert page.generation_status == GraphicNovelPage.GenerationStatus.FAILED
+        assert ws.generation_status == WordSet.GenerationStatus.TO_GENERATE
+        assert GenerationJobLog.objects.filter(
+            job=job,
+            step=GenerationJobLog.Step.GRAPHIC_NOVEL_IMAGES,
+            status=GenerationJob.Status.FAILED,
+        ).exists()
+
     def test_admin_can_get_job_logs(self):
         admin = AdminUserFactory()
         ws = WordSetFactory(creator=admin)
@@ -1384,7 +1447,7 @@ class TestGenerationViews:
             word_set=ws,
             created_by=admin,
             status=GenerationJob.Status.COMPLETED,
-            last_completed_step=GenerationJobLog.Step.PICTURE_MATCH_GEN,
+            last_completed_step=GenerationJobLog.Step.GRAPHIC_NOVEL_IMAGES,
         )
 
         client = _make_client(admin)

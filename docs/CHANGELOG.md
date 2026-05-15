@@ -1,18 +1,33 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to Vocab App V2 are documented in this file.
+
+## [Unreleased] - 2026-05-15
+
+### Bug Fixes
+- Fixed review scheduling: `NextPracticeWordView` now includes questions with NULL `lexile_score` in the Lexile filter (matching `StudentDashboardView`), so newly learned words appear for same-day review even when their questions lack a Lexile score
+- Fixed cloze blank fill: `ClozeQuiz` now splits on 3+ underscores (`/_{3,}/`) instead of exactly 7, so graphic novel cloze items with varying blank lengths render correctly
+- Fixed TTS auto-play on type-in retry: after a successful retry submission via Enter, feedback buttons use `tabIndex={-1}` until ready, preventing the Enter keyup from activating the Explain button and triggering text-to-speech
 
 ## [Unreleased] - 2026-05-14
 
 ### Graphic Novel Instructional Flow
 - Replaced new full-pipeline micro-story generation with AI-generated graphic novels for the instructional Read step
 - Added `GraphicNovel` and `GraphicNovelPage` models plus migration `0018_graphic_novel`; each page stores one complete 1792x1024 landscape comic image and panel metadata
+- Added migration `0019_graphic_novel_page_status` so each `GraphicNovelPage` tracks image-generation status, attempts, error text, start time, and completion time
 - Added `GenerationJob.graphic_novels_created` and new pipeline log steps `GRAPHIC_NOVEL_SCRIPT` and `GRAPHIC_NOVEL_IMAGES`
 - Updated `PIPELINE_STEP_ORDER` to run `GRAPHIC_NOVEL_SCRIPT` and `GRAPHIC_NOVEL_IMAGES` after `PRIMER_GEN`; legacy `STORY_CLOZE_GEN` remains available for existing logs/manual use but is no longer used for new full-pipeline content
 - Added `graphic_novel_script.txt` and `graphic_novel_page.txt` prompt templates
-- `call_openai_image()` now accepts a `size` parameter; graphic novel pages request `1792x1024`, while existing vocabulary card images keep the default `1024x1024`
+- `call_openai_image()` now accepts a `size` parameter; graphic novel pages request `1792x1024`
 - `GET /api/instructional/packs/<pack_id>/` now returns `story.type = "graphic_novel"` with page data for new packs and falls back to `story.type = "micro_story"` for legacy packs
 - Added `GraphicNovelReader` with 16:9 page display, arrow/keyboard/swipe navigation, page dots, tap-to-open vocabulary overlay, and final-page completion
+- Removed the old per-word visual generation path end to end: model fields, generated image records, practice/review UI, API payloads, stale prompts, and related tests.
+- Updated admin generation status/review surfaces to display `Graphic Novel Script` and `Graphic Novel Images` instead of the legacy `Story & Cloze Generation` label, and to expose generated graphic novel page data in review payloads
+- `GET /api/generation-jobs/<id>/` now includes `graphic_novel_image_pages` so the admin status page can show per-page `PENDING`/`RUNNING`/`COMPLETED`/`FAILED` progress for `GRAPHIC_NOVEL_IMAGES`
+- `GRAPHIC_NOVEL_IMAGES` now skips completed page images, marks each page attempt independently, and fails the step if any page remains failed; Resume retries only missing/failed pages instead of starting from page 1
+- Added explicit backend progress logging around graphic novel script and page image generation; LLM/image prompt logs continue to be written to `temp/llm_logs/`
+- Released Django/MySQL connections before and after slow Gemini/OpenAI calls in the background generation pipeline, and closed background-thread connections when pipeline/resume/restart exits, to avoid connection exhaustion during long graphic novel image generation
+- Slowed the admin generation status polling interval from 3 seconds to 10 seconds to reduce database pressure while jobs are running; stale running jobs now record a FAILED log and reset the word set out of `GENERATING`
 - Added factories and focused tests for graphic novel models, generation steps, instructional API fallback, and OpenAI image size compatibility
 
 ## [Unreleased] - 2026-05-13
@@ -43,32 +58,22 @@ All notable changes to Vocab App V2 are documented in this file.
 - Added per-step retry policy for Gemini-backed content steps: one retry with the current model, then one retry with the backup model
 - Retry attempts are persisted as `GenerationJobLog` entries with attempt/model/next_model/error details
 - Resume endpoint now writes a fresh RUNNING job log before starting the background thread so status polling does not immediately mark resumed jobs stale
-- Generation status UI now shows the CREATIVE_DIRECTION step and switches to RUNNING immediately after resume
-- OpenAI image generation now writes exact final image prompts to `temp/llm_logs/`; prompts remain stored on `GeneratedImage.prompt_used`
 
-## [Unreleased] — 2026-04-30
+## [Unreleased] 鈥?2026-04-30
 
-### Image Generation Pipeline — Educational Value Rewrite
-- Rewrote all 3 creative direction prompts (`creative_direction_character.txt`, `creative_direction_action.txt`, `creative_direction_elemental.txt`) to prioritize definition clarity over stylistic flourish
+### Image Generation Pipeline 鈥?Educational Value Rewrite
 - Removed Hoyoverse/Genshin Impact aesthetic framing from creative direction and image generation prompts
 - Added "Definition Clarity Check" instruction: LLM must verify a child could guess the word's meaning from the image alone
 - Scenes now grounded in real-world contexts (gym, nature, classroom) instead of fantasy/elemental settings
 - Anime cel-shading retained as rendering style only, not compositional driver
-- Rewrote `image_master_style.txt` to emphasize definition as the most prominent visual element
-- Updated `image_generation.txt` fallback prompt for consistency
 
-### Image Generation Pipeline — Creative Direction Step (prior unreleased)
-- Added 10-step pipeline (was 8): new CREATIVE_DIRECTION (step 8) and PICTURE_MATCH_GEN (step 10)
-- Added `image_category` field on Word model (9 categories: EMOTION_STATE, DYNAMIC_ACTION, INVISIBLE_PROCESS, SENSORY_TRAIT, SPATIAL_RELATION, ABSTRACT_METAPHOR, PORTABLE_OBJECT, EPIC_SCALE, ICONIC_CHARACTER)
-- Added `visual_scene` field on WordDefinition model
+### Image Generation Pipeline 鈥?Creative Direction Step (prior unreleased)
 - Word lookup step now classifies each word into an image category
-- Creative direction step routes words to category-specific prompts and generates visual_scene descriptions
 - Image generation switched from Gemini to OpenAI GPT-Image-2
-- Migration `0015_add_image_category_to_word`, `0016_add_visual_scene_and_creative_direction_step`
 
 ---
 
-## [Unreleased] — 2026-04-23
+## [Unreleased] 鈥?2026-04-23
 
 ### Daily Goal System
 - Teacher-configurable daily goal bounds per student (`daily_goal_min`, `daily_goal_max`)
@@ -96,7 +101,7 @@ All notable changes to Vocab App V2 are documented in this file.
 - Removed `unit_or_chapter` from WordSet serializers
 
 ### Mastery Level Interval Update
-- Spaced repetition intervals changed: Level 1: 0→1d, Level 2: 1→3d, Level 3: 3→7d, Level 4: 7→10d, Level 5: 14→20d
+- Spaced repetition intervals changed: Level 1: 0鈫?d, Level 2: 1鈫?d, Level 3: 3鈫?d, Level 4: 7鈫?0d, Level 5: 14鈫?0d
 - Data migration with reversible `revert_intervals`
 
 ### Image Generation Config
@@ -112,11 +117,10 @@ All notable changes to Vocab App V2 are documented in this file.
 - Navbar and layout adjustments for Student and Teacher views
 
 ### Migrations
-- `0002_add_daily_goal_bounds` — daily_goal_min, daily_goal_max, last_goal_prompt_date on CustomUser
-- `0010_level_curriculum_alter_level_name_and_more` — Level FK to Curriculum, scoped uniqueness
-- `0011_backfill_picture_word_match_lexile` — backfill lexile scores on PICTURE_WORD_MATCH questions
-- `0012_add_retry_count_to_useranswer` — retry_count field on UserAnswer
-- `0013_update_mastery_level_intervals` — updated spaced repetition intervals
+- `0002_add_daily_goal_bounds` 鈥?daily_goal_min, daily_goal_max, last_goal_prompt_date on CustomUser
+- `0010_level_curriculum_alter_level_name_and_more` 鈥?Level FK to Curriculum, scoped uniqueness
+- `0012_add_retry_count_to_useranswer` 鈥?retry_count field on UserAnswer
+- `0013_update_mastery_level_intervals` 鈥?updated spaced repetition intervals
 
 - `0017_hidden_mastery_level` - adds hidden long-term mastery levels and updates the current spaced repetition schedule
 
@@ -125,9 +129,9 @@ All notable changes to Vocab App V2 are documented in this file.
 
 ---
 
-## [0.6.0] — 2026-04-06
+## [0.6.0] 鈥?2026-04-06
 
-### Beta Readiness — Bookmarks, Generation Requests, UX Fixes
+### Beta Readiness 鈥?Bookmarks, Generation Requests, UX Fixes
 
 **Teacher workflow:**
 - Word set bookmarks with toggle (star) button and Bookmarked tab
@@ -153,7 +157,7 @@ All notable changes to Vocab App V2 are documented in this file.
 
 ---
 
-## [0.5.0] — 2026-04-03
+## [0.5.0] 鈥?2026-04-03
 
 ### New Question Types, Picture-Word Match, Type-to-Spell, Typo Detection
 
@@ -171,7 +175,7 @@ All notable changes to Vocab App V2 are documented in this file.
 
 ---
 
-## [0.4.0] — 2026-03-24
+## [0.4.0] 鈥?2026-03-24
 
 ### Generation Pipeline Quality & Token Reduction
 
@@ -181,41 +185,41 @@ All notable changes to Vocab App V2 are documented in this file.
 - Apply 15% Lexile offset so scaffolding text is easier than target vocab
 - Add 512x512 square image generation with low resolution setting
 
-**Step 1 — Word Lookup:**
+**Step 1 鈥?Word Lookup:**
 - Remove per-word `source_context` from JSON output to save tokens
 - Build `source_context` from job metadata instead
 
-**Step 3 — Translation:**
+**Step 3 鈥?Translation:**
 - Rewrite prompt with two strategies: native equivalent for definitions, natural translation for example sentences
 - Include term in items list for better context
 
-**Step 4 — Questions:**
+**Step 4 鈥?Questions:**
 - Remove redundant WORD ENRICHMENT step that duplicated Steps 1 and 3
 - Pass full definition and `example_sentence` from Step 1 directly
 - Simplify output format: flat term + questions instead of nested word array
 
-**Step 5 — Pack Grouping:**
+**Step 5 鈥?Pack Grouping:**
 - Add creative writer and curriculum architect roles
 - Add `text_type` field (fiction/narrative_nonfiction) to WordPack model
 - LLM evaluates word nature and assigns best text type per pack
 - Change max words per pack from 5 to 6 with balanced distribution
 
-**Step 6 — Primers:**
+**Step 6 鈥?Primers:**
 - Calibrate kid-friendly definitions to target Lexile level
 - Add Lexile band guidelines (below 600L through above 1000L)
 
-**Step 7 — Stories:**
+**Step 7 鈥?Stories:**
 - Rewrite prompt for engaging fiction and narrative non-fiction
 - Fiction: high-stakes show-don't-tell scenes
 - Narrative non-fiction: fascinating hooks and real-world contexts
 
-**Step 8 — Images:**
+**Step 8 鈥?Images:**
 - Square 1:1 aspect ratio prompt for vocabulary cards
 - Low resolution (512x512) for faster generation
 
 ---
 
-## [0.3.1] — 2026-03-14
+## [0.3.1] 鈥?2026-03-14
 
 ### Pipeline & Image Fixes
 
@@ -226,7 +230,7 @@ All notable changes to Vocab App V2 are documented in this file.
 
 ---
 
-## [0.3.0] — 2026-03-13
+## [0.3.0] 鈥?2026-03-13
 
 ### Student Dashboard Polish & Practice UI
 
@@ -241,21 +245,20 @@ All notable changes to Vocab App V2 are documented in this file.
 
 ---
 
-## [0.2.0] — 2026-03-01
+## [0.2.0] 鈥?2026-03-01
 
 ### Complete Generation Pipeline & Practice Bug Fixes
 
 - 8-step AI content generation pipeline (word lookup, dedup, translations, questions, packs, primers, stories/cloze, images) with resume support
 - Incremental word addition to existing generated word sets
 - Generation wizard with live status polling and review/approve UI
-- Fix primer card images (query GeneratedImage model, not empty URLField)
 - Fix spaced repetition: exclude already-answered words from session and dashboard due count
 - Fix teacher roster due count to match student view (filter by READY status)
 - Add Vite proxy for `/media` to serve generated images in dev
 
 ---
 
-## [0.1.1] — 2026-02-28
+## [0.1.1] 鈥?2026-02-28
 
 ### Admin Generation UI (Phase 5)
 
@@ -264,9 +267,9 @@ All notable changes to Vocab App V2 are documented in this file.
 
 ---
 
-## [0.1.0] — 2026-02-28
+## [0.1.0] 鈥?2026-02-28
 
-### Full-Stack Rebuild (Phases 1–4)
+### Full-Stack Rebuild (Phases 1鈥?)
 
 - Initial full-stack rebuild of Vocab App V2
 - Django backend with REST API

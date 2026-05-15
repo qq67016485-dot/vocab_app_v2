@@ -5,7 +5,7 @@ from .models import (
     Question, PracticeSession, UserAnswer,
     Curriculum, Level, WordSet, StudentWordSetAssignment,
     WordPack, WordPackItem, PrimerCardContent, MicroStory,
-    GraphicNovel, GraphicNovelPage, ClozeItem, GeneratedImage, StudentPackCompletion,
+    GraphicNovel, GraphicNovelPage, ClozeItem, StudentPackCompletion,
     GenerationJob, GenerationJobLog,
 )
 
@@ -161,12 +161,6 @@ class GraphicNovelPageAdmin(admin.ModelAdmin):
 @admin.register(ClozeItem)
 class ClozeItemAdmin(admin.ModelAdmin):
     list_display = ('word', 'pack', 'correct_answer', 'order')
-
-
-@admin.register(GeneratedImage)
-class GeneratedImageAdmin(admin.ModelAdmin):
-    list_display = ('word', 'status', 'created_at')
-    list_filter = ('status',)
 
 
 @admin.register(StudentPackCompletion)

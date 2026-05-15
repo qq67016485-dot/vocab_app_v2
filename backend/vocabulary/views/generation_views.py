@@ -14,8 +14,9 @@ from rest_framework.views import APIView
 STALE_JOB_THRESHOLD_SECONDS = 900
 
 from ..models import (
-    GenerationJob, GenerationJobLog, GeneratedImage, WordSet,
+    GenerationJob, GenerationJobLog, WordSet,
     WordPack, PrimerCardContent, MicroStory, ClozeItem, Question,
+    GraphicNovelPage,
 )
 from ..permissions import IsAdmin
 from ..services.generation_pipeline_service import (
@@ -31,6 +32,33 @@ def _immutable_word_set_response():
         {'error': 'Generated Word Sets are immutable. Create a new Word Set to add or change words.'},
         status=status.HTTP_400_BAD_REQUEST,
     )
+
+
+def _graphic_novel_image_page_statuses(word_set):
+    pages = (
+        GraphicNovelPage.objects.filter(novel__pack__word_set=word_set)
+        .select_related('novel', 'novel__pack')
+        .order_by('novel__pack__order', 'novel_id', 'page_number')
+    )
+    return [
+        {
+            'id': page.id,
+            'pack_id': page.novel.pack_id,
+            'pack_label': page.novel.pack.label,
+            'novel_id': page.novel_id,
+            'novel_title': page.novel.title,
+            'page_number': page.page_number,
+            'status': page.generation_status,
+            'attempts': page.generation_attempts,
+            'error_message': page.generation_error,
+            'has_image': bool(page.image),
+            'image_url': page.image.url if page.image else '',
+            'is_review_page': page.is_review_page,
+            'started_at': page.generation_started_at.isoformat() if page.generation_started_at else None,
+            'completed_at': page.generation_completed_at.isoformat() if page.generation_completed_at else None,
+        }
+        for page in pages
+    ]
 
 
 class GenerationQueueView(APIView):
@@ -144,9 +172,28 @@ class GenerationJobStatusView(APIView):
             latest_log = job.logs.order_by('-created_at').first()
             last_activity = latest_log.created_at if latest_log else job.created_at
             if (timezone.now() - last_activity).total_seconds() > STALE_JOB_THRESHOLD_SECONDS:
+                GraphicNovelPage.objects.filter(
+                    novel__pack__word_set=job.word_set,
+                    generation_status=GraphicNovelPage.GenerationStatus.RUNNING,
+                ).update(
+                    generation_status=GraphicNovelPage.GenerationStatus.FAILED,
+                    generation_error='Page image generation stalled after 15 minutes without job activity.',
+                    generation_completed_at=timezone.now(),
+                )
                 job.status = GenerationJob.Status.FAILED
                 job.error_message = 'Job stalled — no activity for 15 minutes. You can resume the pipeline.'
                 job.save(update_fields=['status', 'error_message'])
+                job.word_set.generation_status = WordSet.GenerationStatus.TO_GENERATE
+                job.word_set.save(update_fields=['generation_status'])
+                GenerationJobLog.objects.create(
+                    job=job,
+                    step=latest_log.step if latest_log else _next_resume_step(job.last_completed_step),
+                    status=GenerationJob.Status.FAILED,
+                    error_message=job.error_message,
+                    output_data={'message': 'Marked job failed because no activity was recorded for 15 minutes.'},
+                )
+
+        graphic_novel_image_pages = _graphic_novel_image_page_statuses(job.word_set)
 
         return Response({
             'id': job.id,
@@ -159,11 +206,12 @@ class GenerationJobStatusView(APIView):
             'questions_created': job.questions_created,
             'primer_cards_created': job.primer_cards_created,
             'stories_created': job.stories_created,
+            'graphic_novels_created': job.graphic_novels_created,
             'cloze_items_created': job.cloze_items_created,
-            'images_created': job.images_created,
             'error_message': job.error_message,
             'created_at': job.created_at.isoformat(),
             'completed_at': job.completed_at.isoformat() if job.completed_at else None,
+            'graphic_novel_image_pages': graphic_novel_image_pages,
         })
 
 
@@ -187,6 +235,7 @@ class GenerationJobLogsView(APIView):
                 'step': log.step,
                 'status': log.status,
                 'error_message': log.error_message,
+                'output_data': log.output_data,
                 'duration_seconds': log.duration_seconds,
                 'created_at': log.created_at.isoformat(),
             }
@@ -215,9 +264,7 @@ class GenerationJobContentView(APIView):
         ).prefetch_related('definitions').distinct()
 
         words_data = []
-        word_ids = []
         for word in words:
-            word_ids.append(word.id)
             definitions = [
                 {
                     'id': d.id,
@@ -253,7 +300,7 @@ class GenerationJobContentView(APIView):
         packs = WordPack.objects.filter(
             word_set=job.word_set,
         ).prefetch_related(
-            'items__word', 'stories', 'cloze_items__word',
+            'items__word', 'stories', 'graphic_novel__pages', 'cloze_items__word',
         ).order_by('order')
 
         packs_data = []
@@ -284,6 +331,31 @@ class GenerationJobContentView(APIView):
                 for s in pack.stories.all()
             ]
 
+            graphic_novel = getattr(pack, 'graphic_novel', None)
+            graphic_novel_data = None
+            if graphic_novel:
+                graphic_novel_data = {
+                    'id': graphic_novel.id,
+                    'title': graphic_novel.title,
+                    'synopsis': graphic_novel.synopsis,
+                    'reading_level': graphic_novel.reading_level,
+                    'pages': [
+                        {
+                            'id': page.id,
+                            'page_number': page.page_number,
+                            'image_url': page.image.url if page.image else '',
+                            'generation_status': page.generation_status,
+                            'generation_attempts': page.generation_attempts,
+                            'generation_error': page.generation_error,
+                            'panel_count': page.panel_count,
+                            'layout_description': page.layout_description,
+                            'vocab_words': page.vocab_words_used,
+                            'is_review_page': page.is_review_page,
+                        }
+                        for page in graphic_novel.pages.all()
+                    ],
+                }
+
             cloze_items = [
                 {
                     'id': ci.id,
@@ -300,23 +372,10 @@ class GenerationJobContentView(APIView):
                 'label': pack.label,
                 'words': pack_words,
                 'primer_cards': primer_cards,
+                'graphic_novel': graphic_novel_data,
                 'stories': stories,
                 'cloze_items': cloze_items,
             })
-
-        # Images for words in this job
-        images = GeneratedImage.objects.filter(
-            word_id__in=word_ids,
-        ).select_related('word')
-        images_data = [
-            {
-                'id': img.id,
-                'word_text': img.word.text,
-                'image_url': img.image.url if img.image else '',
-                'status': img.status,
-            }
-            for img in images
-        ]
 
         return Response({
             'job_id': job.id,
@@ -325,7 +384,6 @@ class GenerationJobContentView(APIView):
             'words': words_data,
             'questions': questions_data,
             'packs': packs_data,
-            'images': images_data,
         })
 
 
@@ -351,19 +409,8 @@ class ApproveGenerationJobView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Images are generated as APPROVED; keep this endpoint as a harmless
-        # compatibility action for older UI flows that still call "Approve All".
-        word_ids = list(
-            job.word_set.words.filter(text__in=job.input_words).values_list('id', flat=True)
-        )
-        approved_count = GeneratedImage.objects.filter(
-            word_id__in=word_ids,
-            status=GeneratedImage.Status.PENDING_REVIEW,
-        ).update(status=GeneratedImage.Status.APPROVED)
-
         return Response({
-            'message': 'Generated images are already auto-approved.',
-            'images_approved': approved_count,
+            'message': 'Generated content approved.',
         })
 
 
@@ -554,9 +601,7 @@ class WordSetContentView(APIView):
         # All words in the word set
         words = word_set.words.prefetch_related('definitions').all()
         words_data = []
-        word_ids = []
         for word in words:
-            word_ids.append(word.id)
             definitions = [
                 {
                     'id': d.id,
@@ -572,6 +617,8 @@ class WordSetContentView(APIView):
                 'part_of_speech': word.part_of_speech,
                 'definitions': definitions,
             })
+
+        word_ids = [word['id'] for word in words_data]
 
         # All questions for words in this word set
         questions = Question.objects.filter(
@@ -594,7 +641,7 @@ class WordSetContentView(APIView):
         packs = WordPack.objects.filter(
             word_set=word_set,
         ).prefetch_related(
-            'items__word', 'stories', 'cloze_items__word',
+            'items__word', 'stories', 'graphic_novel__pages', 'cloze_items__word',
         ).order_by('order')
 
         packs_data = []
@@ -625,6 +672,31 @@ class WordSetContentView(APIView):
                 for s in pack.stories.all()
             ]
 
+            graphic_novel = getattr(pack, 'graphic_novel', None)
+            graphic_novel_data = None
+            if graphic_novel:
+                graphic_novel_data = {
+                    'id': graphic_novel.id,
+                    'title': graphic_novel.title,
+                    'synopsis': graphic_novel.synopsis,
+                    'reading_level': graphic_novel.reading_level,
+                    'pages': [
+                        {
+                            'id': page.id,
+                            'page_number': page.page_number,
+                            'image_url': page.image.url if page.image else '',
+                            'generation_status': page.generation_status,
+                            'generation_attempts': page.generation_attempts,
+                            'generation_error': page.generation_error,
+                            'panel_count': page.panel_count,
+                            'layout_description': page.layout_description,
+                            'vocab_words': page.vocab_words_used,
+                            'is_review_page': page.is_review_page,
+                        }
+                        for page in graphic_novel.pages.all()
+                    ],
+                }
+
             cloze_items = [
                 {
                     'id': ci.id,
@@ -641,23 +713,10 @@ class WordSetContentView(APIView):
                 'label': pack.label,
                 'words': pack_words,
                 'primer_cards': primer_cards,
+                'graphic_novel': graphic_novel_data,
                 'stories': stories,
                 'cloze_items': cloze_items,
             })
-
-        # All images for words in this word set
-        images = GeneratedImage.objects.filter(
-            word_id__in=word_ids,
-        ).select_related('word')
-        images_data = [
-            {
-                'id': img.id,
-                'word_text': img.word.text,
-                'image_url': img.image.url if img.image else '',
-                'status': img.status,
-            }
-            for img in images
-        ]
 
         return Response({
             'word_set_id': word_set.id,
@@ -665,7 +724,6 @@ class WordSetContentView(APIView):
             'words': words_data,
             'questions': questions_data,
             'packs': packs_data,
-            'images': images_data,
         })
 
     def post(self, request, word_set_id):

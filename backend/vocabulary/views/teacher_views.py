@@ -23,7 +23,7 @@ from users.models import CustomUser, StudentGroup
 from ..models import (
     Curriculum, Level, WordSet, Word, WordDefinition,
     UserWordProgress, MasteryLevel, WordPack, WordPackItem,
-    PrimerCardContent, GeneratedImage, StudentWordSetAssignment,
+    PrimerCardContent, StudentWordSetAssignment,
     WordSetBookmark,
 )
 from ..serializers import (
@@ -399,44 +399,6 @@ class WordSetViewSet(viewsets.ModelViewSet):
                     pass
 
         return Response({'id': pack.id, 'label': pack.label, 'order': pack.order})
-
-    @action(
-        detail=True, methods=['get'],
-        url_path='packs/(?P<pack_id>[^/.]+)/images',
-    )
-    def pack_images(self, request, pk=None, pack_id=None):
-        word_set = self.get_object()
-        if not _can_edit_word_set(request.user, word_set):
-            return Response(
-                {'error': 'Permission denied.'},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        try:
-            pack = word_set.packs.prefetch_related('items__word').get(id=pack_id)
-        except WordPack.DoesNotExist:
-            return Response(
-                {'error': 'Pack not found.'},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        word_ids = pack.items.values_list('word_id', flat=True)
-        images = GeneratedImage.objects.filter(
-            word_id__in=word_ids,
-        ).select_related('word').order_by('-created_at')
-
-        data = [
-            {
-                'id': img.id,
-                'word_id': img.word_id,
-                'term': img.word.text,
-                'image_url': img.image.url if img.image else '',
-                'status': img.status,
-                'created_at': img.created_at.isoformat(),
-            }
-            for img in images
-        ]
-        return Response(data)
-
 
 class TeacherStudentDetailView(APIView):
     permission_classes = [IsAuthenticated, IsTeacherOrAdmin]

@@ -82,10 +82,6 @@ export default function PrimerCard({ card, index, total, onNext }) {
         )}
       </div>
 
-      {card.image_url && (
-        <img src={card.image_url} alt={card.term_text} className="primer-image" />
-      )}
-
       <p className="primer-example">
         {highlightWord(card.example_sentence, card.term_text)}
       </p>

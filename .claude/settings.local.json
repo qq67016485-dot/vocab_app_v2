@@ -96,7 +96,30 @@
       "Bash(pip install *)",
       "Bash(pip show *)",
       "Bash(ls -d venv* .venv* env*)",
-      "Bash(ls backend/requirements*.txt)"
+      "Bash(ls backend/requirements*.txt)",
+      "PowerShell(& \"C:\\\\Python312\\\\python.exe\" --version 2>$null; & \"C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python312\\\\python.exe\" --version 2>$null; where.exe python 2>$null; where.exe python3 2>$null; Get-ChildItem C:\\\\project\\\\vocab_app_v2 -Filter \"*.bat\" -Recurse -Depth 1 | Select-Object FullName)",
+      "PowerShell(Get-ChildItem C:\\\\project\\\\vocab_app_v2 -Directory -Depth 1 | Where-Object { $_.Name -match 'venv|env|\\\\.venv' } | Select-Object FullName)",
+      "PowerShell(Get-ChildItem \"C:\\\\project\\\\vocab_app_v2\\\\backend\\\\manage.py\" | Select-Object FullName; $env:PATH -split ';' | Where-Object { $_ -match 'python|Python' })",
+      "PowerShell($env:PATH -split ';' | ForEach-Object { $_.Trim\\(\\) } | Where-Object { $_ -ne '' } | Select-Object -First 20)",
+      "Bash(Get-ChildItem -Path \"C:\\\\project\\\\vocab_app_v2\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(backend\\\\venv\\\\Scripts\\\\python.exe *)",
+      "PowerShell(& \"backend\\\\venv\\\\Scripts\\\\python.exe\" backend\\\\manage.py makemigrations vocabulary --name add_is_review_page_to_graphicnovelpage)",
+      "PowerShell(& \"backend\\\\venv\\\\Scripts\\\\python.exe\" -m pytest backend\\\\tests\\\\vocabulary\\\\test_generation_pipeline_service.py -x -q 2>&1 | Select-Object -First 80)",
+      "PowerShell(& \"backend\\\\venv\\\\Scripts\\\\python.exe\" -m pytest backend\\\\tests\\\\vocabulary\\\\test_generation_pipeline_service.py -x -q 2>&1 | Select-Object -First 40)",
+      "PowerShell(& \"backend\\\\venv\\\\Scripts\\\\python.exe\" -m pytest backend\\\\tests\\\\ -x -q 2>&1 | Select-Object -Last 10)",
+      "PowerShell(& \"backend\\\\venv\\\\Scripts\\\\python.exe\" -m pytest backend\\\\tests\\\\vocabulary\\\\test_generation_pipeline_service.py backend\\\\tests\\\\vocabulary\\\\test_views.py backend\\\\tests\\\\vocabulary\\\\test_models.py -q 2>&1 | Select-Object -Last 5)",
+      "PowerShell(& \"backend\\\\venv\\\\Scripts\\\\python.exe\" -m pytest backend\\\\tests\\\\vocabulary\\\\test_generation_pipeline_service.py -x -q 2>&1 | Select-Object -Last 10)",
+      "PowerShell(& \"backend\\\\venv\\\\Scripts\\\\python.exe\" -m pytest backend\\\\tests\\\\vocabulary\\\\test_generation_pipeline_service.py -x -q 2>&1 | Select-Object -Last 5)",
+      "PowerShell(& \"backend\\\\venv\\\\Scripts\\\\python.exe\" backend\\\\manage.py migrate vocabulary)",
+      "Bash(Select-Object -First 60)",
+      "PowerShell(Set-Location C:\\\\project\\\\vocab_app_v2\\\\backend; $env:PATH = \"C:\\\\Users\\\\admin\\\\AppData\\\\Local\\\\Python\\\\pythoncore-3.14-64\\\\Scripts;$env:PATH\"; $env:DJANGO_SETTINGS_MODULE = \"config.settings\"; python -c \"import django; print\\(django.get_version\\(\\)\\)\")",
+      "Bash(Get-ChildItem *)",
+      "PowerShell(ls \"C:\\\\project\\\\vocab_app_v2\" | ForEach-Object { $_.Name })",
+      "PowerShell(ls \"C:\\\\project\\\\vocab_app_v2\\\\docs\" | ForEach-Object { $_.Name })",
+      "PowerShell(ls \"C:\\\\Users\\\\admin\\\\.claude\\\\projects\\\\C--project-vocab-app-v2\\\\memory\\\\\" | ForEach-Object { $_.Name })",
+      "PowerShell(ls \"C:\\\\project\\\\vocab_app_v2\\\\docs\\\\feature_plan\" | ForEach-Object { $_.Name })",
+      "PowerShell(ls \"C:\\\\project\\\\vocab_app_v2\\\\.claude\" | ForEach-Object { $_.Name })"
     ]
   }
 }

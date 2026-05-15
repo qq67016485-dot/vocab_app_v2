@@ -9,7 +9,7 @@ from vocabulary.models import (
     Question, PracticeSession, UserAnswer,
     Curriculum, Level, WordSet, StudentWordSetAssignment,
     WordPack, WordPackItem, PrimerCardContent, MicroStory,
-    GraphicNovel, GraphicNovelPage, ClozeItem, GeneratedImage, StudentPackCompletion,
+    GraphicNovel, GraphicNovelPage, ClozeItem, StudentPackCompletion,
     GenerationJob, GenerationJobLog,
 )
 

@@ -24,10 +24,8 @@ export default function WordSetDetailView() {
   const [searchTerm, setSearchTerm] = useState('');
 
   const [packs, setPacks] = useState([]);
-  const [expandedPackId, setExpandedPackId] = useState(null);
 
   const [generateMessage, setGenerateMessage] = useState({});
-  const [packImages, setPackImages] = useState({});
   const [latestJobId, setLatestJobId] = useState(null);
   const [latestJobStatus, setLatestJobStatus] = useState(null);
   const [requestToast, setRequestToast] = useState(null);
@@ -91,13 +89,6 @@ export default function WordSetDetailView() {
       await apiClient.post(`/word-sets/${wordSet.id}/remove_word/`, { word_id: word.id });
       await fetchWordSet();
     } catch (err) { console.error("Error removing word:", err); }
-  };
-
-  const fetchPackImages = async (packId) => {
-    try {
-      const res = await apiClient.get(`/word-sets/${setId}/packs/${packId}/images/`);
-      setPackImages(prev => ({ ...prev, [packId]: res.data }));
-    } catch (err) { console.error('Error fetching images:', err); }
   };
 
   const availableWords = useMemo(() => {
@@ -231,11 +222,6 @@ export default function WordSetDetailView() {
           <div key={pack.id} className="t-card" style={{ marginBottom: 10 }}>
             <div className="t-pack-header">
               <span className="t-pack-title">{pack.label} ({pack.word_count} word{pack.word_count !== 1 ? 's' : ''})</span>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button className="t-btn t-btn--secondary t-btn--sm" onClick={() => { const newId = expandedPackId === pack.id ? null : pack.id; setExpandedPackId(newId); if (newId) fetchPackImages(pack.id); }}>
-                  {expandedPackId === pack.id ? 'Collapse' : 'Expand'}
-                </button>
-              </div>
             </div>
             {generateMessage[pack.id] && (
               <p style={{ fontSize: '0.85rem', margin: '0.5rem 0 0', color: generateMessage[pack.id].type === 'error' ? 'var(--t-danger)' : 'var(--t-success)' }}>{generateMessage[pack.id].text}</p>
@@ -243,24 +229,6 @@ export default function WordSetDetailView() {
             <ul className="t-pack-words">
               {pack.words.map((w) => (<li key={w.id} className="t-pack-word-tag">{w.term_text}</li>))}
             </ul>
-            {expandedPackId === pack.id && (
-              <>
-                {packImages[pack.id] && packImages[pack.id].length > 0 && (
-                  <div style={{ marginTop: 12, borderTop: '1px solid var(--t-border)', paddingTop: 12 }}>
-                    <p style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: 8 }}>Generated Images</p>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10 }}>
-                      {packImages[pack.id].filter(img => img.status !== 'REJECTED').map((img) => (
-                        <div key={img.id} style={{ border: '2px solid var(--t-success)', borderRadius: 'var(--t-radius)', padding: 8, textAlign: 'center' }}>
-                          <img src={img.image_url} alt={img.term} style={{ width: '100%', borderRadius: 4, marginBottom: 4 }} />
-                          <p style={{ fontSize: '0.8rem', fontWeight: 500, margin: '4px 0' }}>{img.term}</p>
-                          <p style={{ fontSize: '0.7rem', color: 'var(--t-success)', margin: '0 0 4px' }}>Auto-approved</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
           </div>
         ))}
       </div>

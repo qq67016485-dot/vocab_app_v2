@@ -8,22 +8,10 @@ Output valid JSON with this exact structure:
       "term": "the word",
       "part_of_speech": "noun/verb/adjective/etc.",
       "definition": "a clear, age-appropriate definition",
-      "example_sentence": "a sentence using the word in context",
-      "image_category": "one of the categories below"
+      "example_sentence": "a sentence using the word in context"
     }}
   ]
 }}
-
-Image categories (pick exactly one per word):
-- EMOTION_STATE: Words describing internal human feelings, moods, psychological conditions, or mental states.
-- DYNAMIC_ACTION: Words describing vigorous physical movement, fast-paced events, or the immediate application of physical force.
-- INVISIBLE_PROCESS: Words describing transformations, biological cycles, or chemical changes that happen gradually over time.
-- SENSORY_TRAIT: Words describing the physical appearance, texture, scale, lighting, or tactile qualities of a substance or object.
-- SPATIAL_RELATION: Words describing the physical position, distance, arrangement, or boundaries of one thing in relation to another.
-- ABSTRACT_METAPHOR: Words describing non-physical concepts, societal systems, philosophies, or intellectual ideas that have no literal physical form.
-- PORTABLE_OBJECT: Words describing individual, tangible, small-to-medium-sized items or tools that can be handled or carried.
-- EPIC_SCALE: Words describing massive geographic features, large-scale structures, vast environments, or global areas.
-- ICONIC_CHARACTER: Words describing specific types of people, human roles, archetypes, or creatures defined by their identity or occupation.
 
 Guidelines:
 - Definitions should be clear and appropriate for students aged 8-14

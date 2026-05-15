@@ -100,6 +100,7 @@ export default function PracticeView() {
   const [retryFeedback, setRetryFeedback] = useState(null);
   const [correctMessage, setCorrectMessage] = useState('');
   const [incorrectMessage, setIncorrectMessage] = useState('');
+  const [feedbackReady, setFeedbackReady] = useState(false);
 
   const [sessionGoalTotal, setSessionGoalTotal] = useState(0);
   const [questionsAnsweredThisSession, setQuestionsAnsweredThisSession] = useState(0);
@@ -184,6 +185,7 @@ export default function PracticeView() {
     setRetryFeedback(null);
     setCorrectMessage('');
     setIncorrectMessage('');
+    setFeedbackReady(false);
     answerSwitchCount.current = 0;
 
     try {
@@ -277,6 +279,7 @@ export default function PracticeView() {
       setFeedback(data);
       if (data.is_correct) {
         setCorrectMessage(getCorrectMessage(false));
+        setTimeout(() => setFeedbackReady(true), 50);
       }
 
       const stats = sessionStats.current;
@@ -340,6 +343,7 @@ export default function PracticeView() {
         setRetryMode(false);
         setRetryFeedback(data);
         setCorrectMessage(getCorrectMessage(true));
+        setTimeout(() => setFeedbackReady(true), 50);
       } else {
         setWrongOptions((prev) => [...prev, answerToSubmit]);
         setHintText(data.explanation || '');
@@ -434,6 +438,7 @@ export default function PracticeView() {
                 className="correct-action-btn outline"
                 onClick={() => setShowExplanation(true)}
                 type="button"
+                tabIndex={feedbackReady ? 0 : -1}
               >
                 Explain
               </button>
@@ -441,6 +446,7 @@ export default function PracticeView() {
                 className="correct-action-btn filled"
                 onClick={fetchNextQuestion}
                 type="button"
+                tabIndex={feedbackReady ? 0 : -1}
               >
                 {nextLabel}
               </button>
@@ -489,7 +495,7 @@ export default function PracticeView() {
       'REVERSE_DEFINITION_MC', 'SYNONYM_IN_CONTEXT_MC',
       'REVERSE_SYNONYM_IN_CONTEXT_MC', 'APPLICATION_MC',
       'REVERSE_ASSOCIATION_MC', 'REVERSE_COLLOCATION_MC',
-      'NUANCE_CONTRAST_MC', 'PICTURE_WORD_MATCH',
+      'NUANCE_CONTRAST_MC',
     ];
 
     const handleMcOptionClick = (option) => {
@@ -822,11 +828,6 @@ export default function PracticeView() {
             <ReasonDisplay category={question.reason_category} />
           </div>
         </div>
-        {question.question_type === 'PICTURE_WORD_MATCH' && question.image_url && (
-          <div className="pwm-image-container">
-            <img src={question.image_url} alt="Vocabulary illustration" className="pwm-image" />
-          </div>
-        )}
         {renderQuestionInput()}
       </div>
     );

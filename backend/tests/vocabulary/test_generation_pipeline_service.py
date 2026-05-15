@@ -14,7 +14,7 @@ from django.contrib.contenttypes.models import ContentType
 from vocabulary.models import (
     Word, WordDefinition, DefinitionEmbedding, Translation,
     Question, WordPack, WordPackItem, PrimerCardContent,
-    MicroStory, GraphicNovel, GraphicNovelPage, ClozeItem, GeneratedImage,
+    MicroStory, GraphicNovel, GraphicNovelPage, ClozeItem,
     GenerationJob, GenerationJobLog,
 )
 from vocabulary.services.generation_pipeline_service import (
@@ -32,8 +32,6 @@ from vocabulary.services.generation_pipeline_service import (
     _step_generate_stories_and_cloze,
     _step_graphic_novel_script,
     _step_graphic_novel_images,
-    _step_creative_direction,
-    _step_generate_images,
 )
 from tests.factories import (
     AdminUserFactory, WordFactory, WordDefinitionFactory,
@@ -90,18 +88,22 @@ TRANSLATION_RESPONSE = {
 }
 
 QUESTION_RESPONSE = {
-    "questions": [
+    "generated_question_sets": [
         {
             "term": "bright",
-            "question_type": "DEFINITION_MC_SINGLE",
-            "question_text": "What does 'bright' mean?",
-            "options": ["Shining", "Dark", "Quiet", "Slow"],
-            "correct_answers": ["Shining"],
-            "explanation": "Bright means giving out light.",
-            "example_sentence": "The sun is very bright today.",
-            "lexile_score": 600,
+            "questions": [
+                {
+                    "question_type": "DEFINITION_MC_SINGLE",
+                    "question_text": "What does 'bright' mean?",
+                    "options": ["Shining", "Dark", "Quiet", "Slow"],
+                    "correct_answers": ["Shining"],
+                    "explanation": "Bright means giving out light.",
+                    "example_sentence": "The sun is very bright today.",
+                    "lexile_score": 600,
+                },
+            ],
         },
-    ]
+    ],
 }
 
 PRIMER_RESPONSE = {
@@ -180,7 +182,7 @@ GRAPHIC_NOVEL_RESPONSE = {
 
 @pytest.mark.django_db
 class TestStepWordLookup:
-    """Tests for _step_word_lookup 閳?calls LLM to look up word definitions."""
+    """Tests for _step_word_lookup 闁?calls LLM to look up word definitions."""
 
     @patch('vocabulary.services.generation_pipeline_service.call_gemini')
     @patch('vocabulary.services.generation_pipeline_service.load_prompt_template')
@@ -226,7 +228,7 @@ class TestStepWordLookup:
 
 @pytest.mark.django_db
 class TestStepDedupAndPersist:
-    """Tests for _step_dedup_and_persist 閳?vector dedup + Word/WordDefinition creation."""
+    """Tests for _step_dedup_and_persist 闁?vector dedup + Word/WordDefinition creation."""
 
     @patch('vocabulary.services.generation_pipeline_service.find_duplicate_definition')
     @patch('vocabulary.services.generation_pipeline_service.get_embedding')
@@ -260,27 +262,6 @@ class TestStepDedupAndPersist:
         assert words[0].id == existing_word.id
         # Should NOT create a new Word
         assert Word.objects.filter(text='bright').count() == 1
-
-    @patch('vocabulary.services.generation_pipeline_service.find_duplicate_definition')
-    @patch('vocabulary.services.generation_pipeline_service.get_embedding')
-    def test_updates_blank_image_category_on_duplicate(self, mock_embed, mock_dedup):
-        existing_word = WordFactory(
-            text='bright',
-            part_of_speech='adjective',
-            image_category='',
-        )
-        mock_dedup.return_value = existing_word
-        mock_embed.return_value = [0.1] * 768
-        job = GenerationJobFactory(input_words=['bright'])
-
-        words_data = [{
-            **WORD_LOOKUP_RESPONSE['words'][0],
-            'image_category': 'SENSORY_TRAIT',
-        }]
-        _step_dedup_and_persist(job, words_data)
-
-        existing_word.refresh_from_db()
-        assert existing_word.image_category == 'SENSORY_TRAIT'
 
     @patch('vocabulary.services.generation_pipeline_service.find_duplicate_definition')
     @patch('vocabulary.services.generation_pipeline_service.get_embedding')
@@ -322,7 +303,7 @@ class TestStepDedupAndPersist:
 
 @pytest.mark.django_db
 class TestStepGenerateTranslations:
-    """Tests for _step_generate_translations 閳?LLM translates definitions + examples."""
+    """Tests for _step_generate_translations 闁?LLM translates definitions + examples."""
 
     @patch('vocabulary.services.generation_pipeline_service.call_gemini')
     @patch('vocabulary.services.generation_pipeline_service.load_prompt_template')
@@ -365,7 +346,7 @@ class TestStepGenerateTranslations:
 
 @pytest.mark.django_db
 class TestStepGenerateQuestions:
-    """Tests for _step_generate_questions 閳?LLM generates practice questions per word."""
+    """Tests for _step_generate_questions 闁?LLM generates practice questions per word."""
 
     @patch('vocabulary.services.generation_pipeline_service.call_gemini')
     @patch('vocabulary.services.generation_pipeline_service.load_prompt_template')
@@ -413,7 +394,7 @@ class TestStepGenerateQuestions:
 
 @pytest.mark.django_db
 class TestStepAutoCreatePacks:
-    """Tests for _step_auto_create_packs 閳?groups words into packs of ~5."""
+    """Tests for _step_auto_create_packs 闁?groups words into packs of ~5."""
 
     def test_creates_packs_from_words(self):
         job = GenerationJobFactory(input_words=['a', 'b', 'c', 'd', 'e', 'f', 'g'])
@@ -453,7 +434,7 @@ class TestStepAutoCreatePacks:
 
 @pytest.mark.django_db
 class TestStepGeneratePrimers:
-    """Tests for _step_generate_primers 閳?LLM generates primer card content per word."""
+    """Tests for _step_generate_primers 闁?LLM generates primer card content per word."""
 
     @patch('vocabulary.services.generation_pipeline_service.call_gemini')
     @patch('vocabulary.services.generation_pipeline_service.load_prompt_template')
@@ -504,7 +485,7 @@ class TestStepGeneratePrimers:
 
 @pytest.mark.django_db
 class TestStepGenerateStoriesAndCloze:
-    """Tests for _step_generate_stories_and_cloze 閳?LLM generates per-pack stories + cloze items."""
+    """Tests for _step_generate_stories_and_cloze 闁?LLM generates per-pack stories + cloze items."""
 
     @patch('vocabulary.services.generation_pipeline_service.call_gemini')
     @patch('vocabulary.services.generation_pipeline_service.load_prompt_template')
@@ -575,7 +556,12 @@ class TestStepGraphicNovelScript:
 
         novel = GraphicNovel.objects.get(pack=pack)
         assert novel.title == 'The Bright Discovery'
-        assert GraphicNovelPage.objects.filter(novel=novel).count() == 1
+        assert GraphicNovelPage.objects.filter(novel=novel).count() == 2
+        story_page = GraphicNovelPage.objects.get(novel=novel, is_review_page=False)
+        assert story_page.page_number == 1
+        review_page = GraphicNovelPage.objects.get(novel=novel, is_review_page=True)
+        assert review_page.page_number == 2
+        assert set(review_page.vocab_words_used) == {'bright', 'discover'}
         assert ClozeItem.objects.filter(pack=pack).count() == 2
 
     @patch('vocabulary.services.generation_pipeline_service.call_gemini')
@@ -629,6 +615,9 @@ class TestStepGraphicNovelImages:
         page.refresh_from_db()
         assert page.image
         assert page.prompt_used
+        assert page.generation_status == GraphicNovelPage.GenerationStatus.COMPLETED
+        assert page.generation_attempts == 1
+        assert page.generation_error == ''
         mock_image.assert_called_once()
         assert mock_image.call_args.kwargs['size'] == '1792x1024'
 
@@ -649,103 +638,68 @@ class TestStepGraphicNovelImages:
         GraphicNovelPage.objects.create(novel=novel, page_number=1, panel_count=1)
         GraphicNovelPage.objects.create(novel=novel, page_number=2, panel_count=1)
 
-        _step_graphic_novel_images(job, [pack])
+        with pytest.raises(RuntimeError, match='failed for 1 page'):
+            _step_graphic_novel_images(job, [pack])
 
         assert GraphicNovelPage.objects.exclude(image='').count() == 1
-
-
-@pytest.mark.django_db
-class TestStepCreativeDirection:
-    """Tests for _step_creative_direction."""
-
-    @patch('vocabulary.services.generation_pipeline_service.call_gemini')
-    @patch('vocabulary.services.generation_pipeline_service.load_prompt_template')
-    def test_skips_malformed_scene_items(self, mock_load, mock_gemini):
-        mock_load.return_value = 'Creative template {words_json}'
-        mock_gemini.return_value = {
-            'scenes': [
-                {'term': 'bright'},
-                {'visual_scene': 'Missing term'},
-                {'term': 'bright', 'visual_scene': 'A glowing child holds a lantern.'},
-            ],
-        }
-        word = WordFactory(text='bright', image_category='SENSORY_TRAIT')
-        defn = WordDefinitionFactory(word=word, visual_scene='')
-        job = GenerationJobFactory(input_words=['bright'])
-
-        _step_creative_direction(job, [word])
-
-        defn.refresh_from_db()
-        assert defn.visual_scene == 'A glowing child holds a lantern.'
-        log = GenerationJobLog.objects.get(
-            job=job,
-            step=GenerationJobLog.Step.CREATIVE_DIRECTION,
-            status=GenerationJob.Status.COMPLETED,
+        assert GraphicNovelPage.objects.filter(
+            generation_status=GraphicNovelPage.GenerationStatus.COMPLETED,
+        ).count() == 1
+        failed_page = GraphicNovelPage.objects.get(
+            generation_status=GraphicNovelPage.GenerationStatus.FAILED,
         )
-        assert log.status == GenerationJob.Status.COMPLETED
-
-
-@pytest.mark.django_db
-class TestStepGenerateImages:
-    """Tests for _step_generate_images 閳?Gemini generates images per word."""
+        assert failed_page.generation_attempts == 1
+        assert 'API error' in failed_page.generation_error
+        assert GenerationJobLog.objects.filter(
+            job=job,
+            step=GenerationJobLog.Step.GRAPHIC_NOVEL_IMAGES,
+            status=GenerationJob.Status.FAILED,
+        ).exists()
 
     @patch('vocabulary.services.generation_pipeline_service.call_openai_image')
-    def test_creates_generated_image_records(self, mock_gemini):
-        mock_gemini.return_value = b'\x89PNG\r\n\x1a\n' + b'\x00' * 100
-        word = WordFactory(text='bright')
-        WordDefinitionFactory(word=word)
+    @patch('vocabulary.services.generation_pipeline_service.load_prompt_template')
+    def test_resume_skips_completed_pages_and_retries_missing_pages(self, mock_load, mock_image):
+        mock_load.return_value = "Page {page_number} {panel_details}"
+        mock_image.return_value = b'\x89PNG\r\n\x1a\n' + b'\x00' * 100
         job = GenerationJobFactory(input_words=['bright'])
+        pack = WordPack.objects.create(word_set=job.word_set, label='Pack 1', order=0)
+        novel = GraphicNovel.objects.create(
+            pack=pack,
+            title='Test Novel',
+            synopsis='A test synopsis.',
+            style_prompt='Readable comic art.',
+            reading_level=650,
+        )
+        completed_page = GraphicNovelPage.objects.create(
+            novel=novel,
+            page_number=1,
+            image='graphic_novels/existing.png',
+            generation_status=GraphicNovelPage.GenerationStatus.COMPLETED,
+            panel_count=1,
+        )
+        retry_page = GraphicNovelPage.objects.create(
+            novel=novel,
+            page_number=2,
+            generation_status=GraphicNovelPage.GenerationStatus.FAILED,
+            generation_attempts=1,
+            generation_error='Previous failure',
+            panel_count=1,
+        )
 
-        _step_generate_images(job, [word])
+        _step_graphic_novel_images(job, [pack])
 
-        assert GeneratedImage.objects.filter(word=word).count() == 1
-        img = GeneratedImage.objects.get(word=word)
-        assert img.status == GeneratedImage.Status.APPROVED
-
-    @patch('vocabulary.services.generation_pipeline_service.call_openai_image')
-    def test_updates_images_created_counter(self, mock_gemini):
-        mock_gemini.return_value = b'\x89PNG\r\n\x1a\n' + b'\x00' * 100
-        word = WordFactory(text='bright')
-        WordDefinitionFactory(word=word)
-        job = GenerationJobFactory(input_words=['bright'])
-
-        _step_generate_images(job, [word])
-
-        job.refresh_from_db()
-        assert job.images_created == 1
-
-    @patch('vocabulary.services.generation_pipeline_service.call_openai_image')
-    def test_creates_image_gen_log(self, mock_gemini):
-        mock_gemini.return_value = b'\x89PNG\r\n\x1a\n' + b'\x00' * 100
-        word = WordFactory(text='bright')
-        WordDefinitionFactory(word=word)
-        job = GenerationJobFactory(input_words=['bright'])
-
-        _step_generate_images(job, [word])
-
-        log = GenerationJobLog.objects.get(job=job, step=GenerationJobLog.Step.IMAGE_GEN)
-        assert log.status == GenerationJob.Status.COMPLETED
-
-    @patch('vocabulary.services.generation_pipeline_service.call_openai_image')
-    def test_continues_on_single_image_failure(self, mock_gemini):
-        """If one image fails, others should still be generated."""
-        mock_gemini.side_effect = [Exception("API error"), b'\x89PNG\r\n\x1a\n' + b'\x00' * 100]
-        word1 = WordFactory(text='bright')
-        word2 = WordFactory(text='discover')
-        WordDefinitionFactory(word=word1)
-        WordDefinitionFactory(word=word2)
-        job = GenerationJobFactory(input_words=['bright', 'discover'])
-
-        _step_generate_images(job, [word1, word2])
-
-        assert GeneratedImage.objects.count() == 1  # Only word2 succeeded
-        job.refresh_from_db()
-        assert job.images_created == 1
+        completed_page.refresh_from_db()
+        retry_page.refresh_from_db()
+        assert completed_page.generation_attempts == 0
+        assert retry_page.image
+        assert retry_page.generation_status == GraphicNovelPage.GenerationStatus.COMPLETED
+        assert retry_page.generation_attempts == 2
+        mock_image.assert_called_once()
 
 
 @pytest.mark.django_db
 class TestRunFullPipeline:
-    """Tests for run_full_pipeline 閳?the main orchestrator."""
+    """Tests for run_full_pipeline 闁?the main orchestrator."""
 
     @patch('vocabulary.services.generation_pipeline_service._log_step')
     @patch('vocabulary.services.generation_pipeline_service._execute_step')
@@ -767,9 +721,6 @@ class TestRunFullPipeline:
         assert attempted_models == [DEFAULT_MODEL, DEFAULT_MODEL, BACKUP_MODEL]
         assert mock_log_step.call_count == 2
 
-    @patch('vocabulary.services.generation_pipeline_service._step_generate_picture_match_questions')
-    @patch('vocabulary.services.generation_pipeline_service._step_generate_images')
-    @patch('vocabulary.services.generation_pipeline_service._step_creative_direction')
     @patch('vocabulary.services.generation_pipeline_service._step_graphic_novel_images')
     @patch('vocabulary.services.generation_pipeline_service._step_graphic_novel_script')
     @patch('vocabulary.services.generation_pipeline_service._step_generate_primers')
@@ -780,8 +731,7 @@ class TestRunFullPipeline:
     @patch('vocabulary.services.generation_pipeline_service._step_word_lookup')
     def test_runs_all_steps_in_order(
         self, mock_lookup, mock_dedup, mock_translate, mock_questions,
-        mock_packs, mock_primers, mock_script, mock_novel_images, mock_creative_direction,
-        mock_images, mock_picture_match,
+        mock_packs, mock_primers, mock_script, mock_novel_images,
     ):
         word = WordFactory(text='bright')
         mock_lookup.return_value = WORD_LOOKUP_RESPONSE['words']
@@ -799,13 +749,7 @@ class TestRunFullPipeline:
         mock_primers.assert_called_once()
         mock_script.assert_called_once()
         mock_novel_images.assert_called_once()
-        mock_creative_direction.assert_called_once()
-        mock_images.assert_called_once()
-        mock_picture_match.assert_called_once()
 
-    @patch('vocabulary.services.generation_pipeline_service._step_generate_picture_match_questions')
-    @patch('vocabulary.services.generation_pipeline_service._step_generate_images')
-    @patch('vocabulary.services.generation_pipeline_service._step_creative_direction')
     @patch('vocabulary.services.generation_pipeline_service._step_graphic_novel_images')
     @patch('vocabulary.services.generation_pipeline_service._step_graphic_novel_script')
     @patch('vocabulary.services.generation_pipeline_service._step_generate_primers')
@@ -816,8 +760,7 @@ class TestRunFullPipeline:
     @patch('vocabulary.services.generation_pipeline_service._step_word_lookup')
     def test_sets_job_status_to_running_then_completed(
         self, mock_lookup, mock_dedup, mock_translate, mock_questions,
-        mock_packs, mock_primers, mock_script, mock_novel_images, mock_creative_direction,
-        mock_images, mock_picture_match,
+        mock_packs, mock_primers, mock_script, mock_novel_images,
     ):
         mock_lookup.return_value = []
         mock_dedup.return_value = []
@@ -841,9 +784,6 @@ class TestRunFullPipeline:
         assert job.status == GenerationJob.Status.FAILED
         assert 'LLM is down' in job.error_message
 
-    @patch('vocabulary.services.generation_pipeline_service._step_generate_picture_match_questions')
-    @patch('vocabulary.services.generation_pipeline_service._step_generate_images')
-    @patch('vocabulary.services.generation_pipeline_service._step_creative_direction')
     @patch('vocabulary.services.generation_pipeline_service._step_graphic_novel_images')
     @patch('vocabulary.services.generation_pipeline_service._step_graphic_novel_script')
     @patch('vocabulary.services.generation_pipeline_service._step_generate_primers')
@@ -854,8 +794,7 @@ class TestRunFullPipeline:
     @patch('vocabulary.services.generation_pipeline_service._step_word_lookup')
     def test_passes_words_data_between_steps(
         self, mock_lookup, mock_dedup, mock_translate, mock_questions,
-        mock_packs, mock_primers, mock_script, mock_novel_images, mock_creative_direction,
-        mock_images, mock_picture_match,
+        mock_packs, mock_primers, mock_script, mock_novel_images,
     ):
         words_data = WORD_LOOKUP_RESPONSE['words']
         word_objs = [WordFactory(text='bright'), WordFactory(text='discover')]
@@ -876,9 +815,6 @@ class TestRunFullPipeline:
         mock_primers.assert_called_once_with(job, word_objs, words_data, DEFAULT_MODEL)
         mock_script.assert_called_once_with(job, packs, words_data, DEFAULT_MODEL)
         mock_novel_images.assert_called_once_with(job, packs)
-        mock_creative_direction.assert_called_once_with(job, word_objs, DEFAULT_MODEL)
-        mock_images.assert_called_once_with(job, word_objs)
-        mock_picture_match.assert_called_once_with(job, word_objs, packs)
 
 
 @pytest.mark.django_db
@@ -901,11 +837,6 @@ class TestRestartPipelineFromStep:
             generation_job=job,
             question_type=Question.QuestionType.DEFINITION_MC_SINGLE,
         )
-        QuestionFactory(
-            word=word,
-            generation_job=job,
-            question_type=Question.QuestionType.PICTURE_WORD_MATCH,
-        )
         mock_run_step.return_value = ([word], [{'term': 'bright'}], [])
 
         with patch('vocabulary.services.generation_pipeline_service.close_old_connections'):
@@ -921,11 +852,6 @@ class TestRestartPipelineFromStep:
             generation_job=job,
             question_type=Question.QuestionType.DEFINITION_MC_SINGLE,
         ).exists()
-        assert Question.objects.filter(
-            generation_job=job,
-            question_type=Question.QuestionType.PICTURE_WORD_MATCH,
-        ).exists()
-
         job.refresh_from_db()
         assert job.status == GenerationJob.Status.COMPLETED
         assert job.last_completed_step == GenerationJobLog.Step.QUESTION_GEN
@@ -935,14 +861,16 @@ class TestRestartPipelineFromStep:
         admin = AdminUserFactory()
         word_set = WordSetFactory(creator=admin)
         word = WordFactory(text='bright')
-        defn = WordDefinitionFactory(word=word, visual_scene='old scene')
+        WordDefinitionFactory(word=word)
         word_set.words.add(word)
         pack = WordPackFactory(word_set=word_set)
         WordPackItem.objects.create(pack=pack, word=word, order=0)
-        GeneratedImage.objects.create(
-            word=word,
-            prompt_used='old prompt',
-            status=GeneratedImage.Status.APPROVED,
+        GraphicNovel.objects.create(
+            pack=pack,
+            title='Old Novel',
+            synopsis='Old synopsis.',
+            style_prompt='Old style.',
+            reading_level=650,
         )
         job = GenerationJobFactory(
             word_set=word_set,
@@ -955,20 +883,17 @@ class TestRestartPipelineFromStep:
         with patch('vocabulary.services.generation_pipeline_service.close_old_connections'):
             restart_pipeline_from_step(
                 job.id,
-                GenerationJobLog.Step.CREATIVE_DIRECTION,
+                GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
                 include_subsequent=True,
             )
 
         attempted_steps = [call.args[1] for call in mock_run_step.call_args_list]
         assert attempted_steps == [
-            GenerationJobLog.Step.CREATIVE_DIRECTION,
-            GenerationJobLog.Step.IMAGE_GEN,
-            GenerationJobLog.Step.PICTURE_MATCH_GEN,
+            GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
+            GenerationJobLog.Step.GRAPHIC_NOVEL_IMAGES,
         ]
-        defn.refresh_from_db()
-        assert defn.visual_scene == ''
-        assert not GeneratedImage.objects.filter(word=word).exists()
+        assert not GraphicNovel.objects.filter(pack=pack).exists()
 
         job.refresh_from_db()
         assert job.status == GenerationJob.Status.COMPLETED
-        assert job.last_completed_step == GenerationJobLog.Step.PICTURE_MATCH_GEN
+        assert job.last_completed_step == GenerationJobLog.Step.GRAPHIC_NOVEL_IMAGES

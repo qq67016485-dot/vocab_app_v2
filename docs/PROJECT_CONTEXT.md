@@ -2,7 +2,7 @@
 
 ## Overview
 
-A full-stack vocabulary learning application for K-8 students. Teachers create word sets, an AI pipeline generates instructional content (definitions, questions, graphic novels, images), and students learn through a structured instructional flow (Primer 鈫?Graphic Novel 鈫?Cloze Quiz; legacy packs may still show Micro Story) followed by spaced-repetition practice.
+A full-stack vocabulary learning application for K-8 students. Teachers create word sets, an AI pipeline generates instructional content (definitions, questions, graphic novels, and cloze items), and students learn through a structured instructional flow (Primer 鈫?Graphic Novel 鈫?Cloze Quiz; legacy packs may still show Micro Story) followed by spaced-repetition practice.
 
 **Tech stack:** Django 5.2 + Django REST Framework (backend), React 19 + Vite 7 (frontend), MySQL database, session-based auth with CSRF tokens.
 
@@ -30,13 +30,13 @@ vocab_app_v2/
 鈹?  鈹?  鈹?  鈹溾攢鈹€ instructional_views.py  # Pack data, pack completion
 鈹?  鈹?  鈹?  鈹溾攢鈹€ teacher_views.py   # Word/WordSet/Curriculum CRUD, student management
 鈹?  鈹?  鈹?  鈹溾攢鈹€ group_views.py     # Student group CRUD
-鈹?  鈹?  鈹?  鈹斺攢鈹€ generation_views.py # AI pipeline: trigger, status, review, auto-approve
+鈹?  鈹?  鈹?  鈹斺攢鈹€ generation_views.py # AI pipeline: trigger, status, review
 鈹?  鈹?  鈹溾攢鈹€ services/
 鈹?  鈹?  鈹?  鈹溾攢鈹€ practice_service.py           # Answer processing, XP, mastery, streaks
 鈹?  鈹?  鈹?  鈹溾攢鈹€ dashboard_service.py          # Roster analytics, learning patterns
 鈹?  鈹?  鈹?  鈹溾攢鈹€ instructional_service.py      # Pack data assembly for students
 鈹?  鈹?  鈹?  鈹溾攢鈹€ assignment_service.py         # Word set 鈫?student assignment
-鈹?  鈹?  鈹?  鈹溾攢鈹€ generation_pipeline_service.py # 11-step AI content pipeline
+鈹?  鈹?  鈹?  鈹溾攢鈹€ generation_pipeline_service.py # 8-step AI content pipeline
 鈹?  鈹?  鈹?  鈹溾攢鈹€ llm_service.py               # Gemini + OpenAI API wrappers
 鈹?  鈹?  鈹?  鈹斺攢鈹€ embedding_service.py          # Qwen3 embeddings for dedup
 鈹?  鈹?  鈹溾攢鈹€ prompts/               # LLM prompt templates (.txt files)
@@ -79,8 +79,8 @@ vocab_app_v2/
 ## Data Models
 
 ### Core Vocabulary
-- **Word** 鈥?`text`, `part_of_speech`, `image_category` (9 categories for creative direction routing), `source_context`, M2M `tags`
-- **WordDefinition** 鈥?FK鈫扺ord, `definition_text`, `example_sentence`, `lexile_score`, `visual_scene` (generated scene description for image generation)
+- **Word** - `text`, `part_of_speech`, `source_context`, M2M `tags`
+- **WordDefinition** - FK to Word, `definition_text`, `example_sentence`, `lexile_score`
 - **DefinitionEmbedding** 鈥?OneToOne鈫扺ordDefinition, `embedding` (JSONField vector), `model_version` (Qwen3-Embedding-8B)
 - **Translation** 鈥?Generic FK (ContentType), `field_name`, `language`, `translated_text`. Supports translating any model's text fields.
 
@@ -95,10 +95,9 @@ vocab_app_v2/
 - **WordPackItem** 鈥?FK鈫扺ordPack, FK鈫扺ord, `order`
 - **PrimerCardContent** 鈥?OneToOne鈫扺ord, `syllable_text`, `kid_friendly_definition`, `example_sentence`
 - **GraphicNovel** 鈥?OneToOne鈫扺ordPack, `title`, `synopsis`, `style_prompt`, `reading_level`, `created_at`. New generated packs use this as the Story/Read step.
-- **GraphicNovelPage** 鈥?FK鈫扜raphicNovel, `page_number`, `image`, `prompt_used`, `panel_count`, `layout_description`, `panel_descriptions` (JSON accessibility/tooltip metadata), `vocab_words_used`. Each record stores one complete 1792x1024 landscape comic page image containing 1-4 panels.
+- **GraphicNovelPage** 鈥?FK鈫扜raphicNovel, `page_number`, `image`, `prompt_used`, page image generation tracking (`generation_status`, `generation_attempts`, `generation_error`, `generation_started_at`, `generation_completed_at`), `panel_count`, `layout_description`, `panel_descriptions` (JSON accessibility/tooltip metadata), `vocab_words_used`. Each record stores one complete 1792x1024 landscape comic page image containing 1-4 panels.
 - **MicroStory** 鈥?FK鈫扺ordPack, `story_text` (target words in `**bold**`), `reading_level` (Lexile). Legacy format retained so existing word sets keep working.
 - **ClozeItem** 鈥?FK鈫扺ordPack, FK鈫扺ord, `sentence_text` (with `_______` blank), `correct_answer`, `distractors`
-- **GeneratedImage** 鈥?FK鈫扺ord, `image` (ImageField), `prompt_used`, `status` (APPROVED by default in the pipeline; PENDING_REVIEW/REJECTED retained for legacy/admin states)
 - **StudentPackCompletion** 鈥?FK鈫抲ser, FK鈫扺ordPack. Completing a pack flips words from PENDING鈫扲EADY.
 ### Mastery & Spaced Repetition
 - **MasteryLevel** 鈥?`level_id` (PK), `level_name`, `interval_days`, `points_to_promote`
@@ -115,12 +114,12 @@ vocab_app_v2/
 - **MasteryLevelLog** 鈥?FK鈫抲ser, FK鈫扺ord, old_level, new_level, timestamp
 
 ### Questions & Practice
-- **Question** 鈥?FK鈫扺ord, `question_type` (29 types), `question_text`, `options` (JSON), `correct_answers` (JSON), `explanation`, `lexile_score`, `difficulty_index`, `discrimination_index`, M2M鈫扢asteryLevel (`suitable_levels`), FK鈫扜enerationJob
+- **Question** 鈥?FK鈫扺ord, `question_type` (28 types), `question_text`, `options` (JSON), `correct_answers` (JSON), `explanation`, `lexile_score`, `difficulty_index`, `discrimination_index`, M2M鈫扢asteryLevel (`suitable_levels`), FK鈫扜enerationJob
 - **PracticeSession** 鈥?FK鈫抲ser, `start_time`, `end_time`
 - **UserAnswer** 鈥?FK鈫扨racticeSession, FK鈫抲ser, FK鈫扱uestion, `user_answer`, `is_correct`, `duration_seconds`, `answer_switches`, `answered_at`, `retry_count`. Persisted first-attempt durations and answer switches are used for response-quality scheduling baselines.
 
 ### Generation Pipeline
-- **GenerationJob** 鈥?FK鈫扺ordSet, FK鈫抍reated_by, `job_type` (FULL_PIPELINE/QUESTIONS_ONLY/INSTRUCTIONAL_ONLY), `status` (PENDING/RUNNING/COMPLETED/FAILED/PARTIALLY_COMPLETED), `input_words` (JSON), `target_lexile`, `target_language`, counters (words/questions/primers/stories/graphic_novels/cloze/images created), `last_completed_step` (for resume), `error_message`
+- **GenerationJob** 鈥?FK鈫扺ordSet, FK鈫抍reated_by, `job_type` (FULL_PIPELINE/QUESTIONS_ONLY/INSTRUCTIONAL_ONLY), `status` (PENDING/RUNNING/COMPLETED/FAILED/PARTIALLY_COMPLETED), `input_words` (JSON), `target_lexile`, `target_language`, counters (words/questions/primers/stories/graphic_novels/cloze created), `last_completed_step` (for resume), `error_message`
 - **GenerationJobLog** 鈥?FK鈫扜enerationJob, `step`, `status`, `input_data`, `output_data`, `error_message`, `duration_seconds`
 
 ### Users
@@ -129,37 +128,32 @@ vocab_app_v2/
 
 ---
 
-## 11-Step AI Content Generation Pipeline
+## 8-Step AI Content Generation Pipeline
 
 The pipeline runs as a background thread, triggered by an admin via the GenerationWizard. Each step logs to GenerationJobLog. The pipeline supports resume from the last completed step on failure. Gemini-backed content steps use an automatic fallback policy: first attempt with `gemini-3.1-pro-preview`, one retry with the same model, then one retry with `gemini-3-pro-preview`. Retry attempts are also written to `GenerationJobLog` with attempt/model/next_model/error details.
 
 | Step | Name | What It Does |
 |------|------|--------------|
-| 1 | WORD_LOOKUP | LLM defines each word (POS, definition, example, image_category). Normalizes plurals/tense. |
+| 1 | WORD_LOOKUP | LLM defines each word (POS, definition, example sentence). Normalizes plurals/tense. |
 | 2 | DEDUP | Embedding-based deduplication (cosine similarity 鈮?0.92). Creates Word, WordDefinition, DefinitionEmbedding. Reuses existing words if found. |
 | 3 | TRANSLATION | LLM translates definition_text and example_sentence to target_language. Creates Translation records. |
 | 4 | QUESTION_GEN | LLM generates 15 questions per word (3 per mastery level 1-5) in batches of 6 words. Creates Question records with suitable_levels M2M. |
 | 5 | PACK_CREATION | LLM groups words into thematic packs of ~6. Creates WordPack + WordPackItem. On resume, adds any unpacked generated words to existing packs. |
 | 6 | PRIMER_GEN | LLM generates syllable_text + kid_friendly_definition (under 600L). Creates PrimerCardContent. |
 | 7A | GRAPHIC_NOVEL_SCRIPT | Gemini generates one graphic novel script per pack plus cloze items. Creates GraphicNovel, GraphicNovelPage metadata, and ClozeItem. Skips packs that already have a graphic novel. |
-| 7B | GRAPHIC_NOVEL_IMAGES | OpenAI GPT-Image-2 generates one 1792x1024 landscape image per GraphicNovelPage. Continues on individual page failures, but fails the step if every pending page fails. |
-| 8 | CREATIVE_DIRECTION | LLM generates visual_scene descriptions per word, routed by image_category to category-specific prompts. Stores on WordDefinition. |
-| 9 | IMAGE_GEN | OpenAI GPT-Image-2 generates one vocabulary card image per word using the visual_scene. Creates GeneratedImage with APPROVED status. Continues on individual failures. |
-| 10 | PICTURE_MATCH_GEN | Creates PICTURE_WORD_MATCH questions for each word with an approved image. Options: 1 correct + pack-mates + random outside word. |
-
-**Image category classification** (assigned in step 1, used in step 8):
-Words are classified into 9 categories, then routed to 3 creative direction prompt groups:
-- **Character group** (ICONIC_CHARACTER, EMOTION_STATE, SENSORY_TRAIT) 鈫?`creative_direction_character.txt`
-- **Action group** (DYNAMIC_ACTION, EPIC_SCALE, SPATIAL_RELATION) 鈫?`creative_direction_action.txt`
-- **Concept group** (INVISIBLE_PROCESS, ABSTRACT_METAPHOR, PORTABLE_OBJECT) 鈫?`creative_direction_elemental.txt`
+| 7B | GRAPHIC_NOVEL_IMAGES | OpenAI GPT-Image-2 generates one 1792x1024 landscape image per GraphicNovelPage. Each page tracks `PENDING`/`RUNNING`/`COMPLETED`/`FAILED`, attempts, and errors. The step saves successful pages, fails if any page fails, and Resume retries only missing/failed pages. This is the final active step for new full-pipeline generation. |
 
 `STORY_CLOZE_GEN` remains a valid `GenerationJobLog.Step` enum for legacy/manual testing history, but it is no longer part of `PIPELINE_STEP_ORDER` for new full-pipeline generation.
 
-**LLM models used:** Gemini `gemini-3.1-pro-preview` is the default for content-generation steps 1, 3-7A, and 8; `gemini-3-pro-preview` is the backup model after one same-model retry. OpenAI GPT-Image-2 generates graphic novel page images in step 7B and vocabulary card images in step 9. Qwen3-Embedding-8B via SiliconFlow handles step 2 embeddings.
+**LLM models used:** Gemini `gemini-3.1-pro-preview` is the default for content-generation steps 1, 3-7A; `gemini-3-pro-preview` is the backup model after one same-model retry. OpenAI GPT-Image-2 generates graphic novel page images in step 7B. Qwen3-Embedding-8B via SiliconFlow handles step 2 embeddings.
 
-**Prompt templates** are in `vocabulary/prompts/`: `word_lookup.txt`, `question_generation_A.txt`, `question_generation_B.txt`, `translation.txt`, `pack_grouping.txt`, `primer_generation.txt`, `graphic_novel_script.txt`, `graphic_novel_page.txt`, `story_cloze_generation.txt` (legacy/manual), `creative_direction_character.txt`, `creative_direction_action.txt`, `creative_direction_elemental.txt`, `image_master_style.txt`, `image_generation.txt`.
+**Prompt templates** are in `vocabulary/prompts/`: `word_lookup.txt`, `question_generation_A.txt`, `question_generation_B.txt`, `translation.txt`, `pack_grouping.txt`, `primer_generation.txt`, `graphic_novel_script.txt`, `graphic_novel_page.txt`, `story_cloze_generation.txt` (legacy/manual).
 
-**Generation logs:** LLM text calls, creative-direction calls, and OpenAI image calls write full prompt/response or prompt/status logs to `temp/llm_logs/`. Vocabulary card prompts are stored on `GeneratedImage.prompt_used`; graphic novel page prompts are stored on `GraphicNovelPage.prompt_used`.
+**Generation logs:** LLM text calls and OpenAI graphic novel page image calls write full prompt/response or prompt/status logs to `temp/llm_logs/`. Graphic novel page prompts are stored on `GraphicNovelPage.prompt_used`. `GRAPHIC_NOVEL_IMAGES` also writes per-page RUNNING progress logs with page id, pack label, page number, and attempt.
+
+**Long-running job DB handling:** Generation runs in a background thread and can spend minutes inside Gemini/OpenAI calls. The pipeline releases stale Django/MySQL connections before and after slow LLM/image calls, and closes old connections when full-pipeline, resume, or restart execution exits. This prevents background generation from holding database connections while the admin status page polls job/log endpoints.
+
+**Admin status polling:** `GenerationJobStatus` polls `/api/generation-jobs/<id>/` and `/api/generation-jobs/<id>/logs/` every 10 seconds. The status and logs views display the new `Graphic Novel Script` and `Graphic Novel Images` step labels plus per-page image status from `graphic_novel_image_pages`. If a job stalls for 15 minutes with no log activity, the status endpoint marks the job FAILED, records a FAILED log for the active step, resets the word set out of `GENERATING`, and marks any RUNNING graphic novel page FAILED. Resume then restarts from `GRAPHIC_NOVEL_IMAGES` when `last_completed_step` is `GRAPHIC_NOVEL_SCRIPT`; completed pages are skipped and only missing/failed pages are retried.
 
 ---
 
@@ -226,9 +220,9 @@ Words are classified into 9 categories, then routed to 3 creative direction prom
 | POST | `/api/word-sets/<id>/add-words/` | Deprecated/blocked: generated word sets are immutable |
 | GET | `/api/word-sets/<id>/latest-job/` | Most recent generation job |
 | GET | `/api/word-sets/<id>/content/` | All generated content for word set |
-| GET | `/api/generation-jobs/<id>/` | Job status |
-| GET | `/api/generation-jobs/<id>/logs/` | Step-by-step logs |
-| GET | `/api/generation-jobs/<id>/content/` | Content generated by this job |
+| GET | `/api/generation-jobs/<id>/` | Job status, counters, stale-job check, and `graphic_novel_image_pages` per-page progress |
+| GET | `/api/generation-jobs/<id>/logs/` | Step-by-step logs, including `output_data` for page-level progress messages |
+| GET | `/api/generation-jobs/<id>/content/` | Content generated by this job, including graphic novel page metadata/images/status for generated packs |
 | POST | `/api/generation-jobs/<id>/approve/` | Compatibility action; images are auto-approved by generation |
 | POST | `/api/generation-jobs/<id>/resume/` | Resume failed pipeline and record fresh RUNNING activity |
 
@@ -257,7 +251,7 @@ Words are classified into 9 categories, then routed to 3 creative direction prom
 ## Key Business Logic
 
 ### Spaced Repetition (Practice Flow)
-1. `NextPracticeWordView` finds words where `next_review_at 鈮?now`, `instructional_status = READY`, within student's Lexile range, excluding words already answered in the current session.
+1. `NextPracticeWordView` finds words where `next_review_at 鈮?now`, `instructional_status = READY`, with questions in the student's Lexile range or with NULL Lexile score, excluding words already answered in the current session.
 2. Selects a question matching the word's current mastery level and Lexile range. Hidden levels 6 and 7 ignore `suitable_levels` and can use any question for the word within the student's Lexile range.
 3. `PracticeService.process_answer()` processes the answer atomically:
    - Correct: +1 mastery point. If accumulated points reach the current level's `points_to_promote`, promote to the next level.
@@ -288,7 +282,7 @@ Words are classified into 9 categories, then routed to 3 creative direction prom
 - XP sources: correct answers (5-12 XP), focus streak bonus (up to 10 XP per session).
 - Practice streak: consecutive days practiced. Freeze awarded every 3 days (max 5 freezes).
 
-### Question Types (29 types across 9 skill categories)
+### Question Types (28 types across 8 skill categories)
 | Category | Types |
 |----------|-------|
 | Definition Recall | DEFINITION_MC_SINGLE, DEFINITION_TRUE_FALSE, DEFINITION_MATCHING, REVERSE_DEFINITION_MC |
@@ -299,7 +293,6 @@ Words are classified into 9 categories, then routed to 3 creative direction prom
 | Spelling | SPELLING_FILL_IN_BLANK |
 | Collocation & Usage | COLLOCATION_MC_SINGLE/FILL_IN_BLANK/MATCHING, REVERSE_COLLOCATION_MC |
 | Conceptual Association | CONCEPTUAL_ASSOCIATION_MC_SINGLE, APPLICATION_MC, REVERSE_ASSOCIATION_MC |
-| Visual | PICTURE_WORD_MATCH |
 
 ### Word Set Immutability
 Teachers/admins can add, remove, or change words before generation starts. Once a word set enters the generation lifecycle (`GENERATION_REQUESTED`, `GENERATING`, or `GENERATED`), the word set is locked and its words, packs, and details cannot be mutated. To add more words after generation, create a new word set.

@@ -55,7 +55,6 @@ export default function GenerationReview() {
     { key: 'words', label: `Words (${content.words.length})` },
     { key: 'questions', label: `Questions (${content.questions.length})` },
     { key: 'packs', label: `Packs (${content.packs.length})` },
-    { key: 'images', label: `Images (${content.images.length})` },
   ];
 
   return (
@@ -117,23 +116,38 @@ export default function GenerationReview() {
               <h4 style={{ margin: '0 0 6px' }}>{pack.label}</h4>
               <p className="t-hint" style={{ margin: '0 0 8px' }}>Words: {pack.words.map(w => w.text).join(', ')}</p>
               {pack.primer_cards.length > 0 && <div style={{ marginBottom: 6 }}><strong style={{ fontSize: '0.85rem' }}>Primer Cards:</strong>{pack.primer_cards.map(pc => (<div key={pc.id} style={{ paddingLeft: 12, fontSize: '0.85rem', margin: '3px 0' }}><span style={{ fontWeight: 600 }}>{pc.word_text}</span> ({pc.syllable_text}) — {pc.kid_friendly_definition}</div>))}</div>}
+              {pack.graphic_novel && (
+                <div style={{ marginBottom: 6 }}>
+                  <strong style={{ fontSize: '0.85rem' }}>Graphic Novel:</strong>
+                  <div style={{ paddingLeft: 12, fontSize: '0.85rem', margin: '3px 0' }}>
+                    <span style={{ fontWeight: 600 }}>{pack.graphic_novel.title}</span>
+                    <span className="t-hint"> (Lexile: {pack.graphic_novel.reading_level}, Pages: {pack.graphic_novel.pages.length})</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8, paddingLeft: 12, marginTop: 6 }}>
+                    {pack.graphic_novel.pages.map(page => (
+                      <div key={page.id} style={{ border: '1px solid var(--t-border)', borderRadius: 6, padding: 6 }}>
+                        {page.image_url ? (
+                          <img src={page.image_url} alt={`Page ${page.page_number}`} style={{ width: '100%', borderRadius: 4, marginBottom: 4 }} />
+                        ) : (
+                          <div className="t-hint" style={{ aspectRatio: '16 / 9', display: 'grid', placeItems: 'center', background: 'var(--t-surface-muted)', borderRadius: 4, marginBottom: 4 }}>Image pending</div>
+                        )}
+                        <div style={{ fontSize: '0.78rem' }}>Page {page.page_number} · {page.panel_count} panel{page.panel_count === 1 ? '' : 's'}</div>
+                        <div
+                          style={{ fontSize: '0.75rem', color: page.generation_status === 'FAILED' ? 'var(--t-danger)' : 'var(--t-text-secondary)' }}
+                          title={page.generation_error || ''}
+                        >
+                          {page.generation_status || (page.image_url ? 'COMPLETED' : 'PENDING')}
+                          {page.generation_attempts ? ` · try ${page.generation_attempts}` : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {pack.stories.length > 0 && <div style={{ marginBottom: 6 }}><strong style={{ fontSize: '0.85rem' }}>Story:</strong>{pack.stories.map(s => (<p key={s.id} style={{ fontSize: '0.85rem', margin: '3px 0', whiteSpace: 'pre-wrap' }}>{s.story_text} <span className="t-hint">(Lexile: {s.reading_level})</span></p>))}</div>}
               {pack.cloze_items.length > 0 && <div><strong style={{ fontSize: '0.85rem' }}>Cloze Items:</strong>{pack.cloze_items.map(ci => (<div key={ci.id} style={{ paddingLeft: 12, fontSize: '0.85rem', margin: '3px 0' }}>{ci.sentence_text} — Answer: <strong>{ci.correct_answer}</strong></div>))}</div>}
             </div>
           ))}
-        </div>
-      )}
-
-      {activeTab === 'images' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
-          {content.images.map(img => (
-            <div key={img.id} style={{ border: `2px solid ${img.status === 'APPROVED' ? 'var(--t-success)' : img.status === 'PENDING_REVIEW' ? 'var(--t-warning)' : 'var(--t-danger)'}`, borderRadius: 'var(--t-radius)', padding: 8, textAlign: 'center' }}>
-              <img src={img.image_url} alt={img.word_text} style={{ width: '100%', borderRadius: 4, marginBottom: 4 }} />
-              <p style={{ fontSize: '0.85rem', fontWeight: 600, margin: '4px 0' }}>{img.word_text}</p>
-              <p style={{ fontSize: '0.75rem', margin: 0, color: img.status === 'APPROVED' ? 'var(--t-success)' : img.status === 'PENDING_REVIEW' ? 'var(--t-warning)' : 'var(--t-danger)' }}>{img.status.replace('_', ' ')}</p>
-            </div>
-          ))}
-          {content.images.length === 0 && <p className="t-hint">No images generated.</p>}
         </div>
       )}
     </div>

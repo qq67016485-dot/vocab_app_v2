@@ -1,0 +1,20 @@
+Create one 1792x1024 landscape vocabulary review page for a K-8 graphic novel.
+
+Title: {title}
+Art style: {style_prompt}
+
+This is the final page of the graphic novel. Design it as a visually striking word-card review spread that matches the art style of the story.
+
+Layout:
+Arrange the following vocabulary words as individual stylized word cards spread across the page. Each card should feature the word in bold, decorative lettering. Use the same color palette, textures, and visual motifs from the story. Cards can vary in size and angle for visual interest, like collectible trading cards or pinned notes on a board.
+
+Vocabulary words:
+{vocab_words}
+
+Design constraints:
+- Every word must be clearly legible and prominent
+- Use the story's art style and color palette for card backgrounds and borders
+- Add subtle thematic illustrations or icons around or behind the cards that connect to the story
+- No definitions, no sentences, just the words themselves styled beautifully
+- No watermarks, signatures, logos, or extra text
+- The overall composition should feel like a satisfying recap or collection page
