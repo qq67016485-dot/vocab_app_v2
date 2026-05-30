@@ -403,4 +403,6 @@ class TestGenerationJobLog:
         assert 'STORY_CLOZE_GEN' in steps
         assert 'GRAPHIC_NOVEL_SCRIPT' in steps
         assert 'GRAPHIC_NOVEL_IMAGES' in steps
-        assert len(steps) == 9
+        assert 'GN_6PAGE_SCRIPT' in steps
+        assert 'GN_6PAGE_IMAGES' in steps
+        assert len(steps) == 11

@@ -189,7 +189,7 @@ class PrimerCardContentFactory(factory.django.DjangoModelFactory):
 
     word = factory.SubFactory(WordFactory)
     syllable_text = 'test·word'
-    kid_friendly_definition = 'A simple definition for kids.'
+    kid_friendly_definition = 'easy meaning for young learners'
     example_sentence = 'Here is an example sentence.'
 
 
@@ -207,8 +207,19 @@ class GraphicNovelFactory(factory.django.DjangoModelFactory):
         model = GraphicNovel
 
     pack = factory.SubFactory(WordPackFactory)
+    channel = GraphicNovel.Channel.FIVE_PAGE
     title = factory.Sequence(lambda n: f'Graphic Novel {n}')
     synopsis = 'A short adventure with recurring characters.'
+    characters = factory.LazyFunction(lambda: [
+        {'name': 'Leo', 'visual_description': 'Leo in a bright red hoodie.'},
+        {'name': 'Hugo', 'visual_description': 'Hugo in a mustard-yellow overshirt.'},
+    ])
+    metadata = factory.LazyFunction(lambda: {
+        'away_team': ['Leo'],
+        'age_band': '9yo',
+        'vault_framing': False,
+        'review_artifact_type': 'Vault clue board',
+    })
     style_prompt = 'Bright middle-grade comic art with readable lettering.'
     reading_level = 650
 
@@ -231,6 +242,10 @@ class GraphicNovelPageFactory(factory.django.DjangoModelFactory):
             'alt_text': 'A student looks at a glowing map.',
         }
     ])
+    characters_featured = ['Leo']
+    setting_key = 'story_realm'
+    vault_zone = ''
+    is_vault_page = False
     vocab_words_used = ['bright']
 
 

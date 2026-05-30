@@ -5,6 +5,7 @@ Tests written BEFORE implementation — all should fail initially.
 import pytest
 from datetime import datetime, time, timedelta
 from unittest.mock import patch
+from django.core.files.base import ContentFile
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -1308,6 +1309,55 @@ class TestGenerationViews:
         assert response.status_code == 200
         assert response.data['status'] == 'PENDING'
 
+    def test_job_status_includes_graphic_novel_script_substeps(self):
+        admin = AdminUserFactory()
+        ws = WordSetFactory(creator=admin)
+        job = GenerationJobFactory(word_set=ws, created_by=admin)
+        GenerationJobLog.objects.create(
+            job=job,
+            step=GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
+            status=GenerationJob.Status.RUNNING,
+            output_data={
+                'substep': 'router_premises',
+                'substep_label': 'Router + Premises',
+                'pack_id': 123,
+                'pack_label': 'Pack 1',
+            },
+        )
+        GenerationJobLog.objects.create(
+            job=job,
+            step=GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
+            status=GenerationJob.Status.COMPLETED,
+            duration_seconds=1.25,
+            output_data={
+                'substep': 'router_premises',
+                'substep_label': 'Router + Premises',
+                'pack_id': 123,
+                'pack_label': 'Pack 1',
+                'artifact_path': 'temp/generation_artifacts/job_1/pack_123_pack-1/01_router_premises.json',
+                'artifact_name': '01_router_premises.json',
+                'summary': {'premise_count': 3},
+            },
+        )
+
+        client = _make_client(admin)
+        response = client.get(f'/api/generation-jobs/{job.id}/')
+
+        assert response.status_code == 200
+        pack_status = response.data['graphic_novel_script_substeps'][0]
+        assert pack_status['pack_label'] == 'Pack 1'
+        assert [substep['substep'] for substep in pack_status['substeps']][:2] == [
+            'team_selection',
+            'router_premises',
+        ]
+        team_status = pack_status['substeps'][0]
+        assert team_status['label'] == 'Team Selection'
+        assert team_status['status'] == GenerationJob.Status.PENDING
+        router_status = pack_status['substeps'][1]
+        assert router_status['substep'] == 'router_premises'
+        assert router_status['status'] == GenerationJob.Status.COMPLETED
+        assert router_status['artifact_name'] == '01_router_premises.json'
+
     def test_job_status_includes_graphic_novel_page_statuses(self):
         admin = AdminUserFactory()
         ws = WordSetFactory(creator=admin)
@@ -1358,7 +1408,7 @@ class TestGenerationViews:
             novel=novel,
             page_number=1,
             generation_status=GraphicNovelPage.GenerationStatus.RUNNING,
-            generation_started_at=timezone.now() - timedelta(minutes=20),
+            generation_started_at=timezone.now() - timedelta(minutes=31),
             panel_count=1,
         )
         old_log = GenerationJobLog.objects.create(
@@ -1367,7 +1417,7 @@ class TestGenerationViews:
             status=GenerationJob.Status.RUNNING,
         )
         GenerationJobLog.objects.filter(id=old_log.id).update(
-            created_at=timezone.now() - timedelta(minutes=20),
+            created_at=timezone.now() - timedelta(minutes=31),
         )
 
         client = _make_client(admin)
@@ -1476,6 +1526,25 @@ class TestGenerationViews:
         ).latest('created_at')
         assert running_log.output_data['include_subsequent'] is True
 
+    def test_story_cloze_generation_is_not_active_restart_step(self):
+        admin = AdminUserFactory()
+        ws = WordSetFactory(creator=admin)
+        job = GenerationJobFactory(
+            word_set=ws,
+            created_by=admin,
+            status=GenerationJob.Status.COMPLETED,
+        )
+
+        client = _make_client(admin)
+        response = client.post(
+            f'/api/generation-jobs/{job.id}/restart-step/',
+            {'step': GenerationJobLog.Step.STORY_CLOZE_GEN},
+            format='json',
+        )
+
+        assert response.status_code == 400
+        assert GenerationJobLog.Step.STORY_CLOZE_GEN not in response.data['valid_steps']
+
     def test_student_cannot_access_jobs(self):
         student = StudentUserFactory()
         client = _make_client(student)
@@ -1496,3 +1565,182 @@ class TestGenerationViews:
         assert response.status_code == 400
         ws.refresh_from_db()
         assert ws.input_words == ['bright']
+
+    def _make_page_with_image(self, admin):
+        ws = WordSetFactory(creator=admin)
+        pack = WordPack.objects.create(word_set=ws, label='Pack 1', order=0)
+        novel = GraphicNovel.objects.create(
+            pack=pack,
+            title='Edit Test Novel',
+            synopsis='A test synopsis.',
+            style_prompt='Readable comic art.',
+            reading_level=650,
+        )
+        page = GraphicNovelPage.objects.create(
+            novel=novel,
+            page_number=1,
+            generation_status=GraphicNovelPage.GenerationStatus.COMPLETED,
+            panel_count=1,
+            prompt_used='Original prompt.',
+        )
+        # Minimal valid PNG header bytes are enough; the view only reads them.
+        page.image.save('orig_page_1.png', ContentFile(b'\x89PNG\r\n\x1a\nORIGINAL'), save=True)
+        return page
+
+    @patch('vocabulary.services.generation.helpers._llm_service.call_openai_image')
+    def test_admin_can_edit_graphic_novel_page_image(self, mock_image, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        mock_image.return_value = b'\x89PNG\r\n\x1a\nEDITED'
+        admin = AdminUserFactory()
+        page = self._make_page_with_image(admin)
+
+        client = _make_client(admin)
+        response = client.post(
+            f'/api/graphic-novel-pages/{page.id}/edit-image/',
+            {'prompt': 'Make the sky purple.'},
+            format='json',
+        )
+
+        assert response.status_code == 200
+        assert response.data['id'] == page.id
+        assert response.data['generation_status'] == GraphicNovelPage.GenerationStatus.COMPLETED
+        assert response.data['has_edited_image'] is True
+        assert response.data['use_edited_image'] is True
+        # Reference image bytes were passed to the edit call.
+        _, kwargs = mock_image.call_args
+        assert kwargs['reference_image'].startswith(b'\x89PNG')
+        page.refresh_from_db()
+        assert '[ADMIN EDIT] Make the sky purple.' in page.prompt_used
+        # Original is preserved; edit lands in the separate edited_image field.
+        page.image.open('rb')
+        assert page.image.read() == b'\x89PNG\r\n\x1a\nORIGINAL'
+        page.image.close()
+        page.edited_image.open('rb')
+        assert page.edited_image.read() == b'\x89PNG\r\n\x1a\nEDITED'
+        page.edited_image.close()
+        assert page.use_edited_image is True
+        assert page.display_image == page.edited_image
+
+    def test_edit_image_requires_prompt(self, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        admin = AdminUserFactory()
+        page = self._make_page_with_image(admin)
+        client = _make_client(admin)
+        response = client.post(
+            f'/api/graphic-novel-pages/{page.id}/edit-image/',
+            {'prompt': '   '},
+            format='json',
+        )
+        assert response.status_code == 400
+
+    def test_edit_image_404_for_missing_page(self):
+        admin = AdminUserFactory()
+        client = _make_client(admin)
+        response = client.post(
+            '/api/graphic-novel-pages/999999/edit-image/',
+            {'prompt': 'Change something.'},
+            format='json',
+        )
+        assert response.status_code == 404
+
+    def test_edit_image_400_when_page_has_no_image(self):
+        admin = AdminUserFactory()
+        ws = WordSetFactory(creator=admin)
+        pack = WordPack.objects.create(word_set=ws, label='Pack 1', order=0)
+        novel = GraphicNovel.objects.create(
+            pack=pack, title='No Image Novel', synopsis='s',
+            style_prompt='art', reading_level=650,
+        )
+        page = GraphicNovelPage.objects.create(
+            novel=novel, page_number=1, panel_count=1,
+        )
+        client = _make_client(admin)
+        response = client.post(
+            f'/api/graphic-novel-pages/{page.id}/edit-image/',
+            {'prompt': 'Change something.'},
+            format='json',
+        )
+        assert response.status_code == 400
+
+    def test_student_cannot_edit_graphic_novel_page_image(self, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        admin = AdminUserFactory()
+        page = self._make_page_with_image(admin)
+        student = StudentUserFactory()
+        client = _make_client(student)
+        response = client.post(
+            f'/api/graphic-novel-pages/{page.id}/edit-image/',
+            {'prompt': 'Change something.'},
+            format='json',
+        )
+        assert response.status_code == 403
+
+    @patch('vocabulary.services.generation.helpers._llm_service.call_openai_image')
+    def test_admin_can_select_back_to_original_image(self, mock_image, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        mock_image.return_value = b'\x89PNG\r\n\x1a\nEDITED'
+        admin = AdminUserFactory()
+        page = self._make_page_with_image(admin)
+        client = _make_client(admin)
+
+        # Edit auto-selects the edited variant.
+        client.post(
+            f'/api/graphic-novel-pages/{page.id}/edit-image/',
+            {'prompt': 'Make it brighter.'}, format='json',
+        )
+        page.refresh_from_db()
+        assert page.use_edited_image is True
+
+        # Switch back to the original.
+        response = client.post(
+            f'/api/graphic-novel-pages/{page.id}/select-image/',
+            {'variant': 'original'}, format='json',
+        )
+        assert response.status_code == 200
+        assert response.data['use_edited_image'] is False
+        assert response.data['has_edited_image'] is True
+        page.refresh_from_db()
+        assert page.use_edited_image is False
+        assert page.display_image == page.image
+
+        # And forward to the edited one again.
+        response = client.post(
+            f'/api/graphic-novel-pages/{page.id}/select-image/',
+            {'variant': 'edited'}, format='json',
+        )
+        assert response.status_code == 200
+        assert response.data['use_edited_image'] is True
+
+    def test_select_edited_without_edited_image_400(self, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        admin = AdminUserFactory()
+        page = self._make_page_with_image(admin)
+        client = _make_client(admin)
+        response = client.post(
+            f'/api/graphic-novel-pages/{page.id}/select-image/',
+            {'variant': 'edited'}, format='json',
+        )
+        assert response.status_code == 400
+
+    def test_select_image_rejects_unknown_variant(self, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        admin = AdminUserFactory()
+        page = self._make_page_with_image(admin)
+        client = _make_client(admin)
+        response = client.post(
+            f'/api/graphic-novel-pages/{page.id}/select-image/',
+            {'variant': 'sideways'}, format='json',
+        )
+        assert response.status_code == 400
+
+    def test_student_cannot_select_graphic_novel_page_image(self, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        admin = AdminUserFactory()
+        page = self._make_page_with_image(admin)
+        student = StudentUserFactory()
+        client = _make_client(student)
+        response = client.post(
+            f'/api/graphic-novel-pages/{page.id}/select-image/',
+            {'variant': 'original'}, format='json',
+        )
+        assert response.status_code == 403

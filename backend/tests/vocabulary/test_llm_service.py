@@ -11,16 +11,29 @@ import json
 class TestCallAnthropic:
     """Test llm_service.call_anthropic()"""
 
-    @patch('vocabulary.services.llm_service.anthropic')
-    def test_returns_parsed_json(self, mock_anthropic):
+    def _make_stream_mock(self, mock_anthropic, text):
+        """Helper: set up mock_anthropic so client.messages.stream(...) yields text."""
         mock_client = MagicMock()
         mock_anthropic.Anthropic.return_value = mock_client
 
         mock_message = MagicMock()
         mock_text_block = MagicMock()
-        mock_text_block.text = '{"words": [{"term": "vivid"}]}'
+        mock_text_block.type = 'text'
+        mock_text_block.text = text
         mock_message.content = [mock_text_block]
-        mock_client.messages.create.return_value = mock_message
+
+        mock_stream = MagicMock()
+        mock_stream.__enter__ = MagicMock(return_value=mock_stream)
+        mock_stream.__exit__ = MagicMock(return_value=False)
+        mock_stream.__iter__ = MagicMock(return_value=iter([]))
+        mock_stream.get_final_message.return_value = mock_message
+        mock_client.messages.stream.return_value = mock_stream
+
+        return mock_client
+
+    @patch('vocabulary.services.llm_service.anthropic')
+    def test_returns_parsed_json(self, mock_anthropic):
+        self._make_stream_mock(mock_anthropic, '{"words": [{"term": "vivid"}]}')
 
         from vocabulary.services.llm_service import call_anthropic
         result = call_anthropic(
@@ -32,14 +45,7 @@ class TestCallAnthropic:
 
     @patch('vocabulary.services.llm_service.anthropic')
     def test_strips_markdown_fences(self, mock_anthropic):
-        mock_client = MagicMock()
-        mock_anthropic.Anthropic.return_value = mock_client
-
-        mock_message = MagicMock()
-        mock_text_block = MagicMock()
-        mock_text_block.text = '```json\n{"result": "ok"}\n```'
-        mock_message.content = [mock_text_block]
-        mock_client.messages.create.return_value = mock_message
+        self._make_stream_mock(mock_anthropic, '```json\n{"result": "ok"}\n```')
 
         from vocabulary.services.llm_service import call_anthropic
         result = call_anthropic('model', 'sys', 'usr')
@@ -47,14 +53,7 @@ class TestCallAnthropic:
 
     @patch('vocabulary.services.llm_service.anthropic')
     def test_extracts_json_from_surrounding_text(self, mock_anthropic):
-        mock_client = MagicMock()
-        mock_anthropic.Anthropic.return_value = mock_client
-
-        mock_message = MagicMock()
-        mock_text_block = MagicMock()
-        mock_text_block.text = 'Here is the result:\n{"data": 42}\nHope this helps!'
-        mock_message.content = [mock_text_block]
-        mock_client.messages.create.return_value = mock_message
+        self._make_stream_mock(mock_anthropic, 'Here is the result:\n{"data": 42}\nHope this helps!')
 
         from vocabulary.services.llm_service import call_anthropic
         result = call_anthropic('model', 'sys', 'usr')
@@ -62,14 +61,7 @@ class TestCallAnthropic:
 
     @patch('vocabulary.services.llm_service.anthropic')
     def test_raises_on_unparseable_response(self, mock_anthropic):
-        mock_client = MagicMock()
-        mock_anthropic.Anthropic.return_value = mock_client
-
-        mock_message = MagicMock()
-        mock_text_block = MagicMock()
-        mock_text_block.text = 'This is not JSON at all.'
-        mock_message.content = [mock_text_block]
-        mock_client.messages.create.return_value = mock_message
+        self._make_stream_mock(mock_anthropic, 'This is not JSON at all.')
 
         from vocabulary.services.llm_service import call_anthropic
         with pytest.raises(ValueError, match="Could not parse JSON"):
@@ -77,14 +69,7 @@ class TestCallAnthropic:
 
     @patch('vocabulary.services.llm_service.anthropic')
     def test_uses_base_url_when_configured(self, mock_anthropic):
-        mock_client = MagicMock()
-        mock_anthropic.Anthropic.return_value = mock_client
-
-        mock_message = MagicMock()
-        mock_text_block = MagicMock()
-        mock_text_block.text = '{"ok": true}'
-        mock_message.content = [mock_text_block]
-        mock_client.messages.create.return_value = mock_message
+        self._make_stream_mock(mock_anthropic, '{"ok": true}')
 
         from vocabulary.services.llm_service import call_anthropic
         with patch('vocabulary.services.llm_service.settings') as mock_settings:
