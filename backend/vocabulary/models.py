@@ -448,17 +448,36 @@ class MicroStory(models.Model):
 
 
 class GraphicNovel(models.Model):
-    pack = models.OneToOneField(
-        WordPack, on_delete=models.CASCADE, related_name='graphic_novel',
+    class Channel(models.TextChoices):
+        FIVE_PAGE = '5page', '5-Page'
+        SIX_PAGE = '6page', '6-Page'
+
+    pack = models.ForeignKey(
+        WordPack, on_delete=models.CASCADE, related_name='graphic_novels',
+    )
+    channel = models.CharField(
+        max_length=10, choices=Channel.choices, default=Channel.FIVE_PAGE,
     )
     title = models.CharField(max_length=200)
     synopsis = models.TextField(help_text='Story synopsis for character/scene continuity')
+    characters = models.JSONField(
+        default=list,
+        help_text='Character visual reference list for cross-page consistency',
+    )
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='Lexi Legends metadata: away team, age band, Vault framing, review artifact',
+    )
     style_prompt = models.TextField(help_text='Art style directive used for all pages')
     reading_level = models.IntegerField(help_text='Lexile score')
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        unique_together = ('pack', 'channel')
+
     def __str__(self):
-        return f"Graphic novel for {self.pack.label}: {self.title}"
+        return f"Graphic novel ({self.channel}) for {self.pack.label}: {self.title}"
 
 
 class GraphicNovelPage(models.Model):
@@ -471,6 +490,15 @@ class GraphicNovelPage(models.Model):
     novel = models.ForeignKey(GraphicNovel, on_delete=models.CASCADE, related_name='pages')
     page_number = models.IntegerField()
     image = models.ImageField(upload_to='graphic_novels/', blank=True)
+    edited_image = models.ImageField(
+        upload_to='graphic_novels/',
+        blank=True,
+        help_text='Admin-edited variant of the page image; the original is preserved in `image`.',
+    )
+    use_edited_image = models.BooleanField(
+        default=False,
+        help_text='When True (and an edited image exists), the edited variant is shown everywhere.',
+    )
     prompt_used = models.TextField(blank=True)
     generation_status = models.CharField(
         max_length=20,
@@ -487,6 +515,14 @@ class GraphicNovelPage(models.Model):
         default=list,
         help_text='Per-panel metadata for accessibility/tooltips',
     )
+    characters_featured = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Canonical character names appearing on this page',
+    )
+    setting_key = models.CharField(max_length=80, blank=True, default='')
+    vault_zone = models.CharField(max_length=80, blank=True, default='')
+    is_vault_page = models.BooleanField(default=False)
     vocab_words_used = models.JSONField(
         default=list,
         help_text='All vocab words appearing on this page',
@@ -502,6 +538,17 @@ class GraphicNovelPage(models.Model):
 
     def __str__(self):
         return f"{self.novel.title} page {self.page_number}"
+
+    @property
+    def display_image(self):
+        """The image variant currently selected for display (edited or original)."""
+        if self.use_edited_image and self.edited_image:
+            return self.edited_image
+        return self.image
+
+    @property
+    def has_edited_image(self):
+        return bool(self.edited_image)
 
 
 class ClozeItem(models.Model):
@@ -598,6 +645,8 @@ class GenerationJobLog(models.Model):
         STORY_CLOZE_GEN = 'STORY_CLOZE_GEN', 'Story & Cloze Generation'
         GRAPHIC_NOVEL_SCRIPT = 'GRAPHIC_NOVEL_SCRIPT', 'Graphic Novel Script'
         GRAPHIC_NOVEL_IMAGES = 'GRAPHIC_NOVEL_IMAGES', 'Graphic Novel Images'
+        GRAPHIC_NOVEL_6PAGE_SCRIPT = 'GN_6PAGE_SCRIPT', 'Graphic Novel 6-Page Script'
+        GRAPHIC_NOVEL_6PAGE_IMAGES = 'GN_6PAGE_IMAGES', 'Graphic Novel 6-Page Images'
 
     job = models.ForeignKey(GenerationJob, on_delete=models.CASCADE, related_name='logs')
     step = models.CharField(max_length=30, choices=Step.choices)
@@ -614,3 +663,70 @@ class GenerationJobLog(models.Model):
 
     def __str__(self):
         return f"Log: {self.get_step_display()} ({self.get_status_display()})"
+
+
+# =============================================================================
+# LLM CONFIGURATION MODELS
+# =============================================================================
+
+class LLMSite(models.Model):
+    class ProviderType(models.TextChoices):
+        GEMINI_NATIVE = 'gemini_native', 'Gemini (Native)'
+        OPENAI_COMPATIBLE = 'openai_compatible', 'OpenAI-Compatible'
+        ANTHROPIC = 'anthropic', 'Anthropic'
+
+    name = models.CharField(max_length=100, unique=True)
+    base_url = models.URLField(
+        max_length=300, blank=True, default='',
+        help_text='Leave blank for native SDK default endpoint.',
+    )
+    api_key_env_var = models.CharField(
+        max_length=100,
+        help_text='Environment variable name holding the API key.',
+    )
+    provider_type = models.CharField(max_length=20, choices=ProviderType.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'LLM Site'
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.get_provider_type_display()})"
+
+    def resolve_api_key(self) -> str:
+        import os
+        return os.environ.get(self.api_key_env_var, '')
+
+
+class LLMStepConfig(models.Model):
+    class StepKey(models.TextChoices):
+        WORD_LOOKUP = 'word_lookup', 'Word Lookup'
+        TRANSLATION = 'translation', 'Translation'
+        QUESTION_GEN = 'question_gen', 'Question Generation'
+        PRIMER_GEN = 'primer_gen', 'Primer Generation'
+        PACK_CREATION = 'pack_creation', 'Pack Grouping'
+        GN_TEAM_SELECTION = 'gn_team_selection', 'GN: Team Selection'
+        GN_ROUTER_PREMISES = 'gn_router_premises', 'GN: Router Premises'
+        GN_PREMISE_SCORING = 'gn_premise_scoring', 'GN: Premise Scoring'
+        GN_CLOZE_GEN = 'gn_cloze_gen', 'GN: Cloze Generation'
+        GN_BEAT_SHEET = 'gn_beat_sheet', 'GN: Beat Sheet'
+        GN_FINAL_SCRIPT = 'gn_final_script', 'GN: Final Script'
+
+    step_key = models.CharField(max_length=30, choices=StepKey.choices, unique=True)
+    primary_site = models.ForeignKey(
+        LLMSite, on_delete=models.PROTECT, related_name='primary_steps',
+    )
+    primary_model = models.CharField(max_length=100)
+    fallback_site = models.ForeignKey(
+        LLMSite, on_delete=models.PROTECT, related_name='fallback_steps',
+    )
+    fallback_model = models.CharField(max_length=100)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'LLM Step Configuration'
+        verbose_name_plural = 'LLM Step Configurations'
+
+    def __str__(self) -> str:
+        return f"{self.get_step_key_display()} → {self.primary_model}"

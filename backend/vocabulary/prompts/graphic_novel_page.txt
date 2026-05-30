@@ -1,11 +1,18 @@
-Create one complete 1792x1024 landscape comic book page for a K-8 graphic novel.
+Create one complete 1792x1024 landscape comic book page for a Lexi Legends graphic novel (target audience: ages 8–14, ESL learners).
 
 Title: {title}
 Page number: {page_number}
 Art style: {style_prompt}
+STYLE_LOCK: Consistent digital comic art. Clean ink outlines, flat color fills with soft cel-shading, warm lighting. No photorealism, no watercolor, no 3D rendering. Line weight: medium. Color saturation: high. Expressive faces, clear silhouettes.
+
+Character reference for this page only:
+{characters}
 
 Story continuity:
 {synopsis}
+
+Setting context:
+{setting_context}
 
 Page composition:
 Create a single landscape page containing {panel_count} panels. Use clear panel borders, gutters, and professional comic-book composition. Follow this layout: {layout_description}
@@ -14,7 +21,10 @@ Panel content:
 {panel_details}
 
 Vocabulary highlighting:
-Render the words {vocab_words} in a distinct glowing gold or bright colored style wherever they appear in captions or speech bubbles. The highlighted words must remain readable.
+{vocab_highlighting}
+
+Character name introduction:
+{character_name_colors}
 
 Text and format constraints:
-Use speech bubbles for dialogue and caption boxes for narration. Keep all lettering large, clean, and readable. Do not add watermarks, signatures, logos, extra captions, extra panels, or unrelated text.
+Use speech bubbles for dialogue and caption boxes for narration. Keep all lettering large, clean, and readable. Do not add watermarks, signatures, logos, page numbers, extra captions, extra panels, unrelated text, or characters not listed in the page character reference.

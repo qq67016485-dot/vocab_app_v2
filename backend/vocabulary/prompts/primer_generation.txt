@@ -10,7 +10,7 @@ The target reading level for this word set is **Lexile {target_lexile}L**. Use t
 For each word you will receive:
 - term, part_of_speech, definition (formal), example_sentence
 
-Your job is to create a kid-friendly version of the definition and a syllable breakdown.
+Your job is to create a concise review-card definition and a syllable breakdown for each word.
 
 Output valid JSON with this exact structure:
 {{
@@ -18,14 +18,16 @@ Output valid JSON with this exact structure:
     {{
       "term": "the word",
       "syllable_text": "syl·la·ble form",
-      "kid_friendly_definition": "a definition calibrated to the target Lexile level"
+      "kid_friendly_definition": "concise 3-8 word definition phrase"
     }}
   ]
 }}
 
 Guidelines:
-- Base the kid-friendly definition on the provided formal definition
-- Calibrate definition complexity to the target Lexile level ({target_lexile}L)
+- Each kid_friendly_definition must be exactly 3-8 words: a complete phrase suitable for a vocabulary review card (not a truncated sentence)
+- Base the definition on the provided formal definition
+- Calibrate vocabulary choice within the phrase to the target Lexile level ({target_lexile}L)
 - Syllable text uses the middle dot character (·) as separator
-- Keep definitions concise (1-2 sentences max)
+- If a word has only one syllable, output the word exactly as-is without any dot characters (e.g., "fume", "spray")
+- Use phonetic (sound-based) syllable breaks rather than orthographic (spelling-based) when they differ, as ESL learners benefit from hearing the natural spoken rhythm (e.g., "ev·ry" not "ev·er·y")
 - Do not generate a new example sentence — the formal example will be reused

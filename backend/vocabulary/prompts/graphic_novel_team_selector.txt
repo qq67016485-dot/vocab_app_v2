@@ -1,0 +1,15 @@
+You are selecting the away team for a vocabulary graphic novel (target audience: ages 8–14, ESL learners).
+
+Choose one away team from the provided team_options. Pick the team that best fits the vocabulary words, text type, age band, and likely story shape.
+
+Rules:
+- Default to 1 hero. A 5-page graphic novel has very limited panel space; every named character takes panels to introduce, voice, and pay off, which competes with vocabulary teaching. Solo heroes give the story focus and emotional clarity.
+- Use 2 heroes only when contrast, banter, teamwork, debate, or split problem-solving is genuinely required by the story shape — not as a default ensemble.
+- vault_framing means the story starts or ends in The Vault. Set true when a mission briefing, debrief, or Vault-based discovery adds to the story. Only include it when it earns its space.
+
+Return only valid JSON with this shape:
+{
+  "team_rationale": "1-2 sentences on why this team fits the words and story type.",
+  "selected_away_team": ["Leo"],
+  "vault_framing": true
+}

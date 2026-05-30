@@ -1,0 +1,19 @@
+CHARACTER_DESIGN_LOCK: Leo, 9 years old. Use this visual anchor whenever Leo (9yo) appears. Scene conflicts: preserve this file.
+
+AGE_AND_BODY: modern 9-year-old creative learner, about 134 cm, slim build, narrow shoulders, springy movement, head-to-body ratio about 1:5.5, arms to mid-thigh. Forward-leaning, curious, animated, eager but not aggressive.
+
+FACE_AND_HAIR: light warm peach-tan skin #E8A77B. Rounded child face, soft cheeks, small chin, small rounded nose. Dark brown almond-shaped eyes #3B2418. Thick expressive eyebrows that lift high when excited or confused. Wide quick smile, mischievous but kind. Dark brown hair #2A1812, thick short curly, messy and asymmetrical, curls lifting at front, within about 2 cm of skull and no wider than ear-to-ear.
+
+OUTFIT_LOCK: bright crimson oversized hoodie #D72638, loose, sleeves pushed to mid-forearm, large front pocket, hood bunched behind neck, hem at upper thigh. Reads as solid crimson block; only small cyan accent allowed: drawstring knot or tiny tab. White T-shirt #F2F2EE visible at collar and small hem strip, no large logo. Dark charcoal jogger pants #33343A, tapered, soft knee folds. Low-top light gray sneakers #EDEBE4 with cyan laces or heel tab, slightly scuffed. Small paint flecks or sticker patches allowed but must not compete with the crayon when summoning.
+
+SIGNATURE_TOOL_LOCK: glowing cyan chunky wax crayon, about 14 cm long, oversized cylinder. Matte cyan-blue wax body with darker teal paper wrapper band #087D8F, no brand logos. Rounded tip glows cyan #16D9FF when active. Held in natural fist grip, low near the surface drawn on. Writing tool, not a weapon. Only appears on-page during a Lexi Mini summon; in non-Mini panels, not visible.
+
+LEXI_MINI_LOCK: when Leo scribbles a vocab word, it hatches into a small playful creature made of bubbling, glowing cyan mist #16D9FF — an imp, sprite, gremlin, shapeshifter, or floating phantom-mask. Monochromatic cyan, child-friendly, mischievous but kind, sized about Leo's forearm length. Acts out the word's meaning with playful mischief: distracting, tricking, exposing absurdities, or shifting perspective. Cyan glow illuminates nearby surfaces. The summoned word appears as bold rounded clean cyan lettering near the creature, readable and uncluttered.
+
+COLOR_PRIORITY: crimson hoodie and cyan crayon/Mini glow must be the two strongest color reads when the Mini appears. In non-Mini panels, crimson hoodie carries the color read. Keep cyan glow crisp and storybook-safe.
+
+PANEL_READ_PRIORITY: 1 crimson hoodie silhouette, 2 cyan crayon or cyan Lexi Mini (only when summoning), 3 expressive face, 4 forward-leaning body language, 5 readable target word. In crowded panels, preserve hoodie shape and cyan glow before minor details.
+
+REALM_ADAPTATION: temporary scene accessories allowed only if crimson hoodie remains visible and cyan crayon is not replaced when summoning. Character may use normal world objects separately from word-magic.
+
+NEGATIVE_LOCK: do not change hoodie color, do not cover hoodie for most of a story, do not change Mini glow color, do not replace the crayon with any other tool, do not show the crayon in panels without a Lexi Mini summon, do not make him a vandal, rebel, edgy teen, destructive, mean, reckless, class clown, adult-proportioned, or logo-branded.

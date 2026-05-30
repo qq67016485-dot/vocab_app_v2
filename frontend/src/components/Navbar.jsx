@@ -77,6 +77,11 @@ export default function Navbar() {
       </button>
       <div className="t-navbar-spacer" />
       <div className="t-navbar-user">
+        {user.role === 'ADMIN' && (
+          <button className="t-navbar-queue" onClick={() => navigate('/teacher/llm-config')} style={{ marginRight: '0.5rem' }}>
+            LLM Config
+          </button>
+        )}
         {user.role === 'ADMIN' && queueCount > 0 && (
           <button className="t-navbar-queue" onClick={() => navigate('/teacher/generation-queue')}>
             Gen Queue

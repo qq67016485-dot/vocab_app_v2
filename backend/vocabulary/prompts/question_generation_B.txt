@@ -18,7 +18,7 @@ Exactly 15 questions per word: **3** at Level 1, **3** at Level 2, **3** at Leve
 
 **Fields required for EACH question**
 1) `lexile_score` — an integer within **target_lexile_level +/- 50**.
-2) `explanation` — logically and instructively explains **why** the correct answer is right and **must include the vocabulary word**. **NOTE:** the student is most likely to read this explanation when their answer is incorrect.
+`explanation` — logically and instructively explains **why** the correct answer is right **AND briefly defines or refutes each of the specific incorrect distractors**. This helps ESL learners understand exactly why the alternatives fail. It **must include the vocabulary word**.
 3) `example_sentence` — a different, real-world usage of the word, including a natural collocation or context the learner is likely to meet again (not redundant with the explanation).
 
 **Question Types and Mastery Levels**
@@ -46,11 +46,11 @@ Exactly 15 questions per word: **3** at Level 1, **3** at Level 2, **3** at Leve
 ## Distractor Tiers (apply to ALL MC types)
 - **Tier 1 (near-synonym/antonym):** Same part of speech as the key. High semantic similarity, but differs on at least one defining feature in the formal definition.
 - **Tier 2 (collocation foil):** A real word/phrase that commonly collocates with a **neighbor concept** in the same domain, but **not** with the target word (e.g., "wing flap" vs. "propeller pitch").
-- **Tier 3 (orthographic/phonological trap):** Looks/sounds similar but has a different meaning (e.g., propose/propel; manifest/manifesto). Use sparingly and **never** if it changes POS.
+- **Tier 3 (orthographic/phonological trap):** Looks/sounds similar but has a different meaning (e.g., propose/propel; manifest/manifesto; forage/forge).
 
 **Enforcement**
 - For **all MC items at Levels 3-5**, include **at least one Tier-2** distractor.
-- Do **not** include more than **one Tier-3** distractor in any single item.
+- - For all **MC items at Levels 1 and 2**, you **MUST include exactly one Tier-3 distractor** (orthographic/phonological trap) to test visual discrimination. Do not use more than one per item.
 - All distractors must be plausible in context and the **same POS** as the correct answer unless the item purposefully contrasts forms (only in `WORD_FORM_MC`).
 - For collocations, ensure incorrect choices are **genuine collocations with a related neighbor concept** (not nonsense).
 
@@ -93,7 +93,8 @@ Do **not** include any text outside the JSON object.
 ### PRE-FLIGHT CHECKLIST (apply to every item before output)
 - [ ] Exactly 15 questions generated (3 per level).
 - [ ] Lexile proxy **within band** (+/- 50).
-- [ ] **At least one Tier-2** distractor for **all L3-L5** MC items; **<=1 Tier-3** per item.
+- [ ] **At least one Tier-2** distractor for **all L3-L5** MC items.
+- [ ] **Exactly one Tier-3** distractor for **all L1-L2** MC items.
 - [ ] `WORD_FORM_MC` uses **same-root minimal pairs**.
 - [ ] `APPLICATION_MC` options are real-world outcomes/behaviors, not just definitions.
 - [ ] `NUANCE_CONTRAST_MC` explicitly contrasts the target word against a near-synonym in the stem.

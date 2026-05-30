@@ -195,9 +195,9 @@ export default function GenerationWizard() {
               {pack.primer_cards.map(pc => (<div key={pc.id} style={{ paddingLeft: 12, fontSize: '0.85rem', margin: '3px 0' }}><span style={{ fontWeight: 600 }}>{pc.word_text}</span> ({pc.syllable_text}) — {pc.kid_friendly_definition}</div>))}
             </div>
           )}
-          {pack.stories.length > 0 && (
+          {!pack.graphic_novel && pack.stories.length > 0 && (
             <div style={{ marginBottom: 6 }}>
-              <strong style={{ fontSize: '0.85rem' }}>Story:</strong>
+              <strong style={{ fontSize: '0.85rem' }}>Legacy Micro Story:</strong>
               {pack.stories.map(s => (<p key={s.id} style={{ fontSize: '0.85rem', margin: '3px 0', whiteSpace: 'pre-wrap' }}>{s.story_text} <span className="t-hint">(Lexile: {s.reading_level})</span></p>))}
             </div>
           )}

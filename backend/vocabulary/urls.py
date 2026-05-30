@@ -9,6 +9,7 @@ from .views import (
     teacher_views,
     group_views,
     generation_views,
+    llm_config_views,
 )
 
 router = DefaultRouter()
@@ -74,4 +75,12 @@ urlpatterns = [
     path('generation-jobs/<int:job_id>/approve/', generation_views.ApproveGenerationJobView.as_view(), name='generation-job-approve'),
     path('generation-jobs/<int:job_id>/resume/', generation_views.ResumeGenerationJobView.as_view(), name='generation-job-resume'),
     path('generation-jobs/<int:job_id>/restart-step/', generation_views.RestartGenerationStepView.as_view(), name='generation-job-restart-step'),
+    path('generation-jobs/<int:job_id>/restart-substep/', generation_views.RestartGraphicNovelSubstepView.as_view(), name='generation-job-restart-substep'),
+    path('graphic-novel-pages/<int:page_id>/edit-image/', generation_views.EditGraphicNovelPageImageView.as_view(), name='graphic-novel-page-edit-image'),
+    path('graphic-novel-pages/<int:page_id>/select-image/', generation_views.SelectGraphicNovelPageImageView.as_view(), name='graphic-novel-page-select-image'),
+
+    # LLM Configuration (Admin only)
+    path('admin/llm-sites/', llm_config_views.LLMSitesView.as_view(), name='llm-sites'),
+    path('admin/llm-sites/<int:pk>/', llm_config_views.LLMSiteDetailView.as_view(), name='llm-site-detail'),
+    path('admin/llm-step-configs/', llm_config_views.LLMStepConfigsView.as_view(), name='llm-step-configs'),
 ]

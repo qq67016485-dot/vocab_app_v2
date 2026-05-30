@@ -18,7 +18,7 @@ from django.utils import timezone
 from vocabulary.models import (
     WordPack, WordPackItem, PrimerCardContent, MicroStory, ClozeItem,
     StudentPackCompletion, StudentWordSetAssignment, UserWordProgress,
-    Translation, WordDefinition,
+    Translation, WordDefinition, GraphicNovel,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ class InstructionalService:
                 ).order_by('order')),
                 'cloze_items__word',
                 'stories',
-                'graphic_novel__pages',
+                'graphic_novels__pages',
             ).get(id=pack_id)
         except WordPack.DoesNotExist:
             raise ValueError("Pack not found.")
@@ -90,7 +90,9 @@ class InstructionalService:
             })
 
         # Select the new graphic novel format first; fall back to legacy stories.
-        graphic_novel = getattr(pack, 'graphic_novel', None)
+        graphic_novel = pack.graphic_novels.filter(
+            channel=GraphicNovel.Channel.FIVE_PAGE,
+        ).first()
         stories = list(pack.stories.all())
         story = None
         if graphic_novel:
@@ -98,7 +100,7 @@ class InstructionalService:
             for page in graphic_novel.pages.all():
                 pages_data.append({
                     'page_number': page.page_number,
-                    'image_url': page.image.url if page.image else '',
+                    'image_url': page.display_image.url if page.display_image else '',
                     'panel_count': page.panel_count,
                     'layout_description': page.layout_description,
                     'panel_descriptions': page.panel_descriptions,

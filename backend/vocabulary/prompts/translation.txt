@@ -16,11 +16,13 @@ Output valid JSON with this exact structure:
 {{
   "translations": [
     {{
+      "term": "the vocabulary word this translation belongs to",
       "source_field": "definition_text",
       "source_text": "the original English text",
       "translated_text": "native equivalent word or short phrase"
     }},
     {{
+      "term": "the vocabulary word this translation belongs to",
       "source_field": "example_sentence",
       "source_text": "the original English sentence",
       "translated_text": "natural translation of the sentence"

@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useUser } from '../../context/UserContext.jsx';
 import apiClient from '../../api/axiosConfig.js';
 import GenerationJobStatus from '../../components/generation/GenerationJobStatus.jsx';
+import GraphicNovelPageEditor from '../../components/generation/GraphicNovelPageEditor.jsx';
 
 export default function GenerationReview() {
   const { jobId } = useParams();
@@ -33,6 +34,25 @@ export default function GenerationReview() {
     catch (err) { setError('Failed to load generated content.'); }
   }, []);
   const handleJobFail = useCallback((jobData) => { setJob(jobData); }, []);
+
+  const handlePageUpdated = useCallback((packId, updatedPage) => {
+    setContent(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        packs: prev.packs.map(pack => {
+          if (pack.id !== packId || !pack.graphic_novel) return pack;
+          return {
+            ...pack,
+            graphic_novel: {
+              ...pack.graphic_novel,
+              pages: pack.graphic_novel.pages.map(p => p.id === updatedPage.id ? updatedPage : p),
+            },
+          };
+        }),
+      };
+    });
+  }, []);
 
   if (user?.role !== 'ADMIN') return <p style={{ padding: '2rem' }}>Only admins can review generation jobs.</p>;
   if (error) return <p style={{ padding: '2rem', color: 'var(--t-danger)' }}>{error}</p>;
@@ -125,26 +145,16 @@ export default function GenerationReview() {
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8, paddingLeft: 12, marginTop: 6 }}>
                     {pack.graphic_novel.pages.map(page => (
-                      <div key={page.id} style={{ border: '1px solid var(--t-border)', borderRadius: 6, padding: 6 }}>
-                        {page.image_url ? (
-                          <img src={page.image_url} alt={`Page ${page.page_number}`} style={{ width: '100%', borderRadius: 4, marginBottom: 4 }} />
-                        ) : (
-                          <div className="t-hint" style={{ aspectRatio: '16 / 9', display: 'grid', placeItems: 'center', background: 'var(--t-surface-muted)', borderRadius: 4, marginBottom: 4 }}>Image pending</div>
-                        )}
-                        <div style={{ fontSize: '0.78rem' }}>Page {page.page_number} · {page.panel_count} panel{page.panel_count === 1 ? '' : 's'}</div>
-                        <div
-                          style={{ fontSize: '0.75rem', color: page.generation_status === 'FAILED' ? 'var(--t-danger)' : 'var(--t-text-secondary)' }}
-                          title={page.generation_error || ''}
-                        >
-                          {page.generation_status || (page.image_url ? 'COMPLETED' : 'PENDING')}
-                          {page.generation_attempts ? ` · try ${page.generation_attempts}` : ''}
-                        </div>
-                      </div>
+                      <GraphicNovelPageEditor
+                        key={page.id}
+                        page={page}
+                        onUpdated={(updatedPage) => handlePageUpdated(pack.id, updatedPage)}
+                      />
                     ))}
                   </div>
                 </div>
               )}
-              {pack.stories.length > 0 && <div style={{ marginBottom: 6 }}><strong style={{ fontSize: '0.85rem' }}>Story:</strong>{pack.stories.map(s => (<p key={s.id} style={{ fontSize: '0.85rem', margin: '3px 0', whiteSpace: 'pre-wrap' }}>{s.story_text} <span className="t-hint">(Lexile: {s.reading_level})</span></p>))}</div>}
+              {!pack.graphic_novel && pack.stories.length > 0 && <div style={{ marginBottom: 6 }}><strong style={{ fontSize: '0.85rem' }}>Legacy Micro Story:</strong>{pack.stories.map(s => (<p key={s.id} style={{ fontSize: '0.85rem', margin: '3px 0', whiteSpace: 'pre-wrap' }}>{s.story_text} <span className="t-hint">(Lexile: {s.reading_level})</span></p>))}</div>}
               {pack.cloze_items.length > 0 && <div><strong style={{ fontSize: '0.85rem' }}>Cloze Items:</strong>{pack.cloze_items.map(ci => (<div key={ci.id} style={{ paddingLeft: 12, fontSize: '0.85rem', margin: '3px 0' }}>{ci.sentence_text} — Answer: <strong>{ci.correct_answer}</strong></div>))}</div>}
             </div>
           ))}

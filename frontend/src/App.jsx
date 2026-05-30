@@ -20,6 +20,7 @@ import StudentProgressDashboard from './pages/teacher/StudentProgressDashboard.j
 import GenerationWizard from './pages/admin/GenerationWizard.jsx';
 import GenerationReview from './pages/admin/GenerationReview.jsx';
 import GenerationQueue from './pages/admin/GenerationQueue.jsx';
+import LLMConfig from './pages/admin/LLMConfig.jsx';
 
 import './styles/main.css';
 import './styles/students.css';
@@ -74,6 +75,7 @@ function App() {
           <Route path="generate/:setId" element={<GenerationWizard />} />
           <Route path="generation-jobs/:jobId" element={<GenerationReview />} />
           <Route path="generation-queue" element={<GenerationQueue />} />
+          <Route path="llm-config" element={<LLMConfig />} />
         </Route>
 
         {/* Root — redirect by role */}

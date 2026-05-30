@@ -4,6 +4,7 @@ These are NEW in v2 (no v1 equivalent).
 """
 import threading
 
+from django.core.files.base import ContentFile
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
@@ -11,7 +12,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-STALE_JOB_THRESHOLD_SECONDS = 900
+STALE_JOB_THRESHOLD_SECONDS = 1800
 
 from ..models import (
     GenerationJob, GenerationJobLog, WordSet,
@@ -22,6 +23,7 @@ from ..permissions import IsAdmin
 from ..services.generation_pipeline_service import (
     PIPELINE_STEP_ORDER,
     restart_pipeline_from_step,
+    restart_graphic_novel_substep,
     run_full_pipeline,
     resume_pipeline,
 )
@@ -51,13 +53,86 @@ def _graphic_novel_image_page_statuses(word_set):
             'status': page.generation_status,
             'attempts': page.generation_attempts,
             'error_message': page.generation_error,
-            'has_image': bool(page.image),
-            'image_url': page.image.url if page.image else '',
+            'has_image': bool(page.display_image),
+            'image_url': page.display_image.url if page.display_image else '',
+            'use_edited_image': page.use_edited_image,
+            'has_edited_image': page.has_edited_image,
             'is_review_page': page.is_review_page,
             'started_at': page.generation_started_at.isoformat() if page.generation_started_at else None,
             'completed_at': page.generation_completed_at.isoformat() if page.generation_completed_at else None,
         }
         for page in pages
+    ]
+
+
+GRAPHIC_NOVEL_SCRIPT_SUBSTEPS = [
+    ('team_selection', 'Team Selection'),
+    ('router_premises', 'Router + Premises'),
+    ('premise_scoring', 'Premise Scoring'),
+    ('cloze_generation', 'Cloze Generation'),
+    ('beat_sheet_vocab_roles', 'Beat Sheet + Vocab Roles'),
+    ('final_script_self_check', 'Final Script + Self-Check'),
+]
+
+
+def _graphic_novel_script_substep_statuses(job):
+    substep_logs = [
+        log for log in job.logs.filter(step=GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT)
+        if isinstance(log.output_data, dict) and log.output_data.get('substep')
+    ]
+    packs = {}
+    for log in substep_logs:
+        output_data = log.output_data or {}
+        pack_id = output_data.get('pack_id') or 'unknown'
+        if pack_id not in packs:
+            packs[pack_id] = {
+                'pack_id': output_data.get('pack_id'),
+                'pack_label': output_data.get('pack_label', 'Pack'),
+                'substeps': {
+                    key: {
+                        'substep': key,
+                        'label': label,
+                        'status': GenerationJob.Status.PENDING,
+                        'duration_seconds': None,
+                        'error_message': '',
+                        'artifact_path': '',
+                        'artifact_name': '',
+                        'summary': None,
+                        'updated_at': None,
+                    }
+                    for key, label in GRAPHIC_NOVEL_SCRIPT_SUBSTEPS
+                },
+            }
+        substep = output_data.get('substep')
+        if substep not in packs[pack_id]['substeps']:
+            packs[pack_id]['substeps'][substep] = {
+                'substep': substep,
+                'label': output_data.get('substep_label', substep),
+                'status': GenerationJob.Status.PENDING,
+                'duration_seconds': None,
+                'error_message': '',
+                'artifact_path': '',
+                'artifact_name': '',
+                'summary': None,
+                'updated_at': None,
+            }
+        packs[pack_id]['substeps'][substep].update({
+            'status': log.status,
+            'duration_seconds': log.duration_seconds,
+            'error_message': log.error_message,
+            'artifact_path': output_data.get('artifact_path', ''),
+            'artifact_name': output_data.get('artifact_name', ''),
+            'summary': output_data.get('summary'),
+            'updated_at': log.created_at.isoformat(),
+        })
+
+    return [
+        {
+            'pack_id': pack_data['pack_id'],
+            'pack_label': pack_data['pack_label'],
+            'substeps': list(pack_data['substeps'].values()),
+        }
+        for pack_data in sorted(packs.values(), key=lambda item: str(item['pack_label']))
     ]
 
 
@@ -194,6 +269,7 @@ class GenerationJobStatusView(APIView):
                 )
 
         graphic_novel_image_pages = _graphic_novel_image_page_statuses(job.word_set)
+        graphic_novel_script_substeps = _graphic_novel_script_substep_statuses(job)
 
         return Response({
             'id': job.id,
@@ -212,6 +288,7 @@ class GenerationJobStatusView(APIView):
             'created_at': job.created_at.isoformat(),
             'completed_at': job.completed_at.isoformat() if job.completed_at else None,
             'graphic_novel_image_pages': graphic_novel_image_pages,
+            'graphic_novel_script_substeps': graphic_novel_script_substeps,
         })
 
 
@@ -300,7 +377,7 @@ class GenerationJobContentView(APIView):
         packs = WordPack.objects.filter(
             word_set=job.word_set,
         ).prefetch_related(
-            'items__word', 'stories', 'graphic_novel__pages', 'cloze_items__word',
+            'items__word', 'stories', 'graphic_novels__pages', 'cloze_items__word',
         ).order_by('order')
 
         packs_data = []
@@ -331,7 +408,7 @@ class GenerationJobContentView(APIView):
                 for s in pack.stories.all()
             ]
 
-            graphic_novel = getattr(pack, 'graphic_novel', None)
+            graphic_novel = pack.graphic_novels.filter(channel='5page').first()
             graphic_novel_data = None
             if graphic_novel:
                 graphic_novel_data = {
@@ -343,7 +420,11 @@ class GenerationJobContentView(APIView):
                         {
                             'id': page.id,
                             'page_number': page.page_number,
-                            'image_url': page.image.url if page.image else '',
+                            'image_url': page.display_image.url if page.display_image else '',
+                            'original_image_url': page.image.url if page.image else '',
+                            'edited_image_url': page.edited_image.url if page.edited_image else '',
+                            'has_edited_image': page.has_edited_image,
+                            'use_edited_image': page.use_edited_image,
                             'generation_status': page.generation_status,
                             'generation_attempts': page.generation_attempts,
                             'generation_error': page.generation_error,
@@ -524,6 +605,216 @@ class RestartGenerationStepView(APIView):
         })
 
 
+VALID_SUBSTEP_KEYS = {key for key, _ in GRAPHIC_NOVEL_SCRIPT_SUBSTEPS}
+
+
+class RestartGraphicNovelSubstepView(APIView):
+    """POST /api/generation-jobs/{id}/restart-substep/ - restart from a specific graphic novel substep."""
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, job_id):
+        pack_id = request.data.get('pack_id')
+        substep = request.data.get('substep')
+
+        if not pack_id or not substep:
+            return Response(
+                {'error': 'Both pack_id and substep are required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if substep not in VALID_SUBSTEP_KEYS:
+            return Response(
+                {'error': f'Invalid substep. Valid: {sorted(VALID_SUBSTEP_KEYS)}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with transaction.atomic():
+                job = GenerationJob.objects.select_for_update().get(id=job_id)
+
+                if job.status in (GenerationJob.Status.PENDING, GenerationJob.Status.RUNNING):
+                    return Response(
+                        {'error': 'A generation job is already running.'},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                if not WordPack.objects.filter(id=pack_id, word_set=job.word_set).exists():
+                    return Response(
+                        {'error': 'Pack not found for this job.'},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+
+                job.status = GenerationJob.Status.RUNNING
+                job.error_message = ''
+                job.save(update_fields=['status', 'error_message'])
+
+        except GenerationJob.DoesNotExist:
+            return Response(
+                {'error': 'Job not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        thread = threading.Thread(
+            target=restart_graphic_novel_substep,
+            args=(job.id, int(pack_id), substep),
+            daemon=True,
+        )
+        thread.start()
+
+        return Response({
+            'job_id': job.id,
+            'status': GenerationJob.Status.RUNNING,
+            'pack_id': pack_id,
+            'substep': substep,
+            'message': 'Substep restart started.',
+        })
+
+
+class EditGraphicNovelPageImageView(APIView):
+    """
+    POST /api/graphic-novel-pages/{page_id}/edit-image/
+
+    Re-generate a single graphic novel page image using the page's current
+    image as a visual reference plus an admin-supplied edit instruction.
+    Runs synchronously (the admin waits for the single image) and routes
+    through the same OpenAI images.edit path used for cross-page continuity.
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, page_id):
+        edit_prompt = (request.data.get('prompt') or '').strip()
+        if not edit_prompt:
+            return Response(
+                {'error': 'A prompt describing the edit is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            page = (
+                GraphicNovelPage.objects
+                .select_related('novel', 'novel__pack')
+                .get(id=page_id)
+            )
+        except GraphicNovelPage.DoesNotExist:
+            return Response(
+                {'error': 'Graphic novel page not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if not page.image:
+            return Response(
+                {'error': 'This page has no image to edit yet. Generate it first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Edit builds on whatever variant is currently displayed.
+        source = page.display_image
+        try:
+            source.open('rb')
+            try:
+                reference_bytes = source.read()
+            finally:
+                source.close()
+        except (FileNotFoundError, OSError):
+            return Response(
+                {'error': 'The current image file could not be read from storage.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from ..services.generation.helpers import _call_openai_image_releasing_db
+
+        try:
+            new_bytes = _call_openai_image_releasing_db(
+                edit_prompt, size="1792x1024", reference_image=reference_bytes,
+            )
+        except Exception as exc:  # noqa: BLE001 - surface provider failure to admin
+            page.generation_error = f'Image edit failed: {exc}'
+            page.save(update_fields=['generation_error'])
+            return Response(
+                {'error': f'Image generation failed: {exc}'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        title_slug = ''.join(
+            c if c.isalnum() else '_' for c in page.novel.title.lower()
+        ).strip('_')[:60] or 'graphic_novel'
+        filename = f"{title_slug}_page_{page.page_number}_edited.png"
+        # Preserve the original in `image`; the edit lands in `edited_image`.
+        page.edited_image.save(filename, ContentFile(new_bytes), save=False)
+        page.use_edited_image = True
+        page.prompt_used = f"{page.prompt_used}\n\n[ADMIN EDIT] {edit_prompt}".strip()
+        page.generation_status = GraphicNovelPage.GenerationStatus.COMPLETED
+        page.generation_error = ''
+        page.generation_completed_at = timezone.now()
+        page.save(update_fields=[
+            'edited_image', 'use_edited_image', 'prompt_used',
+            'generation_status', 'generation_error', 'generation_completed_at',
+        ])
+
+        return Response(_graphic_novel_page_image_payload(page, message='Image edited successfully.'))
+
+
+def _graphic_novel_page_image_payload(page, message=None):
+    """Serialize a page's image state (both variants + which is active)."""
+    payload = {
+        'id': page.id,
+        'page_number': page.page_number,
+        'image_url': page.display_image.url if page.display_image else '',
+        'original_image_url': page.image.url if page.image else '',
+        'edited_image_url': page.edited_image.url if page.edited_image else '',
+        'has_edited_image': page.has_edited_image,
+        'use_edited_image': page.use_edited_image,
+        'generation_status': page.generation_status,
+        'generation_error': page.generation_error,
+    }
+    if message:
+        payload['message'] = message
+    return payload
+
+
+class SelectGraphicNovelPageImageView(APIView):
+    """
+    POST /api/graphic-novel-pages/{page_id}/select-image/  {"variant": "original" | "edited"}
+
+    Choose whether the original or the edited image is the one shown to
+    students and in review. Reversible at any time; neither file is deleted.
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, page_id):
+        variant = (request.data.get('variant') or '').strip().lower()
+        if variant not in ('original', 'edited'):
+            return Response(
+                {'error': "variant must be 'original' or 'edited'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            page = (
+                GraphicNovelPage.objects
+                .select_related('novel')
+                .get(id=page_id)
+            )
+        except GraphicNovelPage.DoesNotExist:
+            return Response(
+                {'error': 'Graphic novel page not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if variant == 'edited' and not page.edited_image:
+            return Response(
+                {'error': 'This page has no edited image to select.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        page.use_edited_image = (variant == 'edited')
+        page.save(update_fields=['use_edited_image'])
+
+        return Response(_graphic_novel_page_image_payload(
+            page, message=f'Now displaying the {variant} image.',
+        ))
+
+
 def _next_resume_step(last_completed_step):
     if not last_completed_step:
         return PIPELINE_STEP_ORDER[0]
@@ -641,7 +932,7 @@ class WordSetContentView(APIView):
         packs = WordPack.objects.filter(
             word_set=word_set,
         ).prefetch_related(
-            'items__word', 'stories', 'graphic_novel__pages', 'cloze_items__word',
+            'items__word', 'stories', 'graphic_novels__pages', 'cloze_items__word',
         ).order_by('order')
 
         packs_data = []
@@ -672,7 +963,7 @@ class WordSetContentView(APIView):
                 for s in pack.stories.all()
             ]
 
-            graphic_novel = getattr(pack, 'graphic_novel', None)
+            graphic_novel = pack.graphic_novels.filter(channel='5page').first()
             graphic_novel_data = None
             if graphic_novel:
                 graphic_novel_data = {
@@ -684,7 +975,11 @@ class WordSetContentView(APIView):
                         {
                             'id': page.id,
                             'page_number': page.page_number,
-                            'image_url': page.image.url if page.image else '',
+                            'image_url': page.display_image.url if page.display_image else '',
+                            'original_image_url': page.image.url if page.image else '',
+                            'edited_image_url': page.edited_image.url if page.edited_image else '',
+                            'has_edited_image': page.has_edited_image,
+                            'use_edited_image': page.use_edited_image,
                             'generation_status': page.generation_status,
                             'generation_attempts': page.generation_attempts,
                             'generation_error': page.generation_error,

@@ -1,0 +1,36 @@
+SETTING: The Vault — a rounded dome interior with smooth curved teal-and-off-white ceramic walls, a central circular platform with a brass ring edge, thin warm-gold catalog lines embedded in floor/walls/dome, and warm reading light. Outside normal space and time. No doors, no exterior.
+
+ARCHITECTURE: Single continuous dome shell. Walls rise ~3.5x character height then curve into dome ceiling. Faint luminous motes (tiny glowing paper fragments) drift near upper dome.
+
+COLOR MAP: The floor is warm off-white (#F3F0E4) with thin warm-gold radial catalog lines — light and grounded. The dome/ceiling is deep teal (#224E5A) with thin warm-gold constellation arc patterns — dark like a night sky. The walls are teal structural bands framing off-white inset panel faces. Overall value: light below, dark above, warm gold lines throughout.
+
+MODULES (use 2-4 per panel, never more):
+- Archive wall: tall teal/off-white section, inset rounded-rectangle tile bays, vertical light strips between bays
+- Central platform: circular, brass ring edge, off-white surface, one story object at center
+- Catalog lines: thin warm-gold lines flush in surfaces, glow softly
+- Page screen: portrait-oriented, rounded corners, frosted off-white, ~2x character height
+- Reading island: child-scale modular bench or short rounded seat with teal/off-white Vault backing, small movable cushion/block stool (muted red or moss green), compact brass-base lamp or page-light puck, low rounded table, restrained wood accents only
+
+MATERIALS: Smooth matte ceramic (teal walls), brushed-linen texture (off-white panels), oiled wood grain used sparingly (bench edge/table only), satin brass (trims/ring/lamp bases), frosted pale blue glass (sparse insets), paper texture (story objects only).
+
+PALETTE: Deep teal #224E5A, warm off-white #F3F0E4, warm-gold light #FFDFA3, brass #C79B44, wood #7A5634, paper #E9DDBD, shadow #27343A, cushion red #B94A48, moss #6E8F5F, frosted blue #BFDDE2.
+
+LIGHTING: Warm lamps at human height. Vertical wall lights in module seams. Catalog lines glow low (brighter when active). Blue-white only for Folio projections. Hero Ink colors only at magic points. Portal tints platform only, not whole room.
+
+OBJECT BUDGET: 1 active story object per focal moment. Max 1 accent prop. Story objects are simple and clean: book, scroll, card, tile, map, or framed door shape.
+
+HERO CONTRAST:
+- Leo (crimson): back with teal or off-white. No red behind him.
+- Amara (purple): back with off-white or warm-lit wall. Rim light if against teal shadow.
+- Mei (white/green): back with deep teal. Outline or rim light required against pale surfaces.
+- Hugo (mustard/orange): back with cool tones. No brass/amber behind him.
+- Folio (paper-white): back with teal or shadow. Not against pale panels or glass.
+
+SHOT RULES:
+- Close-up: one surface, one object, warm light. Dome out of frame.
+- Mid-shot: heroes + platform + one wall section + one screen. Dome as curved upper edge.
+- Wide-shot: full dome, platform ring, radial lines, motes in upper air. 50-60% negative space. Heroes small but silhouette-readable.
+
+PRIORITY ORDER: 1) story function (portal/map/object) 2) hero silhouettes and tools 3) readable vocabulary text 4) vault modules 5) furniture 6) background dome pattern.
+
+DO NOT: flat ceiling or hard corners; dense fake text; tiny unreadable labels; piles of books/gadgets/tubes; rolling ladders or rail carts; floating shelves; decorative machinery; horror lighting; spell circles or runes; generic swirling portals (must start from object); screens replacing walls; brand logos; more than 4 modules per panel; classroom or medieval library appearance; adult lounge, oversized sofa, ornate booth, decorative gold mural, or dominant dark wood in the Quiet Nook.

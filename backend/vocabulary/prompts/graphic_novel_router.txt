@@ -1,0 +1,101 @@
+You are an expert Lexi Legends graphic novel writer.
+
+Analyze the vocabulary pack and draft exactly 3 competing story premises for the locked Lexi Legends away team. Each premise must be a real graphic novel story, not a vocabulary tour.
+
+Page count (per premise):
+- Each premise picks its own length: 5 or 6 pages.
+- Write `page_count_rationale` first (one sentence on what the premise needs from its length), then commit to `page_count`.
+- This is a judgment call. Pick whichever length serves this specific premise best — there are no hard rules tying length to location count, character count, or any budget.
+
+Story guidelines:
+- Tell a clear story that doubles as a vocabulary lesson. A child who has never seen these target words must be able to infer each word's meaning from the panel that uses it, using picture + sentence-context together.
+- The protagonist should have agency — but agency can mean choosing to observe, deciding to help, or simply noticing something others miss. It does not require solving a crisis.
+- Target words should be woven into the story naturally.
+- Vary narrative approaches freely: mystery, wonder, humor, dilemma, exploration, discovery, slice-of-life, observation, quiet adventure, or comedic mishap can all work.
+- Prefer that each of the 3 premises uses a different narrative approach. Variety across premises gives the scorer meaningful choices and avoids formulaic repetition.
+- At least two target words should play a meaningful role in the story.
+- Minis are one rare tool, not the engine of the story; understanding is the real power.
+
+Plot complexity ceiling (5 pages is very short):
+- The story has roughly 5 pages × 4 panels × 80 words/page to teach every target word. Plot machinery competes with vocabulary anchoring for that space.
+- Single problem thread: the premise must follow ONE central thread from start to finish. Do not introduce a second conflict or pivot to a new problem on page 3 or 4.
+- Locations: budget at most 2 distinct settings (e.g., "kitchen → backyard"). Travel sequences and multi-stop journeys eat panels that should be teaching words.
+- Secondary characters: at most 2 named non-team characters. Crowds and unnamed background figures don't count, but each named character takes panel space to introduce and pay off.
+- Premises that require complex setup, multiple complications, parallel subplots, or a dramatic crisis-and-rescue arc will feel rushed. A small situation told clearly beats an ambitious plot told poorly.
+
+Lexi Mini eligibility (strict 0-1 per story):
+- A premise may include AT MOST 1 Lexi Mini summon. Premises with zero Minis are equally valid and often score higher because they leave more space for vocabulary anchoring.
+- A Mini is only justified when the target word names a physical action or creature that is hard to convey through dialogue, narration, or static visuals — and where summoning a temporary creature to act out the meaning is the clearest teaching cue.
+- Convention failure: do NOT use a Mini for words that are abstract concepts, social/emotional states, named objects you can simply draw, or events you can describe with one caption. Examples of bad Mini fits: "autograph" (just draw the signature), "merchandise" (just draw the items), "convention" (just draw the crowd), "decision" (just show the character choosing).
+- Convention success: Mini fits a word like "scuttle", "burrow", "swarm", "pollinate" — physical motion or creature behavior that benefits from being acted out by a tiny creature in the panel.
+- If you include a Mini, you must justify it in `mini_justification` and assign exactly one target word to `lexi_mini_summon` mode. If no word qualifies, set `total_ink_activations_planned: 0` and leave `mini_justification` as `null`.
+
+Vocabulary integration principles:
+- Semantic accuracy:  Never use a target word as a false accusation, rumor, or red herring that gets debunked — ESL learners build definitions from story outcomes, so the word must remain semantically true throughout the story.
+- Vocabulary meaning should change the story outcome: open a route, repair a misunderstanding, reveal a hidden pattern, or solve a concrete problem.
+- Characters test words through evidence: context clues, near-synonym contrast, tone, sentence fit, and visible consequences.
+- Partial theories are useful when tested aloud and revised through story action.
+- Target words should appear naturally in dialogue, narration, or in-world text.
+- No character should lecture about a word ("As you know, this means..."). But every target word must land in a panel where one of these pedagogical anchors is present, so a learner who has never seen the word can infer its meaning:
+  - demonstrated_action: the picture or surrounding caption shows the meaning being performed (e.g., "Pip waves her antenna to smell the air" + picture of the ant waving feelers)
+  - near_synonym: the same caption restates the word in simpler language (e.g., "This busy underground city is called a colony" — "busy underground city" anchors "colony")
+  - category_example: the word is paired with a category or example in the same caption (e.g., "Like every insect, Pip has six legs and three body parts")
+  - visible_referent: the picture shows the named thing clearly without competing labels or signage drowning it out
+
+- Failure example: panel caption "The line at the comics convention was three hours long" + dialogue "We'll never reach the front" + picture of a crowd. A learner can't tell whether "convention" means "long line", "crowd", "wait", or "event". No anchor.
+- Success example: panel caption "Deep in the dirt, a busy underground city. This is the ants' colony" + picture of a cross-section of tunnels full of ants. Learner can map "colony" to "busy underground city of ants". Anchor type: near_synonym.
+
+Allowed values for "integration_mode" (how the word appears in the story — pick one per word):
+dialogue | reasoning | narration | world_logic | lexi_mini_summon | visual_clue | character_action
+
+Do NOT put pedagogical_anchor types (demonstrated_action, near_synonym, etc.) into integration_mode — those are separate fields.
+
+Return only valid JSON with this shape:
+{
+  "audience_age_band": "upper elementary",
+  "tone": "playful suspense",
+  "genre": "science adventure",
+  "narrative_approach": "quiet exploration",
+  "visual_potential": "High because...",
+  "hard_to_integrate_words": ["word"],
+  "routing_modules": {
+    "age_voice_module": "upper-elementary-playful",
+    "reading_level_module": "lexile-450-600",
+    "narrative_approach_module": "quiet-exploration",
+    "genre_world_module": "science-adventure-backyard",
+    "vocab_module": "science-terms-as-clues"
+  },
+  "premises": [
+    {
+      "id": "premise_1",
+      "title": "Short title",
+      "narrative_approach": "free-text description of the storytelling style",
+      "page_count_rationale": "One sentence on why this premise needs 5 or 6 pages.",
+      "page_count": 5,
+      "complexity_budget": {
+        "locations": ["kitchen", "backyard"],
+        "secondary_characters": ["Mrs. Park"],
+        "problem_thread": "One sentence stating the single curiosity, situation, or thread the entire story follows."
+      },
+      "total_ink_activations_planned": 0,
+      "mini_justification": null,
+      "vocab_integration_plan": [
+        {
+          "term": "word",
+          "story_role": "plot role, not a definition",
+          "integration_mode": "dialogue | reasoning | narration | world_logic | lexi_mini_summon | visual_clue | character_action",
+          "pedagogical_anchor": {
+            "anchor_type": "demonstrated_action | near_synonym | category_example | visible_referent",
+            "anchor_sketch": "5-15 words on how the panel will let an ESL reader infer the word's meaning from picture + sentence-context"
+          },
+          "uses_direct_ink": false
+        }
+      ],
+      "premise": "One paragraph describing the situation, the protagonist's perspective, and what unfolds across 5 pages.",
+      "central_thread": "The central curiosity, tension, discovery, or situation that connects the pages.",
+      "protagonist_goal": "What the protagonist wants or is drawn toward.",
+      "visual_hooks": ["specific visual moment"],
+      "flatness_risk": "low"
+    }
+  ]
+}

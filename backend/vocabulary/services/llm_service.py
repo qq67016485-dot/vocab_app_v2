@@ -17,6 +17,7 @@ from datetime import datetime
 import anthropic
 from google import genai
 from google.genai import types
+import openai
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -75,7 +76,7 @@ def load_prompt_template(name):
         return f.read()
 
 
-def call_anthropic(model, system_prompt, user_prompt):
+def call_anthropic(model, system_prompt, user_prompt, api_key=None, base_url=None):
     """
     Call the Anthropic API and return parsed JSON from the response.
 
@@ -86,6 +87,8 @@ def call_anthropic(model, system_prompt, user_prompt):
         model: Model name.
         system_prompt: System prompt string.
         user_prompt: User prompt string.
+        api_key: Optional API key override (defaults to settings.ANTHROPIC_API_KEY).
+        base_url: Optional base URL override (defaults to settings.ANTHROPIC_BASE_URL).
 
     Returns:
         dict: Parsed JSON from the LLM response.
@@ -93,9 +96,12 @@ def call_anthropic(model, system_prompt, user_prompt):
     Raises:
         ValueError: If JSON cannot be extracted from the response.
     """
-    kwargs = {'api_key': settings.ANTHROPIC_API_KEY}
-    if settings.ANTHROPIC_BASE_URL:
-        kwargs['base_url'] = settings.ANTHROPIC_BASE_URL
+    effective_key = api_key or settings.ANTHROPIC_API_KEY
+    effective_url = base_url if base_url is not None else settings.ANTHROPIC_BASE_URL
+
+    kwargs = {'api_key': effective_key}
+    if effective_url:
+        kwargs['base_url'] = effective_url
     client = anthropic.Anthropic(**kwargs)
 
     logger.info("Calling Anthropic model=%s", model)
@@ -103,10 +109,18 @@ def call_anthropic(model, system_prompt, user_prompt):
 
     is_thinking_model = 'thinking' in model
 
+    # Collapse empty user_prompt into a single user message (Anthropic rejects
+    # empty content in messages).
+    sys_text = (system_prompt or '').strip()
+    usr_text = (user_prompt or '').strip()
+    if not usr_text:
+        usr_text = sys_text or ' '
+        sys_text = ''
+
     create_kwargs = {
         'model': model,
         'max_tokens': 128000 if is_thinking_model else 600000,
-        'messages': [{"role": "user", "content": f"{system_prompt}\n\n{user_prompt}"}],
+        'messages': [{"role": "user", "content": usr_text}],
     }
 
     if is_thinking_model:
@@ -114,9 +128,11 @@ def call_anthropic(model, system_prompt, user_prompt):
             'type': 'enabled',
             'budget_tokens': 12000,
         }
+        if sys_text:
+            create_kwargs['messages'] = [{"role": "user", "content": f"{sys_text}\n\n{usr_text}"}]
     else:
-        create_kwargs['system'] = system_prompt
-        create_kwargs['messages'] = [{"role": "user", "content": user_prompt}]
+        if sys_text:
+            create_kwargs['system'] = sys_text
 
     # Use streaming to avoid timeout on long-running requests
     raw = ''
@@ -173,14 +189,21 @@ def _extract_json(raw):
     )
 
 
-def call_gemini(model, system_prompt, user_prompt):
+def call_gemini(model, system_prompt, user_prompt, api_key=None, base_url=None):
     """
     Call the Gemini API and return parsed JSON from the response.
+
+    Routing:
+    - If base_url is provided (or GEMINI_BASE_URL is set), calls go through an
+      OpenAI-compatible proxy using the chat.completions endpoint.
+    - Otherwise, calls go to Google's native API via the google.genai SDK.
 
     Args:
         model: Model name (e.g., 'gemini-3.1-pro-preview').
         system_prompt: System instruction string.
         user_prompt: User prompt string.
+        api_key: Optional API key override (defaults to settings.GEMINI_API_KEY).
+        base_url: Optional base URL override (defaults to settings.GEMINI_BASE_URL).
 
     Returns:
         dict: Parsed JSON from the LLM response.
@@ -188,15 +211,71 @@ def call_gemini(model, system_prompt, user_prompt):
     Raises:
         ValueError: If JSON cannot be extracted from the response.
     """
-    client_kwargs = {'api_key': settings.GEMINI_API_KEY}
-    if settings.GEMINI_BASE_URL:
-        client_kwargs['http_options'] = types.HttpOptions(base_url=settings.GEMINI_BASE_URL)
-    client = genai.Client(**client_kwargs)
-
     logger.info("Calling Gemini model=%s", model)
     logger.debug("User prompt:\n%s", user_prompt)
 
-    # Combine system and user prompts into contents (Gemini requires non-empty contents)
+    effective_key = api_key or settings.GEMINI_API_KEY
+    effective_url = base_url if base_url is not None else settings.GEMINI_BASE_URL
+
+    if effective_url:
+        raw = _call_gemini_via_openai_proxy(model, system_prompt, user_prompt, effective_url, effective_key)
+    else:
+        raw = _call_gemini_native(model, system_prompt, user_prompt, effective_key)
+
+    logger.debug("Raw response (first 2000 chars):\n%s", raw[:2000])
+
+    try:
+        parsed = _extract_json(raw)
+        _log_llm_call(model, system_prompt, user_prompt, raw)
+        return parsed
+    except ValueError as e:
+        _log_llm_call(model, system_prompt, user_prompt, raw, error=str(e))
+        raise
+
+
+def _call_gemini_via_openai_proxy(model, system_prompt, user_prompt, base_url, api_key):
+    """Call Gemini through an OpenAI-compatible proxy (chat.completions)."""
+    normalized = base_url.rstrip('/')
+    if normalized.endswith('/chat/completions'):
+        normalized = normalized[: -len('/chat/completions')]
+
+    client = openai.OpenAI(
+        api_key=api_key,
+        base_url=normalized,
+        timeout=600.0,
+        max_retries=0,
+    )
+
+    # The proxy rejects requests where the user message is empty. Several
+    # callers pass the entire prompt as system_prompt with an empty user
+    # message, so collapse to a single user message in that case.
+    sys_text = (system_prompt or '').strip()
+    usr_text = (user_prompt or '').strip()
+    if not usr_text:
+        usr_text = sys_text or ' '
+        sys_text = ''
+
+    messages = []
+    if sys_text:
+        messages.append({'role': 'system', 'content': sys_text})
+    messages.append({'role': 'user', 'content': usr_text})
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        response_format={'type': 'json_object'},
+    )
+    # Some proxies return non-JSON content-type headers, causing the OpenAI SDK
+    # to return raw text instead of a ChatCompletion object.
+    if isinstance(response, str):
+        return response
+    return response.choices[0].message.content or ''
+
+
+def _call_gemini_native(model, system_prompt, user_prompt, api_key):
+    """Call Gemini directly via Google's google.genai SDK."""
+    client = genai.Client(api_key=api_key)
+
     combined_prompt = f"{system_prompt}\n\n{user_prompt}".strip()
 
     config = types.GenerateContentConfig(
@@ -208,17 +287,7 @@ def call_gemini(model, system_prompt, user_prompt):
         contents=combined_prompt,
         config=config,
     )
-
-    raw = response.text or ''
-    logger.debug("Raw response (first 2000 chars):\n%s", raw[:2000])
-
-    try:
-        parsed = _extract_json(raw)
-        _log_llm_call(model, system_prompt, user_prompt, raw)
-        return parsed
-    except ValueError as e:
-        _log_llm_call(model, system_prompt, user_prompt, raw, error=str(e))
-        raise
+    return response.text or ''
 
 
 def call_openai_image(prompt: str, size: str = "1024x1024", reference_image: bytes | None = None) -> bytes:
@@ -234,8 +303,6 @@ def call_openai_image(prompt: str, size: str = "1024x1024", reference_image: byt
     Returns:
         bytes: Raw image bytes (PNG).
     """
-    import openai
-
     model = "gpt-image-2"
     api_key = settings.OPENAI_API_KEY
     client_kwargs = {'api_key': api_key}
@@ -262,6 +329,12 @@ def call_openai_image(prompt: str, size: str = "1024x1024", reference_image: byt
                 n=1,
                 size=size,
             )
+
+        logger.info(
+            "OpenAI image response type=%s, value=%s",
+            type(response).__name__,
+            repr(response)[:500],
+        )
 
         image_item = response.data[0]
         if image_item.b64_json:

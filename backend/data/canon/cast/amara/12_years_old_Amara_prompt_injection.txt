@@ -1,0 +1,19 @@
+CHARACTER_DESIGN_LOCK: Amara, 12 years old. Use this visual anchor whenever Amara (12yo) appears. Scene conflicts: preserve this file.
+
+AGE_AND_BODY: modern 12-year-old kid, about 151 cm, slim-to-average build, narrow shoulders, long neck, steady movement, head-to-body ratio about 1:6.1, arms to mid-thigh.
+
+FACE_AND_HAIR: warm medium-brown skin #B06C49. Oval child face, soft cheeks, gently defined chin, small rounded nose. Dark brown almond eyes #2A1812 with focused look. Full arched eyebrows that lower when concentrating. Small warm knowing smile, never smug. Black dense natural hair #17110F in a high rounded puff, about 19 cm wide and 14 cm high above crown, coily defined edge curls. Always keep visible gap between puff base and cloak neckline.
+
+OUTFIT_LOCK: royal purple starry scholar cloak #5B3FD6 over modern clothes, not medieval robes. A-line, hem at upper calf, hem width about 1.3x shoulder width, soft rounded hood flat behind neck, simple folds, never dragging. Warm dark plum lining #33205E, narrow gold trim #D9A441, sparse star dots and constellation stitches. Small round gold star clasp at upper chest. Under cloak: warm cream long-sleeve shirt #F4E9CF, dark indigo slim pants #252C55, dark brown ankle boots #5A3B26. Optional dark brown crossbody mini-satchel under cloak opening; never cover clasp or quill.
+
+SIGNATURE_TOOL_LOCK: glowing golden quill, about 34 cm long, warm gold feather with pale cream highlights, metallic fountain-pen-like nib, softly luminous. Writing tool, not a wand or weapon. No gems, blades, or alternate tools. Only appears on-page during a Lexi Mini summon; in non-Mini panels, not visible.
+
+LEXI_MINI_LOCK: when Amara writes a vocab word, it hatches into a wise creature of glowing golden cursive lines and stardust #F6C84C — a sphinx, winged serpent, runic owl, kirin, or ethereal moth. Monochromatic gold, child-friendly, scholarly, sized roughly Amara's height or smaller. Acts out the word's meaning: investigating, revealing truths, translating, or illuminating. Gold glow illuminates nearby surfaces. Summoned word appears as clean readable gold lettering near creature; decorative cursive must never reduce target-word readability.
+
+COLOR_PRIORITY: purple cloak and gold quill/Mini glow must be the strongest color reads when the Mini appears. In non-Mini panels, purple cloak carries the color read. Keep cream shirt and visible neck separation so black hair does not merge into the cloak.
+
+PANEL_READ_PRIORITY: 1 purple A-line cloak silhouette, 2 golden quill or golden Lexi Mini (only when summoning), 3 focused eyes and face, 4 high rounded hair puff, 5 readable target word. Wide/crowd read: purple trapezoid plus dark puff plus gold dot.
+
+REALM_ADAPTATION: temporary scene accessories allowed only if purple cloak remains visible and quill is not replaced when summoning. Never hide hair silhouette. May use normal objects separately from word-magic.
+
+NEGATIVE_LOCK: do not change cloak color, do not change Mini glow color, do not replace the quill with any other tool, do not show the quill in panels without a Lexi Mini summon, do not make Amara adult-proportioned, do not make her a fantasy mage, do not erase modern clothes under cloak, do not make target words tiny or unreadably cursive, do not add real-world logos, do not make her cold, smug, bossy, or humorless.

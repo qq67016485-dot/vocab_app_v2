@@ -72,11 +72,6 @@ export default function InstructionalFlow() {
 
   return (
     <div className="instructional-shell">
-      <div className="instructional-header">
-        <h2>{packData.label} &mdash; {stepLabel}</h2>
-        <button onClick={handleBack} style={{ fontSize: '0.85rem' }}>Exit</button>
-      </div>
-
       {step === 'primer' && (
         <PrimerCard
           card={packData.primer_cards[primerIndex]}

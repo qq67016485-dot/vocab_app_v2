@@ -4,12 +4,22 @@ import TextToSpeechButton from './TextToSpeechButton.jsx';
 export default function GraphicNovelReader({ story, primerCards, onDone }) {
   const pages = story?.pages || [];
   const [pageIndex, setPageIndex] = useState(0);
-  const [showVocab, setShowVocab] = useState(false);
+  const [showVocab, setShowVocab] = useState(true);
+  const [doneVisible, setDoneVisible] = useState(false);
   const touchStartX = useRef(null);
 
   const currentPage = pages[pageIndex] || null;
   const isFirst = pageIndex === 0;
   const isLast = pageIndex === pages.length - 1;
+
+  useEffect(() => {
+    if (!isLast) {
+      setDoneVisible(false);
+      return undefined;
+    }
+    const timer = setTimeout(() => setDoneVisible(true), 3000);
+    return () => clearTimeout(timer);
+  }, [isLast]);
 
   const wordLookup = useMemo(() => {
     const map = {};
@@ -27,12 +37,10 @@ export default function GraphicNovelReader({ story, primerCards, onDone }) {
   }, [currentPage, wordLookup]);
 
   const goPrevious = () => {
-    setShowVocab(false);
     setPageIndex((idx) => Math.max(0, idx - 1));
   };
 
   const goNext = () => {
-    setShowVocab(false);
     setPageIndex((idx) => Math.min(pages.length - 1, idx + 1));
   };
 
@@ -40,11 +48,9 @@ export default function GraphicNovelReader({ story, primerCards, onDone }) {
     if (pages.length === 0) return undefined;
     const handleKeyDown = (event) => {
       if (event.key === 'ArrowLeft') {
-        setShowVocab(false);
         setPageIndex((idx) => Math.max(0, idx - 1));
       }
       if (event.key === 'ArrowRight') {
-        setShowVocab(false);
         setPageIndex((idx) => Math.min(pages.length - 1, idx + 1));
       }
       if (event.key === 'Escape') setShowVocab(false);
@@ -78,10 +84,37 @@ export default function GraphicNovelReader({ story, primerCards, onDone }) {
 
   return (
     <div className="graphic-reader">
-      <div className="graphic-reader-title-row">
-        <h3>{story.title}</h3>
-        <div className="graphic-reader-count">
-          {pageIndex + 1} / {pages.length}
+      <div className="graphic-reader-toolbar">
+        <div className="graphic-reader-toolbar-left">
+          <span className="graphic-reader-count">{pageIndex + 1} / {pages.length}</span>
+          <h3>{story.title}</h3>
+        </div>
+
+        <div className="graphic-reader-dots" aria-label="Pages">
+          {pages.map((page, idx) => (
+            <button
+              key={page.page_number}
+              className={`graphic-reader-dot ${idx === pageIndex ? 'active' : ''}`}
+              onClick={() => {
+                setPageIndex(idx);
+              }}
+              type="button"
+              aria-label={`Page ${idx + 1}`}
+            />
+          ))}
+        </div>
+
+        <div className="graphic-reader-toolbar-right">
+          {isLast ? (
+            <button
+              className={`graphic-reader-done${doneVisible ? ' visible' : ''}`}
+              onClick={onDone}
+              type="button"
+              disabled={!doneVisible}
+            >
+              Done Reading
+            </button>
+          ) : <span />}
         </div>
       </div>
 
@@ -144,28 +177,6 @@ export default function GraphicNovelReader({ story, primerCards, onDone }) {
         </div>
       )}
 
-      <div className="graphic-reader-footer">
-        <div className="graphic-reader-dots" aria-label="Pages">
-          {pages.map((page, idx) => (
-            <button
-              key={page.page_number}
-              className={`graphic-reader-dot ${idx === pageIndex ? 'active' : ''}`}
-              onClick={() => {
-                setShowVocab(false);
-                setPageIndex(idx);
-              }}
-              type="button"
-              aria-label={`Page ${idx + 1}`}
-            />
-          ))}
-        </div>
-
-        {isLast && (
-          <button className="graphic-reader-done" onClick={onDone} type="button">
-            Done Reading
-          </button>
-        )}
-      </div>
     </div>
   );
 }

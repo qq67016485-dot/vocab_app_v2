@@ -1,0 +1,19 @@
+CHARACTER_DESIGN_LOCK: Mei, 9 years old. Use this visual anchor whenever Mei (9yo) appears. Scene conflicts: preserve this file.
+
+AGE_AND_BODY: modern 9-year-old sporty Asian kid, about 135 cm. Slim compact athletic build, springy and energetic, head-to-body ratio about 1:5.6, soft unsharpened features, no makeup. Forward-ready posture, knees slightly bent, weight on balls of feet.
+
+FACE_AND_HAIR: fair skin with warm peachy undertone #F5C5A3. Round heart-shaped child face, full rosy cheeks, small pointed chin, small delicate nose. Large warm brown round eyes #3D2415 with bright sparkling look. Soft arched dark brown eyebrows. Quick wide friendly smile. Dark brown near-black hair #1E1410, thick and slightly wavy with soft flyaways. Single high side ponytail tied on Mei's left with thin red elastic #D92B2B, about 24 cm from tie to upper back, bouncy swing. Short loose bangs sweep right, never covering eyes, with a few face-framing strands.
+
+OUTFIT_LOCK: white short-sleeved polo shirt #F7F7F0 with dark forest green trim #1B4332. Dark green ribbed collar, single white button placket, dark green sleeve cuffs, two parallel dark green stripes down outer side of each sleeve. White A-line pleated tennis skirt #F0EFE8 above knee with dark green accent stripe on left side; crisp even pleats. Plain white crew socks to mid-calf. White low-top athletic sneakers with dark green side stripes, white laces, white rubber soles. White over-ear headphones with dark green ear-cup accents, default around neck; may be over ears when concentrating. No excessive accessories.
+
+SIGNATURE_TOOL_LOCK: glowing multicolor marker, about 12 cm long, chunky school-marker shape, rounded pink cap #FF3BD5, blunt felt tip. Body is bright neon gradient: yellow #FFFF3A, green #7CFF3A, pink #FF3BD5, purple #B44ACF. Tip glows shifting neon colors, emits clean non-toxic Ink light. Writing tool, not a weapon. Default held in writing hand near chest level. Only appears on-page during a Lexi Mini summon; in non-Mini panels, not visible.
+
+LEXI_MINI_LOCK: when Mei draws a vocab word, it hatches into a kinetic creature of shifting neon speed-lines with motion-blur trails matching marker gradient — a kitsune, jackalope, winged monkey, lightning-wyvern, or swift-stag. Monochromatic neon (one dominant hue per Mini), child-friendly, kinetic, sized roughly Mei's height or smaller. Acts out the word's meaning through rapid action: fetching, connecting, scouting, outpacing, or organizing. Neon glow illuminates nearby surfaces. Summoned word appears as clean bold neon lettering near creature; motion lines must not cross faces or words.
+
+COLOR_PRIORITY: outfit reads white plus dark forest green first; multicolor marker/Mini glow is strongest VFX read when the Mini appears. In non-Mini panels, white-and-green sporty outfit carries the color read. Preserve white polo/green trim silhouette and high side-ponytail motion shape.
+
+PANEL_READ_PRIORITY: 1 white polo plus dark green trim silhouette, 2 glowing multicolor marker or Lexi Mini (only when summoning), 3 high side-ponytail motion shape, 4 readable target word, 5 white pleated skirt and white sneakers. Wide/crowd read: white-and-green sporty figure plus colorful glow plus dark ponytail.
+
+REALM_ADAPTATION: temporary scene accessories allowed only if white polo with green trim remains visible and marker is not replaced when summoning. May use normal objects separately from word-magic.
+
+NEGATIVE_LOCK: do not change polo/green trim, do not cover outfit for most of a story, do not make Mini glow one flat color, do not replace the marker with any other tool, do not show the marker in panels without a Lexi Mini summon, do not make her a superhero, ninja, soldier, racer mascot, sci-fi combat character, armored fighter, mean competitor, reckless kid, adult-proportioned, logo-branded, or unreadable-word generator.

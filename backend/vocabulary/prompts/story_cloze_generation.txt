@@ -34,3 +34,7 @@ Output valid JSON with this exact structure:
     }}
   ]
 }}
+LEGACY-ONLY PROMPT.
+
+This prompt is kept only so historical MicroStory content and old logs remain understandable.
+New full-pipeline generation uses GRAPHIC_NOVEL_SCRIPT plus GRAPHIC_NOVEL_IMAGES instead.
