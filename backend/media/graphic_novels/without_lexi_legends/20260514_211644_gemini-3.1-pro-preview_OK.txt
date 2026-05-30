@@ -1,0 +1,330 @@
+=== LLM CALL LOG ===
+Timestamp: 20260514_211644
+Label: gemini-3.1-pro-preview
+Status: OK
+
+=== SYSTEM PROMPT ===
+You are a graphic novel writer and reading teacher for K-8 students.
+
+Create a short, coherent graphic novel script for the target words at about 501L. The story should feel exciting and age-appropriate, with natural dialogue and narration.
+
+Requirements:
+- Use 10-12 total panels across about 5 pages.
+- Each page should contain 1-4 panels.
+- Plan each page as a complete visual composition. Decide how many panels each page has and describe the arrangement, such as one large panel with two smaller panels below, two equal panels side by side, or a single splash page.
+- Use every target vocabulary word naturally in dialogue or narration at least once.
+- Add a vocab_highlight_note for each panel that uses a target word, telling the image model to render that word in a distinct glowing gold or colored style.
+- Keep narration and dialogue short enough to fit into comic captions and speech bubbles.
+- Also create cloze quiz items that reinforce the same vocabulary words.
+
+Return only valid JSON with this shape:
+{
+  "title": "Story title",
+  "synopsis": "A concise synopsis that preserves character and scene continuity across pages.",
+  "style_prompt": "A reusable art style directive for all pages.",
+  "reading_level": 650,
+  "pages": [
+    {
+      "page_number": 1,
+      "panel_count": 2,
+      "layout_description": "Two equal panels side by side. Left panel is an establishing shot; right panel is a character close-up.",
+      "panels": [
+        {
+          "panel_number": 1,
+          "scene_description": "Describe the visual action, setting, characters, lighting, and mood.",
+          "narration": "Short caption text, if needed.",
+          "dialogue": [
+            {"speaker": "Character", "text": "Short speech bubble text."}
+          ],
+          "vocab_words": ["target_word"],
+          "vocab_highlight_note": "Render 'target_word' in glowing gold wherever it appears.",
+          "alt_text": "Brief accessibility description of this panel."
+        }
+      ]
+    }
+  ],
+  "cloze_items": [
+    {
+      "term": "target_word",
+      "sentence_text": "A sentence with _______ as the blank.",
+      "correct_answer": "target_word",
+      "distractors": ["wrong1", "wrong2"]
+    }
+  ]
+}
+
+
+=== USER PROMPT ===
+Pack Label: The Salt Mine
+Text Type: narrative_nonfiction
+Target Lexile: 501
+
+Target words:
+- crystal (noun): a solid piece of matter that has a regular shape with flat sides
+- mineral (noun): a natural, solid substance found in the earth that is not a plant or animal
+- preserve (verb): to keep something safe from going bad or being ruined
+- sodium (noun): a natural chemical element that mixes with another element to make table salt
+- mine (noun): a deep hole or tunnel in the earth where people dig up rocks and minerals
+
+=== RAW RESPONSE ===
+{
+  "title": "The Secret of the Salt Mine",
+  "synopsis": "Maya goes deep underground with a guide to explore a salt mine, learning about the fascinating science and history of the salt we eat every day.",
+  "style_prompt": "Vibrant, educational comic book style, clear lines, dynamic lighting, realistic subterranean textures with bright glowing white salt walls, expressive K-8 appropriate characters.",
+  "reading_level": 500,
+  "pages": [
+    {
+      "page_number": 1,
+      "panel_count": 2,
+      "layout_description": "Two panels. The top panel is a tall establishing shot. The bottom panel is a wide horizontal shot.",
+      "panels": [
+        {
+          "panel_number": 1,
+          "scene_description": "Maya, a young K-8 student in a safety helmet, and Leo, a friendly guide, are riding a metal elevator down a dark rocky shaft.",
+          "narration": "Maya is going deep underground.",
+          "dialogue": [
+            {
+              "speaker": "Leo",
+              "text": "Welcome to the salt mine, Maya. We are hundreds of feet below the earth!"
+            }
+          ],
+          "vocab_words": [
+            "mine"
+          ],
+          "vocab_highlight_note": "Render 'mine' in glowing gold text.",
+          "alt_text": "Maya and Leo ride an elevator down into a dark tunnel."
+        },
+        {
+          "panel_number": 2,
+          "scene_description": "They step out of the elevator into a massive cavern. The walls and floors are glittering white.",
+          "narration": "",
+          "dialogue": [
+            {
+              "speaker": "Maya",
+              "text": "Wow! Everything is bright white!"
+            }
+          ],
+          "vocab_words": [],
+          "vocab_highlight_note": "",
+          "alt_text": "Maya and Leo step out into a huge, glittering white cave."
+        }
+      ]
+    },
+    {
+      "page_number": 2,
+      "panel_count": 3,
+      "layout_description": "Three equal horizontal panels stacked on top of each other.",
+      "panels": [
+        {
+          "panel_number": 3,
+          "scene_description": "Leo shines his flashlight on the sparkling wall of the cave.",
+          "narration": "",
+          "dialogue": [
+            {
+              "speaker": "Leo",
+              "text": "This whole room is made of a natural mineral."
+            }
+          ],
+          "vocab_words": [
+            "mineral"
+          ],
+          "vocab_highlight_note": "Render 'mineral' in glowing gold text.",
+          "alt_text": "Leo shines a light on the cave wall."
+        },
+        {
+          "panel_number": 4,
+          "scene_description": "Close up of Leo pointing to a colorful diagram on a small tablet. The diagram shows atoms joining together.",
+          "narration": "",
+          "dialogue": [
+            {
+              "speaker": "Leo",
+              "text": "Salt is made when two parts mix. One of those parts is sodium."
+            }
+          ],
+          "vocab_words": [
+            "sodium"
+          ],
+          "vocab_highlight_note": "Render 'sodium' in glowing gold text.",
+          "alt_text": "Leo shows a diagram of salt on his tablet screen."
+        },
+        {
+          "panel_number": 5,
+          "scene_description": "Maya touches the rough, sparkly wall with her gloved hand, looking amazed.",
+          "narration": "The rock feels hard and cold.",
+          "dialogue": [
+            {
+              "speaker": "Maya",
+              "text": "And this is the same salt we put on our food?"
+            },
+            {
+              "speaker": "Leo",
+              "text": "Yes, it is!"
+            }
+          ],
+          "vocab_words": [],
+          "vocab_highlight_note": "",
+          "alt_text": "Maya touches the sparkling wall of the cave."
+        }
+      ]
+    },
+    {
+      "page_number": 3,
+      "panel_count": 2,
+      "layout_description": "Two side-by-side vertical panels.",
+      "panels": [
+        {
+          "panel_number": 6,
+          "scene_description": "Maya kneels down and picks up a small piece of salt from the ground.",
+          "narration": "",
+          "dialogue": [
+            {
+              "speaker": "Maya",
+              "text": "Look at this tiny piece. The sides are perfectly flat."
+            }
+          ],
+          "vocab_words": [],
+          "vocab_highlight_note": "",
+          "alt_text": "Maya picks up a small piece of salt from the rocky floor."
+        },
+        {
+          "panel_number": 7,
+          "scene_description": "A very close-up view of Maya's hand holding a perfect square-shaped salt rock.",
+          "narration": "",
+          "dialogue": [
+            {
+              "speaker": "Leo",
+              "text": "That is a salt crystal. It always grows in a neat cube shape."
+            }
+          ],
+          "vocab_words": [
+            "crystal"
+          ],
+          "vocab_highlight_note": "Render 'crystal' in glowing gold text.",
+          "alt_text": "Close up of a perfect cube-shaped piece of salt."
+        }
+      ]
+    },
+    {
+      "page_number": 4,
+      "panel_count": 2,
+      "layout_description": "Two panels. Top is large and shows the characters talking. Bottom is a smaller, stylized panel acting as a thought bubble.",
+      "panels": [
+        {
+          "panel_number": 8,
+          "scene_description": "Leo and Maya walk through the wide tunnel. Leo is gesturing as he explains.",
+          "narration": "",
+          "dialogue": [
+            {
+              "speaker": "Leo",
+              "text": "Long ago, before people had refrigerators, salt was very important."
+            },
+            {
+              "speaker": "Leo",
+              "text": "They used it to preserve their food."
+            }
+          ],
+          "vocab_words": [
+            "preserve"
+          ],
+          "vocab_highlight_note": "Render 'preserve' in glowing gold text.",
+          "alt_text": "Leo and Maya walk through the cave while talking."
+        },
+        {
+          "panel_number": 9,
+          "scene_description": "A thought-bubble style panel showing ancient sailors on a wooden ship eating dried, salted fish.",
+          "narration": "Salt kept the meat safe from going bad on long trips.",
+          "dialogue": [],
+          "vocab_words": [],
+          "vocab_highlight_note": "",
+          "alt_text": "Ancient sailors eat dried fish on a wooden boat."
+        }
+      ]
+    },
+    {
+      "page_number": 5,
+      "panel_count": 2,
+      "layout_description": "Two horizontal panels, equal in size.",
+      "panels": [
+        {
+          "panel_number": 10,
+          "scene_description": "Maya slips the small cube-shaped rock into her jacket pocket, smiling widely.",
+          "narration": "",
+          "dialogue": [
+            {
+              "speaker": "Maya",
+              "text": "Can I keep this little piece?"
+            },
+            {
+              "speaker": "Leo",
+              "text": "You sure can!"
+            }
+          ],
+          "vocab_words": [],
+          "vocab_highlight_note": "",
+          "alt_text": "Maya puts the piece of salt into her pocket."
+        },
+        {
+          "panel_number": 11,
+          "scene_description": "Maya and Leo walk back toward the lighted elevator cage in the distance, ready to return to the surface.",
+          "narration": "",
+          "dialogue": [
+            {
+              "speaker": "Maya",
+              "text": "I will never look at my dinner table the same way!"
+            }
+          ],
+          "vocab_words": [],
+          "vocab_highlight_note": "",
+          "alt_text": "Maya and Leo head back toward the elevator."
+        }
+      ]
+    }
+  ],
+  "cloze_items": [
+    {
+      "term": "mine",
+      "sentence_text": "The workers dug a deep _____ into the earth to find the hidden coal.",
+      "correct_answer": "mine",
+      "distractors": [
+        "crystal",
+        "preserve"
+      ]
+    },
+    {
+      "term": "mineral",
+      "sentence_text": "Gold is a highly valued _____ that is naturally formed underground.",
+      "correct_answer": "mineral",
+      "distractors": [
+        "sodium",
+        "mine"
+      ]
+    },
+    {
+      "term": "sodium",
+      "sentence_text": "Table salt is made when the element _____ is mixed with chlorine.",
+      "correct_answer": "sodium",
+      "distractors": [
+        "crystal",
+        "mineral"
+      ]
+    },
+    {
+      "term": "crystal",
+      "sentence_text": "The snowflake is a tiny ice _____ with a perfectly regular shape.",
+      "correct_answer": "crystal",
+      "distractors": [
+        "mine",
+        "preserve"
+      ]
+    },
+    {
+      "term": "preserve",
+      "sentence_text": "Adding a lot of salt to the fish will help _____ it so it lasts for winter.",
+      "correct_answer": "preserve",
+      "distractors": [
+        "sodium",
+        "mineral"
+      ]
+    }
+  ]
+}
