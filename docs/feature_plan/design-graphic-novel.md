@@ -6,9 +6,30 @@ Implemented on 2026-05-14. New full-pipeline generations now create graphic nove
 
 Operational follow-up on 2026-05-14: after a real generation run exposed MySQL `1040 Too many connections` during `GRAPHIC_NOVEL_IMAGES`, the background pipeline now releases Django/MySQL connections before and after slow Gemini/OpenAI calls and closes old connections when full-pipeline, resume, or restart execution exits. The admin generation status page now polls every 10 seconds instead of every 3 seconds, and the admin UI/log labels show `Graphic Novel Script` and `Graphic Novel Images` instead of the legacy `Story & Cloze Generation` label.
 
+Operational follow-up on 2026-05-15: `GRAPHIC_NOVEL_SCRIPT` now uses Claude Sonnet `claude-sonnet-4-6` in a 4-call planning workflow per pack: router/premises, premise scoring, beat sheet/vocab roles, and final script/self-check. Each intermediate response is written as a temp JSON artifact under `temp/generation_artifacts/job_<job_id>/pack_<pack_id>_<slug>/`, while `GenerationJobLog.output_data` stores compact summaries and artifact paths. New scripts create 5 narrative pages plus one vocabulary review page. `STORY_CLOZE_GEN` and `MicroStory` generation are legacy-only; existing micro stories remain readable through the student fallback.
+
+Script quality improvements on 2026-05-15: prompts and pipeline inputs were revised for creative diversity and token efficiency:
+- Removed `example_sentence` from word data passed to all 4 calls (definition alone is sufficient).
+- Trimmed inter-call payloads: scorer receives only premises + basic routing context (not full routing metadata); beat sheet receives only the winning premise (not all 3 premises + scores); final script receives only winning premise + beat sheet + vocab roles (not full router/scorer outputs).
+- Router prompt relaxed from rigid early-problem and per-page surprise/choice rules to flexible story guidelines encouraging diverse engines (mystery, humor, slice-of-life, heist, rivalry, etc.).
+- Premise scorer renamed `narrative_arc` dimension to `narrative_engagement` and broadened penalties to focus on flat pacing rather than rigid structural beats.
+- Beat sheet prompt simplified from a fixed 5-page arc template with enumerated arc shapes to minimal guidance: hook on page 1, build momentum, satisfying ending. Removed the extra quality-notes plot-word requirement and corresponding validator check.
+- Final script prompt added visual variety requirements: varied panel layouts between pages and explicit camera shot types (extreme wide, wide, medium, close-up, bird's eye, etc.) per panel. Removed rigid page-by-page structural mandates such as fixed early-problem timing and required failed attempts.
+
+Image and script readability improvements on 2026-05-15: based on review of actual generated output:
+- Final script prompt now enforces a text budget: 80 words max per page in captions/speech bubbles (in-world text like signs and diagrams excluded), 15 words max per speech bubble.
+- Beat sheet prompt now includes page-transition guidance: bridge time/location/situation changes between pages so readers aren't disoriented.
+- Beat sheet `why_this_page_matters` constrained to 2-3 sentences (emotional beat + key visual moment) to give the final script step more creative freedom in panel composition.
+- Final script now outputs a `characters` array (name + visual description) as a persistent reference sheet. This is stored on `GraphicNovel.characters` and injected into every page's image prompt for cross-page character consistency.
+- Secondary character visual anchors (2026-05-28): after the final script step, an LLM call generates a detailed visual reference sheet (~150 words) for secondary characters who have dialogue AND non-consecutive page appearances. Stored in `novel.metadata['secondary_character_anchors']`. Image prompt lookup priority: hero canon injection → stored anchor → brief `novel.characters` fallback.
+- `graphic_novel_page.txt` image prompt template now includes a "Character reference" section above the synopsis.
+- Migration: `0022_graphic_novel_characters.py` adds `characters` JSONField to `GraphicNovel`.
+
 Per-page resume follow-up on 2026-05-14: `GraphicNovelPage` now persists image generation status, attempts, error text, and timestamps. `GRAPHIC_NOVEL_IMAGES` saves successful pages, marks failed pages individually, fails the step if any page fails, and Resume retries only pages without images. Job 29 was marked FAILED after stalling at `GRAPHIC_NOVEL_IMAGES` with five pending pages and `last_completed_step = GRAPHIC_NOVEL_SCRIPT`; pressing Resume restarts image generation from those pending pages.
 
 Pipeline simplification follow-up on 2026-05-14: new full-pipeline generations now stop after `GRAPHIC_NOVEL_IMAGES`. The old creative-direction, per-word image generation, and picture-word-match generation paths have been removed from the active codebase.
+
+Lexi Mini migration on 2026-05-27: the abstract Ink VFX mechanic was replaced with the **Lexi Mini system**. When a hero writes a vocab word with their signature tool, a temporary monochromatic creature hatches that physically acts out the word's definition (creature class is per-character: Hugo Dependable / Leo Mischievous / Amara Scholarly / Mei Agile). Hard cap of 0–2 Mini summons per story; most vocab integrates through dialogue, narration, or world logic. Failure states were removed (every summon succeeds) because they confused ESL learners and were unrenderable in static panels. Tools only appear on-page during a Mini summon. Hugo's tool changed from flat paintbrush to **carpenter's pencil**; Leo's tool changed from spray can to **chunky wax crayon**; Amara/Mei unchanged. Folio was fully removed from canon, prompt pipeline, and review page logic — UI mascot decisions deferred. The pipeline constant `GRAPHIC_NOVEL_ALLOWED_INTEGRATION_MODES` replaced `direct_ink_activation` with `lexi_mini_summon`; JSON field names (`uses_direct_ink`, `ink_usage`) were retained for backwards compatibility so existing DB novels still render. See [CHANGELOG.md](../CHANGELOG.md#unreleased---2026-05-27) for the full diff list.
 
 ---
 
@@ -30,6 +51,7 @@ class GraphicNovel(models.Model):
     pack = models.OneToOneField(WordPack, on_delete=models.CASCADE, related_name='graphic_novel')
     title = models.CharField(max_length=200)
     synopsis = models.TextField(help_text='Story synopsis for character/scene continuity')
+    characters = models.JSONField(default=list, help_text='Character visual reference for cross-page consistency')
     style_prompt = models.TextField(help_text='Art style directive used for all panels')
     reading_level = models.IntegerField(help_text='Lexile score')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -79,11 +101,12 @@ class GraphicNovelPage(models.Model):
 
 
 Add to `GenerationJob`: `graphic_novels_created = IntegerField(default=0)`
-Add to `GenerationJobLog.Step`: `GRAPHIC_NOVEL_SCRIPT`, `GRAPHIC_NOVEL_IMAGES`. `STORY_CLOZE_GEN` remains in the enum for legacy logs/manual testing but is no longer in `PIPELINE_STEP_ORDER` for new full-pipeline generation.
+Add to `GenerationJobLog.Step`: `GRAPHIC_NOVEL_SCRIPT`, `GRAPHIC_NOVEL_IMAGES`. `STORY_CLOZE_GEN` remains in the enum for historical logs but is legacy-only and is no longer in `PIPELINE_STEP_ORDER` or active restart targets.
 
 Migrations:
 - `0018_graphic_novel.py`: 2 new tables instead of 3, plus `GenerationJob.graphic_novels_created` and the `GenerationJobLog.step` choices update
 - `0019_graphic_novel_page_status.py`: per-page image generation status/attempt/error/timestamp fields; existing pages with images are initialized as `COMPLETED`
+- `0022_graphic_novel_characters.py`: adds `characters` JSONField to `GraphicNovel` for cross-page character visual consistency
 
 ---
 
@@ -94,39 +117,46 @@ Migrations:
 ```python
 PIPELINE_STEP_ORDER = [
     ..., 'PRIMER_GEN',
-    'GRAPHIC_NOVEL_SCRIPT',   # Step 7A: Gemini generates script + cloze
+    'GRAPHIC_NOVEL_SCRIPT',   # Step 7A: Claude Sonnet plans script + cloze
     'GRAPHIC_NOVEL_IMAGES',   # Step 7B: GPT-Image-2 generates page images
 ]
 ```
 
 **Step 7A 鈥?`_step_graphic_novel_script()`:**
-- Calls Gemini with new prompt template `graphic_novel_script.txt`
-- Input: pack words + definitions, text_type, target Lexile
+- Current implementation calls Claude Sonnet `claude-sonnet-4-6` through four prompt templates: `graphic_novel_router.txt`, `graphic_novel_premise_scorer.txt`, `graphic_novel_beat_sheet.txt`, and `graphic_novel_script.txt`
+- Input: pack words (term, part_of_speech, definition), text_type, target Lexile
+- Inter-call data flow is trimmed for token efficiency:
+  - Call 1 (router): receives base input only
+  - Call 2 (scorer): receives base input + trimmed router result (audience_AGE_PRESENTATION, tone, genre, story_engine, premises)
+  - Call 3 (beat sheet): receives base input + winning premise only (full premise object from router)
+  - Call 4 (final script): receives base input + winning premise + beat_sheet array + vocab_roles
 - LLM outputs structured JSON organized by page:
-  - title, synopsis, style notes
-  - pages array 鈥?each page has: page_number, panel_count, and per-panel descriptions (scene, dialogue, narration, vocab words, layout guidance)
+  - title, synopsis, characters (visual reference sheet), style notes
+  - pages array 鈥?each page has: page_number, panel_count, layout_description, and per-panel descriptions (shot type + scene, dialogue, narration, vocab words)
   - cloze items
-- The LLM plans panel composition with the full page layout in mind (which panels are large/small, how they flow together visually)
-- Creates `GraphicNovel`, `GraphicNovelPage` (without images), `ClozeItem`
-- Skips packs that already have a `graphic_novel` (resume safety)
+- The LLM plans panel composition with visual variety: different layouts per page and varied camera angles per panel
+- Text budget enforced: 80 words max per page in captions/speech bubbles, 15 words max per bubble
+- Creates `GraphicNovel` (with characters), `GraphicNovelPage` (without images), `ClozeItem`
+- Writes intermediate planning artifacts to `temp/generation_artifacts/`, creates 5 story pages plus 1 review page, and skips packs that already have a complete `graphic_novel` (resume safety)
 
 **Step 7B 鈥?`_step_graphic_novel_images()`:**
-- Iterates all pages without images (~5 pages per pack)
+- Iterates all pages without images (5 story pages + 1 review page per pack)
 - Composes a single image prompt per page that includes:
   - Art style directive (from `GraphicNovel.style_prompt`)
+  - Character visual reference (from `GraphicNovel.characters`) for cross-page consistency
   - Number of panels and their layout on the page
   - Each panel's scene description, dialogue (in speech bubbles), narration (in caption boxes)
   - Vocab word highlighting instructions (distinct color/glow)
-  - Character continuity notes from synopsis
+  - Story continuity notes from synopsis
 - Calls `call_openai_image(prompt, size="1792x1024")` 鈥?one call per page
 - Saves image to `GraphicNovelPage.image`
 - Marks each page `RUNNING` before the API call, then `COMPLETED` or `FAILED` with attempt count, error text, and timestamps
 - Skips pages that already have an image; this is the core resume behavior
-- Continues through the remaining pages after an individual page failure, but fails the overall step if any page remains failed so the admin can Resume only missing/failed pages
-- ~5 API calls per pack (vs 10-12 in per-panel approach)
+- On failure, retries once immediately. If the retry also fails, marks the page FAILED and stops — does not proceed to later pages. Resume picks up from the failed page onward.
+- ~6 API calls per pack (vs 10-12 in per-panel approach)
 - Releases Django/MySQL connections around each slow OpenAI image call so long-running page generation does not consume database connections while the admin status page polls
 
-**Rationale for two steps:** Script generation is fast (~5s) and cheap. Image generation is slow (~30-50s for 5 calls) and failure-prone. Splitting them means resume after image failure doesn't re-call Gemini.
+**Rationale for two steps:** Script generation is text-only and easier to retry as a unit. Image generation is slow and failure-prone. Splitting them means resume after image failure doesn't re-call Claude or rewrite the planning artifacts.
 
 ---
 
@@ -142,21 +172,45 @@ def call_openai_image(prompt, size="1024x1024"):
 
 ---
 
-## 4. New Prompt Templates (`backend/vocabulary/prompts/`)
+## 4. Prompt Templates (`backend/vocabulary/prompts/`)
 
-**`graphic_novel_script.txt`** 鈥?Gemini prompt for script generation:
-- Role: graphic novel writer for K-8 students
-- Constraints: 10-12 panels across ~5 pages, 1-4 panels per page
-- Key instruction: "Plan each page as a complete visual composition. Decide how many panels each page has and describe how they should be arranged (e.g., one large panel with two smaller ones below, two equal panels side by side, a single splash page)."
-- Vocab words must appear naturally in dialogue/narration
-- Vocab words marked with highlight instructions per panel
-- Also generates cloze items (same call for narrative coherence)
+The 4-call script pipeline uses these prompts (all designed for creative flexibility with minimal structural constraints):
+
+**`graphic_novel_router.txt`** — generates 3 competing story premises:
+- Role: expert graphic novel writer
+- Flexible story guidelines: protagonist agency, natural vocab integration, narrative tension from any source
+- No fixed story engine — encourages mystery, humor, slice-of-life, heist, rivalry, etc.
+- Each premise includes: protagonist_goal, central_problem, visual_hooks, vocab_integration_plan
+
+**`graphic_novel_premise_scorer.txt`** — judges and selects the best premise:
+- Scores on: narrative_engagement, visual_potential, vocabulary_integration, age_fit, lexile_fit, originality, anti_flatness
+- Penalizes: vocab as definitions, "I learned a lot" endings, isolated vocab panels, flat pacing
+
+**`graphic_novel_beat_sheet.txt`** — plans the 5-page arc:
+- Minimal arc guidance: hook on page 1, build momentum, satisfying ending
+- Page-transition guidance: bridge time/location/situation changes between pages
+- `why_this_page_matters` constrained to 2-3 sentences (emotional beat + key visual moment)
+- No fixed arc template — LLM chooses structure to fit the premise
+- Assigns each vocab word a concrete plot role (clue, obstacle, tool, false lead, etc.)
+
+**`graphic_novel_script.txt`** — generates the final 5-page script:
+- 5 pages, 1-4 panels each, following the beat sheet
+- Text budget: 80 words max per page in captions/speech bubbles (in-world text excluded), 15 words max per bubble
+- Outputs a `characters` array (name + visual description) for cross-page image consistency
+- Visual variety: different panel layouts per page, explicit camera shot types per panel (extreme wide, wide, medium, close-up, bird's eye, worm's eye, over-the-shoulder, POV)
+- Vocab words highlighted in glowing gold in captions/speech bubbles
+- Generates cloze quiz items for vocabulary reinforcement
 - Output JSON structure:
 
 ```json
 {
   "title": "The Last Signal",
   "synopsis": "Maya, a young radio operator on a space station, intercepts a mysterious signal...",
+  "characters": [
+    {"name": "Maya", "visual_description": "16, dark brown skin, short natural hair, orange flight suit with mission patches."}
+  ],
+  "style_prompt": "Art style directive for all pages.",
+  "reading_level": 650,
   "pages": [
     {
       "page_number": 1,
@@ -165,19 +219,12 @@ def call_openai_image(prompt, size="1024x1024"):
       "panels": [
         {
           "panel_number": 1,
-          "scene_description": "Wide shot of a space station orbiting Earth at dawn...",
+          "scene_description": "EXTREME WIDE — A space station orbiting Earth at dawn...",
           "narration": "Three months into her mission, Maya had grown used to the silence.",
           "dialogue": [],
           "vocab_words": ["isolation"],
-          "vocab_highlight_note": "'isolation' appears in the narration box in glowing gold"
-        },
-        {
-          "panel_number": 2,
-          "scene_description": "Close-up of Maya's face, headphones on, eyes widening...",
-          "narration": "",
-          "dialogue": [{"speaker": "Maya", "text": "That frequency... it's not random."}],
-          "vocab_words": [],
-          "vocab_highlight_note": ""
+          "vocab_highlight_note": "'isolation' appears in the narration box in glowing gold",
+          "alt_text": "A space station silhouetted against Earth's sunrise."
         }
       ]
     }
@@ -186,14 +233,21 @@ def call_openai_image(prompt, size="1024x1024"):
 }
 ```
 
-**`graphic_novel_page.txt`** 鈥?Image prompt template per page (replaces per-panel approach):
-- Art style section (from `GraphicNovel.style_prompt`, configurable later)
+**`graphic_novel_page.txt`** — Image prompt template per page:
+- Art style section (from `GraphicNovel.style_prompt`)
+- Character visual reference (from `GraphicNovel.characters`) for cross-page consistency
+- Story continuity from synopsis
 - Page composition: "Create a single 1792x1024 landscape comic book page containing {panel_count} panels"
 - Layout description from script (how panels are arranged)
 - Each panel's scene description, dialogue in speech bubbles, narration in caption boxes
 - Vocab word highlight: "Render the words {vocab_words} in glowing gold/distinct color wherever they appear in text"
-- Character continuity notes from synopsis
-- Format constraints: clear panel borders, readable text, no watermarks
+- Format constraints: clear panel borders, readable text, no watermarks, no page numbers
+
+**`graphic_novel_review_page.txt`** — Image prompt template for the vocabulary review page (page 6):
+- Receives title, style_prompt, characters, synopsis, and vocab words with definitions (truncated to 8 words each)
+- Asks for an in-world artifact (notebook, field guide, bulletin board, etc.) that fits the story
+- Each word shown with its short definition and a story-relevant visual callback
+- Format is open-ended — model chooses the artifact type that suits the narrative
 
 ---
 
