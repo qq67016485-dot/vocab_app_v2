@@ -1,0 +1,4 @@
+interface:
+  display_name: "Character Building Pipeline"
+  short_description: "Build and review canon character sheets"
+  default_prompt: "Generate a character sheet, run writer/art-director and canon reviews, then apply targeted revisions."

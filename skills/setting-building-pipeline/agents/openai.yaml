@@ -1,0 +1,4 @@
+interface:
+  display_name: "Setting Building Pipeline"
+  short_description: "Build split setting image/script canon sheets"
+  default_prompt: "Generate or revise Lexi Legends setting image/script sheets, run world/art/asset/payload review passes, sync compressed bibles, and verify runtime canon."
