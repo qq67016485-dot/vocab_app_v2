@@ -1,0 +1,17 @@
+# Transient runtime artifacts (LLM logs, scratch output, dev server logs)
+temp/
+tmp/
+
+# Machine-local Claude Code settings (per-developer permission state)
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+venv/
+.env
+
+# Node / frontend build
+node_modules/
+dist/
