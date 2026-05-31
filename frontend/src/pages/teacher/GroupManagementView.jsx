@@ -11,6 +11,7 @@ export default function GroupManagementView() {
   const [error, setError] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState(null);
+  const [actionError, setActionError] = useState('');
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -38,20 +39,26 @@ export default function GroupManagementView() {
     const isEditing = !!editingGroup;
     const url = isEditing ? `/groups/${editingGroup.id}/` : '/groups/';
     const method = isEditing ? 'patch' : 'post';
+    setActionError('');
     try {
       await apiClient[method](url, formData);
       fetchData();
       handleCloseModal();
     } catch (err) {
       console.error('Failed to save group:', err.response?.data);
-      alert(`Error: ${JSON.stringify(err.response?.data) || 'Could not save the group.'}`);
+      const detail = err.response?.data?.name?.[0] || err.response?.data?.detail;
+      setActionError(detail || 'Could not save the group. Please try again.');
     }
   };
 
   const handleDelete = async (groupId) => {
     if (window.confirm('Are you sure you want to delete this group? This action cannot be undone.')) {
+      setActionError('');
       try { await apiClient.delete(`/groups/${groupId}/`); fetchData(); }
-      catch (err) { console.error('Failed to delete group:', err); alert('Could not delete the group.'); }
+      catch (err) {
+        console.error('Failed to delete group:', err);
+        setActionError('Could not delete the group. Please try again.');
+      }
     }
   };
 
@@ -64,6 +71,10 @@ export default function GroupManagementView() {
         <h1 className="t-page-title">Student Groups</h1>
         <button className="t-btn t-btn--primary" onClick={handleOpenCreateModal}>+ Create New Group</button>
       </div>
+
+      {actionError && (
+        <div className="t-message t-message--error" style={{ marginBottom: 12 }}>{actionError}</div>
+      )}
 
       {groups.length === 0 ? (
         <div className="t-empty">You haven't created any groups yet. Click "Create New Group" to get started!</div>

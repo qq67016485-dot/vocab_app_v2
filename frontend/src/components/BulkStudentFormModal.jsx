@@ -8,26 +8,28 @@ export default function BulkStudentFormModal({ isOpen, onClose, onSuccess, group
   const [students, setStudents] = useState([createInitialRow()]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
 
   const handleAddRow = () => { if (students.length < MAX_STUDENTS) setStudents([...students, createInitialRow()]); };
   const handleRemoveRow = (id) => { if (students.length > 1) setStudents(students.filter(s => s.id !== id)); };
   const handleInputChange = (id, field, value) => { setStudents(students.map(s => s.id === id ? { ...s, [field]: value } : s)); };
 
-  const handleReset = () => { setStudents([createInitialRow()]); setError(''); setIsLoading(false); onClose(); };
+  const handleReset = () => { setStudents([createInitialRow()]); setError(''); setSuccessMessage(''); setIsLoading(false); onClose(); };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setError('');
+    setSuccessMessage('');
     const studentsToSubmit = students
       .map(({ username, password, first_name, last_name, group_name }) => ({ username: username.trim(), password: password.trim(), first_name: first_name.trim(), last_name: last_name.trim(), group_name: group_name.trim() }))
       .filter(s => s.username && s.password);
     if (studentsToSubmit.length === 0) { setError('Please fill out at least one student row.'); setIsLoading(false); return; }
     try {
       const response = await apiClient.post('/teacher/students/bulk/', studentsToSubmit);
-      alert(`Successfully created ${response.data.success_count} new student(s)!`);
+      setSuccessMessage(`Successfully created ${response.data.success_count} new student(s)!`);
       onSuccess();
-      handleReset();
+      setTimeout(handleReset, 1200);
     } catch (err) {
       setError(err.response?.data?.error || 'An unknown error occurred. No students were created.');
       setIsLoading(false);
@@ -59,6 +61,7 @@ export default function BulkStudentFormModal({ isOpen, onClose, onSuccess, group
           </div>
           <button type="button" className="t-btn t-btn--secondary t-btn--sm" onClick={handleAddRow} disabled={students.length >= MAX_STUDENTS}>+ Add Another Student</button>
           {error && <div className="t-message t-message--error" style={{ marginTop: 12 }}>{error}</div>}
+          {successMessage && <div className="t-message t-message--success" style={{ marginTop: 12 }}>{successMessage}</div>}
           <div className="t-modal-actions">
             <button type="button" className="t-btn t-btn--secondary" onClick={handleReset} disabled={isLoading}>Cancel</button>
             <button type="submit" className="t-btn t-btn--primary" disabled={isLoading}>

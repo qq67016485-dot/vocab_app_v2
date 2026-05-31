@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 
 export default function GroupFormModal({ isOpen, onClose, onSave, group, allStudents }) {
   const [formData, setFormData] = useState({ name: '', description: '', students: [] });
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (group) {
@@ -9,6 +10,7 @@ export default function GroupFormModal({ isOpen, onClose, onSave, group, allStud
     } else {
       setFormData({ name: '', description: '', students: [] });
     }
+    setError('');
   }, [group, isOpen]);
 
   const handleChange = (e) => {
@@ -27,7 +29,8 @@ export default function GroupFormModal({ isOpen, onClose, onSave, group, allStud
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!formData.name.trim()) { alert('Group name is required.'); return; }
+    if (!formData.name.trim()) { setError('Group name is required.'); return; }
+    setError('');
     onSave(formData);
   };
 
@@ -59,6 +62,9 @@ export default function GroupFormModal({ isOpen, onClose, onSave, group, allStud
               )) : <p className="t-hint">You have no students to assign.</p>}
             </div>
           </div>
+          {error && (
+            <div className="t-message t-message--error" style={{ marginTop: 8 }}>{error}</div>
+          )}
           <div className="t-modal-actions">
             <button type="button" className="t-btn t-btn--secondary" onClick={onClose}>Cancel</button>
             <button type="submit" className="t-btn t-btn--primary">{group ? 'Save Changes' : 'Create Group'}</button>

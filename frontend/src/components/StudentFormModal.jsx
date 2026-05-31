@@ -28,7 +28,11 @@ export default function StudentFormModal({ isOpen, onClose, onSave, studentToEdi
     const dataToSave = { ...formData };
     if (!dataToSave.password) delete dataToSave.password;
     if (dataToSave.group_id === '') dataToSave.group_id = null;
-    onSave(dataToSave);
+    setError('');
+    Promise.resolve(onSave(dataToSave)).catch((err) => {
+      const errorMsg = err?.response?.data?.username?.[0] || 'An error occurred. Please try again.';
+      setError(errorMsg);
+    });
   };
 
   if (!isOpen) return null;

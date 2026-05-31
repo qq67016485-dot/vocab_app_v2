@@ -46,15 +46,10 @@ export default function CommandCenter() {
   const handleCloseStudentModal = () => { setIsStudentModalOpen(false); setStudentToEdit(null); };
 
   const handleSaveStudent = async (formData) => {
-    try {
-      if (studentToEdit) { await apiClient.patch(`/teacher/students/${studentToEdit.id}/`, formData); }
-      else { await apiClient.post('/teacher/students/', formData); }
-      handleCloseStudentModal();
-      fetchDashboardData(selectedGroupId);
-    } catch (err) {
-      const errorMsg = err.response?.data?.username?.[0] || 'An error occurred. Please try again.';
-      alert(`Error: ${errorMsg}`);
-    }
+    if (studentToEdit) { await apiClient.patch(`/teacher/students/${studentToEdit.id}/`, formData); }
+    else { await apiClient.post('/teacher/students/', formData); }
+    handleCloseStudentModal();
+    fetchDashboardData(selectedGroupId);
   };
 
   const handleBulkCreateSuccess = () => { fetchDashboardData(selectedGroupId); };
