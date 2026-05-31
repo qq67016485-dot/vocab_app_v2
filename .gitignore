@@ -15,3 +15,14 @@ venv/
 # Node / frontend build
 node_modules/
 dist/
+
+# Generated media (AI-produced images + LLM output logs — regenerable, large).
+# Keep the directory structure so Django has somewhere to write on a fresh clone.
+backend/media/
+!backend/media/
+backend/media/*
+!backend/media/generated_images/
+!backend/media/graphic_novels/
+backend/media/generated_images/*
+backend/media/graphic_novels/*
+!backend/media/**/.gitkeep
