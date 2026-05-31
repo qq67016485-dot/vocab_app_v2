@@ -143,6 +143,12 @@ class UserWordProgress(models.Model):
 
     class Meta:
         unique_together = ('user', 'word')
+        indexes = [
+            # Dashboard/practice "due for review" queries filter by user + next_review_at.
+            models.Index(fields=['user', 'next_review_at']),
+            # Instructional-status filtering (READY vs PENDING) scoped per user.
+            models.Index(fields=['user', 'instructional_status']),
+        ]
 
     def __str__(self):
         return f"{self.user.username}'s progress on '{self.word.text}'"
@@ -264,6 +270,16 @@ class UserAnswer(models.Model):
         help_text='Number of scaffolded retry attempts after the initial wrong answer.',
     )
     answered_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            # Dashboard activity/accuracy queries filter by user (+ recency).
+            models.Index(fields=['user', 'answered_at']),
+            # "Frequent mistakes" / challenging-words queries filter user + is_correct.
+            models.Index(fields=['user', 'is_correct']),
+            # Per-word answer history lookups (e.g. struggle-word detection).
+            models.Index(fields=['question', 'answered_at']),
+        ]
 
     def __str__(self):
         status = 'Correct' if self.is_correct else 'Incorrect'
@@ -499,6 +515,16 @@ class GraphicNovelPage(models.Model):
         default=False,
         help_text='When True (and an edited image exists), the edited variant is shown everywhere.',
     )
+    image_jpeg = models.ImageField(
+        upload_to='graphic_novels/',
+        blank=True,
+        help_text='Lightweight JPEG companion of `image`, served to students to save bandwidth.',
+    )
+    edited_image_jpeg = models.ImageField(
+        upload_to='graphic_novels/',
+        blank=True,
+        help_text='Lightweight JPEG companion of `edited_image`, served to students to save bandwidth.',
+    )
     prompt_used = models.TextField(blank=True)
     generation_status = models.CharField(
         max_length=20,
@@ -549,6 +575,18 @@ class GraphicNovelPage(models.Model):
     @property
     def has_edited_image(self):
         return bool(self.edited_image)
+
+    @property
+    def student_image(self):
+        """The lightweight JPEG variant shown to students.
+
+        Mirrors `display_image`'s original/edited choice but prefers the JPEG
+        companion, falling back to the PNG when no JPEG exists yet (legacy rows
+        or pages awaiting backfill).
+        """
+        if self.use_edited_image and self.edited_image:
+            return self.edited_image_jpeg or self.edited_image
+        return self.image_jpeg or self.image
 
 
 class ClozeItem(models.Model):

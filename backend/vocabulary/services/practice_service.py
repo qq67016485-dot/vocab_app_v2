@@ -13,17 +13,16 @@ import string
 import logging
 
 from django.conf import settings
-from django.contrib.contenttypes.models import ContentType
 from django.db import models, transaction
 from django.utils import timezone
 
 from users.models import CustomUser
 from vocabulary.models import (
     UserWordProgress, MasteryLevel, UserAnswer, Question,
-    MasteryLevelLog, Translation, WordDefinition,
+    MasteryLevelLog,
 )
 from vocabulary.constants import QUESTION_TYPE_TO_SKILL_TAG
-from vocabulary.utils import get_tier_info
+from vocabulary.utils import get_tier_info, get_definition_translation
 
 logger = logging.getLogger(__name__)
 
@@ -146,23 +145,6 @@ class PracticeService:
                 if i > 1 and j > 1 and s1[i - 1] == s2[j - 2] and s1[i - 2] == s2[j - 1]:
                     d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)  # transposition
         return d[len1][len2]
-
-    @staticmethod
-    def _get_translation(word, language):
-        """Look up the definition translation for a word in the student's native language."""
-        defn = word.definitions.first()
-        if not defn:
-            return ''
-        ct = ContentType.objects.get_for_model(WordDefinition)
-        try:
-            return Translation.objects.get(
-                content_type=ct,
-                object_id=defn.id,
-                field_name='definition_text',
-                language=language,
-            ).translated_text
-        except Translation.DoesNotExist:
-            return ''
 
     @classmethod
     def _valid_duration_filter(cls):
@@ -425,7 +407,7 @@ class PracticeService:
             remediation_feedback = {}
             if not is_correct:
                 skill_tag = QUESTION_TYPE_TO_SKILL_TAG.get(question.question_type, 'other')
-                translation = cls._get_translation(question.word, user.native_language)
+                translation = get_definition_translation(question.word, user.native_language)
                 remediation_feedback = {
                     'skill_tag': skill_tag,
                     'translation': translation,

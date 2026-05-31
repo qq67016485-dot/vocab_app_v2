@@ -11,42 +11,20 @@ V2 changes from v1:
 """
 import logging
 
-from django.contrib.contenttypes.models import ContentType
 from django.db.models import Prefetch
 from django.utils import timezone
 
 from vocabulary.models import (
     WordPack, WordPackItem, PrimerCardContent, MicroStory, ClozeItem,
     StudentPackCompletion, StudentWordSetAssignment, UserWordProgress,
-    Translation, WordDefinition, GraphicNovel,
+    GraphicNovel,
 )
+from vocabulary.utils import get_definition_translations
 
 logger = logging.getLogger(__name__)
 
 
 class InstructionalService:
-    @staticmethod
-    def _get_translations_for_primer(word, language):
-        """Look up definition and example translations for a word's primer content."""
-        defn = word.definitions.first()
-        definition_translation = ''
-        example_translation = ''
-
-        if defn:
-            ct = ContentType.objects.get_for_model(WordDefinition)
-            translations = Translation.objects.filter(
-                content_type=ct,
-                object_id=defn.id,
-                language=language,
-            )
-            for t in translations:
-                if t.field_name == 'definition_text':
-                    definition_translation = t.translated_text
-                elif t.field_name == 'example_sentence':
-                    example_translation = t.translated_text
-
-        return definition_translation, example_translation
-
     @staticmethod
     def get_pack_data(user, pack_id):
         """Fetch pack with items, primer content, Lexile-matched story, cloze items.
@@ -74,9 +52,12 @@ class InstructionalService:
         for item in pack.items.all():
             word = item.word
             primer = getattr(word, 'primer_content', None)
-            definition_translation, example_translation = (
-                InstructionalService._get_translations_for_primer(word, user.native_language)
+            _translations = get_definition_translations(
+                word, user.native_language,
+                fields=('definition_text', 'example_sentence'),
             )
+            definition_translation = _translations['definition_text']
+            example_translation = _translations['example_sentence']
             primer_cards.append({
                 'word_id': word.id,
                 'term_text': word.text,
@@ -100,7 +81,7 @@ class InstructionalService:
             for page in graphic_novel.pages.all():
                 pages_data.append({
                     'page_number': page.page_number,
-                    'image_url': page.display_image.url if page.display_image else '',
+                    'image_url': page.student_image.url if page.student_image else '',
                     'panel_count': page.panel_count,
                     'layout_description': page.layout_description,
                     'panel_descriptions': page.panel_descriptions,

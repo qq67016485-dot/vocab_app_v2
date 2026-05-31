@@ -14,39 +14,21 @@ from collections import defaultdict, Counter
 from itertools import groupby
 import logging
 
-from django.contrib.contenttypes.models import ContentType
 from django.db.models import Count, Q, FloatField, Avg, Case, When
 from django.utils import timezone
 
 from users.models import CustomUser, StudentGroup
 from vocabulary.models import (
     UserWordProgress, MasteryLevel, UserAnswer, Question,
-    Word, WordDefinition, Translation,
+    Word,
 )
 from vocabulary.constants import QUESTION_TYPE_TO_SKILL_TAG, QUESTION_TYPE_TO_PATTERN
-from vocabulary.utils import end_of_local_day
+from vocabulary.utils import end_of_local_day, get_definition_translation
 
 logger = logging.getLogger(__name__)
 
 
 class DashboardService:
-    @staticmethod
-    def _get_translation(word, language):
-        """Look up the definition translation for a word."""
-        defn = word.definitions.first()
-        if not defn:
-            return ''
-        ct = ContentType.objects.get_for_model(WordDefinition)
-        try:
-            return Translation.objects.get(
-                content_type=ct,
-                object_id=defn.id,
-                field_name='definition_text',
-                language=language,
-            ).translated_text
-        except Translation.DoesNotExist:
-            return ''
-
     @staticmethod
     def get_student_progress(student):
         # Section 1: Mastery Level Breakdown
@@ -339,7 +321,7 @@ class DashboardService:
                 ))
 
                 defn = word_obj.definitions.first()
-                translation = DashboardService._get_translation(
+                translation = get_definition_translation(
                     word_obj, student.native_language,
                 )
 
