@@ -8,6 +8,7 @@ Arc guidance:
 - Draw the reader in on page 1, develop and deepen the situation through the middle pages, and land a satisfying ending on page 6.
 - Every page should give the reader a reason to turn to the next one — curiosity, wonder, humor, or tension all work.
 - Bridge time, location, or situation changes so the reader is not disoriented.
+- When a page's setting_key differs from the previous page's and the new place is reached by a magical/instant transition (e.g. the Vault leaf-tile travel) or a jump to an unrelated place, note an arrival moment in why_this_page_matters so the script step can open that page by re-establishing where we are. Ordinary walkable moves (room to room) need no arrival beat.
 - page_turn_question should hook the reader into wanting the next page. For Page 6 (the final page), use null — there is no next page.
 - Match the arc shape to the narrative approach. Not every story needs escalating tension. Alternatives:
   - Setup → exploration → discovery → complication → shift → reflection (observational)

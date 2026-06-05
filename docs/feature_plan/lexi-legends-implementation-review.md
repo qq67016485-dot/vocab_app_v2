@@ -2,6 +2,14 @@
 
 Reviewed: 2026-05-22
 
+> **Historical snapshot.** This review captured the state on 2026-05-22, when the pipeline was a **5-call** workflow with Ink VFX, Folio, and `shades_present`. All gaps below were resolved as noted. Several concepts referenced here have since been superseded and no longer exist in the pipeline:
+> - **5 calls → 6 calls.** Cloze generation was split into its own substep (2026-05-29), so the workflow is now team selection → router → scorer → **cloze** → beat sheet → final script.
+> - **Ink VFX → Lexi Mini system** (2026-05-27): the `ink_over_reliance` scoring dimension and the "max 2 Ink uses" guardrail were replaced — Minis are capped at 1/story and scoring dimensions were overhauled (see [plan-lexi-legends-pipeline-integration.md](./plan-lexi-legends-pipeline-integration.md) header and [Lexi_Mini_Plan.md](./Lexi_Mini_Plan.md)).
+> - **Folio and `shades_present` removed** (2026-05-27).
+> - **`GraphicNovel.metadata`** now also carries `page_count` (unified 5/6-page, 2026-05-29) and `secondary_character_anchors` (2026-05-28).
+>
+> For current state see the "Architecture Evolution" section of [design-graphic-novel.md](./design-graphic-novel.md). This file is retained as the dated record of the canon-service integration work.
+
 ## Status
 
 The 5-call pipeline structure, data model, validators, and tests are implemented and syntactically valid. The core workflow runs. All high-priority gaps have been resolved via `canon_service.py` (2026-05-22).

@@ -741,15 +741,27 @@ class EditGraphicNovelPageImageView(APIView):
         filename = f"{title_slug}_page_{page.page_number}_edited.png"
         # Preserve the original in `image`; the edit lands in `edited_image`.
         page.edited_image.save(filename, ContentFile(new_bytes), save=False)
+        # Lightweight JPEG companion for students; best-effort.
+        from ..services.image_utils import png_to_jpeg_bytes
+        update_fields = [
+            'edited_image', 'use_edited_image', 'prompt_used',
+            'generation_status', 'generation_error', 'generation_completed_at',
+        ]
+        try:
+            jpeg_bytes = png_to_jpeg_bytes(new_bytes)
+            page.edited_image_jpeg.save(
+                f"{title_slug}_page_{page.page_number}_edited.jpg",
+                ContentFile(jpeg_bytes), save=False,
+            )
+            update_fields.append('edited_image_jpeg')
+        except ValueError:
+            pass
         page.use_edited_image = True
         page.prompt_used = f"{page.prompt_used}\n\n[ADMIN EDIT] {edit_prompt}".strip()
         page.generation_status = GraphicNovelPage.GenerationStatus.COMPLETED
         page.generation_error = ''
         page.generation_completed_at = timezone.now()
-        page.save(update_fields=[
-            'edited_image', 'use_edited_image', 'prompt_used',
-            'generation_status', 'generation_error', 'generation_completed_at',
-        ])
+        page.save(update_fields=update_fields)
 
         return Response(_graphic_novel_page_image_payload(page, message='Image edited successfully.'))
 

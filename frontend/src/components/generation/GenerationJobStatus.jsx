@@ -60,7 +60,31 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
 
   const logMap = {};
   logs.forEach(log => { logMap[log.step] = log; });
-  const getStepStatus = (stepKey) => logMap[stepKey]?.status || 'PENDING';
+
+  // last_completed_step only advances after a step fully succeeds, so while the
+  // job is still RUNNING/PENDING the active step is the one right after it.
+  // That step may have logged transient retry FAILEDs (primary site failed, now
+  // retrying on the fallback) — those are not terminal, so we show the step as
+  // RUNNING with the retry detail rather than a false FAILED.
+  const jobActive = job.status === 'RUNNING' || job.status === 'PENDING';
+  const lastCompletedIdx = job.last_completed_step
+    ? PIPELINE_STEPS.findIndex(s => s.key === job.last_completed_step)
+    : -1;
+  const currentStepKey = jobActive ? PIPELINE_STEPS[lastCompletedIdx + 1]?.key : null;
+
+  const getStepStatus = (stepKey) => {
+    if (stepKey === currentStepKey) return 'RUNNING';
+    return logMap[stepKey]?.status || 'PENDING';
+  };
+  // Retry message for the active step, if its latest log is a (non-terminal)
+  // retry marker. Falls back to a generic line for older logs without one.
+  const getRetryMessage = (stepKey) => {
+    if (stepKey !== currentStepKey) return '';
+    const log = logMap[stepKey];
+    if (!log || log.status !== 'FAILED' || !log.output_data?.retrying) return '';
+    return log.output_data.retry_message || 'Previous attempt failed; retrying…';
+  };
+
   const graphicNovelImagePages = job.graphic_novel_image_pages || [];
   const graphicNovelScriptSubsteps = job.graphic_novel_script_substeps || [];
 
@@ -162,6 +186,7 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
         {PIPELINE_STEPS.map((step) => {
           const s = getStepStatus(step.key);
           const log = logMap[step.key];
+          const retryMsg = getRetryMessage(step.key);
           return (
             <React.Fragment key={step.key}>
               <div className={`pipeline-step ${stepCls(s)}`}>
@@ -174,9 +199,16 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
                     </span>
                   )}
                 </span>
-                {log?.duration_seconds != null && <span className="pipeline-duration">{log.duration_seconds.toFixed(1)}s</span>}
-                {log?.error_message && <span style={{ fontSize: '0.8rem', color: 'var(--t-danger)' }} title={log.error_message}>Error</span>}
+                {log?.duration_seconds != null && s !== 'RUNNING' && <span className="pipeline-duration">{log.duration_seconds.toFixed(1)}s</span>}
+                {retryMsg
+                  ? <span style={{ fontSize: '0.8rem', color: 'var(--t-warning)' }}>Retrying</span>
+                  : (s === 'FAILED' && log?.error_message && <span style={{ fontSize: '0.8rem', color: 'var(--t-danger)' }} title={log.error_message}>Error</span>)}
               </div>
+              {retryMsg && (
+                <div style={{ margin: '0 0 4px 30px', fontSize: '0.78rem', color: 'var(--t-warning)' }}>
+                  {retryMsg}
+                </div>
+              )}
               {step.key === 'GRAPHIC_NOVEL_SCRIPT' && renderGraphicNovelScriptSubsteps()}
             </React.Fragment>
           );

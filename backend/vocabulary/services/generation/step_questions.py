@@ -25,6 +25,12 @@ def _step_generate_questions(job, words, words_data, site_config=None):
 
     Uses two alternating prompts (A/B) chosen randomly per batch for variety.
     Batches words into groups of QUESTION_BATCH_SIZE to keep error rates low.
+
+    Idempotent at batch granularity: questions created by a batch are committed
+    immediately (no surrounding transaction), so when a later batch fails and the
+    job is resumed/retried, batches whose words already have questions for this
+    job are skipped instead of regenerated. This avoids wasted LLM calls and
+    duplicate questions on resume.
     """
     if site_config is None:
         from vocabulary.services.generation.llm_config_service import get_step_config
@@ -52,11 +58,38 @@ def _step_generate_questions(job, words, words_data, site_config=None):
 
         word_map = {w.text.lower(): w for w in words}
         mastery_levels = {ml.level_id: ml for ml in MasteryLevel.objects.all()}
-        created_count = 0
         total_batches = len(batches)
+        skipped_batches = 0
+
+        # Words that already have questions from a prior run of this job. A batch
+        # whose words are all present here succeeded earlier and is skipped on
+        # resume; a batch with only some present is a partial prior attempt and
+        # gets its stale rows cleared before regeneration to avoid duplicates.
+        completed_word_ids = set(
+            Question.objects.filter(generation_job=job)
+            .values_list('word_id', flat=True).distinct()
+        )
 
         for batch_idx, batch in enumerate(batches, 1):
             batch_terms = [w['term'] for w in batch]
+            batch_word_ids = {
+                word_map[t.lower()].id for t in batch_terms if t.lower() in word_map
+            }
+
+            if batch_word_ids and batch_word_ids.issubset(completed_word_ids):
+                skipped_batches += 1
+                logger.info(
+                    "Question generation batch %d/%d already complete; skipping: %s",
+                    batch_idx, total_batches, ', '.join(batch_terms),
+                )
+                continue
+
+            partial_word_ids = batch_word_ids & completed_word_ids
+            if partial_word_ids:
+                Question.objects.filter(
+                    generation_job=job, word_id__in=partial_word_ids,
+                ).delete()
+
             prompt_label = random.choice(['A', 'B'])
             template = templates[prompt_label]
             logger.info(
@@ -104,8 +137,9 @@ def _step_generate_questions(job, words, words_data, site_config=None):
                         if ml:
                             question.suitable_levels.add(ml)
 
-                    created_count += 1
-
+        # Count all questions for the job (including batches skipped this run) so
+        # the counter is correct whether this was a fresh run or a resume.
+        created_count = Question.objects.filter(generation_job=job).count()
         job.questions_created = created_count
         job.save(update_fields=['questions_created'])
 
@@ -117,6 +151,7 @@ def _step_generate_questions(job, words, words_data, site_config=None):
             output_data={
                 'questions_created': created_count,
                 'batches': total_batches,
+                'batches_skipped': skipped_batches,
             },
         )
 

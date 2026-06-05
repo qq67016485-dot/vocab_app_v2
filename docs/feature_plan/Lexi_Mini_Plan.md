@@ -1,5 +1,12 @@
 Here is a comprehensive, stakeholder-ready document for the Lexi Minis system. You can use this as your central "source of truth" for writers, artists, developers, and educators.
 
+> **Implementation note (2026-06-04).** The Lexi Mini system is live in the generation pipeline (migrated in from the abstract "Ink VFX" mechanic on 2026-05-27). Two parts of this design doc diverge from what the pipeline actually does today, and the pipeline is authoritative:
+> - **Summon cap.** This doc frames Minis as the go-to vocab mechanic. The pipeline caps them at **0–1 Mini per story** (`GRAPHIC_NOVEL_MAX_MINI_SUMMONS_PER_STORY = 1`, tightened from 2 on 2026-05-27): most vocabulary integrates through dialogue, narration, reasoning, or world logic, and each word also carries a `pedagogical_anchor`. The single allowed Mini is reserved for the most concrete/abstract word in a pack.
+> - **Folio / "The Definition UI" beat (§3, beat 4).** Folio was fully removed from the generation pipeline and review-page logic on 2026-05-27 (UI-mascot decisions deferred). Scripts do not include a Folio definition pop-up; the review page uses the story's own characters and an in-world artifact. Minis still succeed silently and dissolve — no failure states (they were removed for the same date as confusing/unrenderable).
+> - Tool changes that shipped: Hugo's flat paintbrush → **carpenter's pencil**; Leo's spray can → **chunky wax crayon** (Amara's quill, Mei's marker unchanged). Tools only appear on-page during a Mini summon.
+>
+> The character matrix, art-direction guidance, and brand framing below remain accurate and in use. See [CHANGELOG.md](../CHANGELOG.md#unreleased---2026-05-27) for the full diff.
+
 ***
 
 # Lexi Legends: The Lexi Mini System

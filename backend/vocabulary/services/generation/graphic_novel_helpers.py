@@ -162,6 +162,38 @@ def _find_secondary_characters_needing_anchors(result: dict) -> list[str]:
     return needing_anchors
 
 
+# Preferred display order for the design-lock sections the anchor LLM returns.
+_ANCHOR_SECTION_ORDER = (
+    'age_and_body', 'face_and_hair', 'outfit_lock',
+    'color_priority', 'negative_lock',
+)
+
+
+def _format_anchor_design_lock(anchor_data) -> str:
+    """Coerce an anchor LLM response into a readable CHARACTER_DESIGN_LOCK block.
+
+    The shared LLM wrappers always return parsed JSON (a dict), so the model's
+    design-lock sections arrive as key/value pairs. Render them as a stable,
+    labelled text block suitable for dropping into an image prompt. A plain
+    string is passed through unchanged (defensive — wrappers don't do this
+    today, but a future non-JSON path shouldn't silently break anchors again).
+    """
+    if isinstance(anchor_data, str):
+        return anchor_data.strip()
+    if not isinstance(anchor_data, dict):
+        return ''
+    normalized = {str(k).strip().lower(): v for k, v in anchor_data.items()}
+    ordered_keys = [k for k in _ANCHOR_SECTION_ORDER if k in normalized]
+    ordered_keys += [k for k in normalized if k not in _ANCHOR_SECTION_ORDER]
+    lines = []
+    for key in ordered_keys:
+        value = normalized[key]
+        if value in (None, ''):
+            continue
+        lines.append(f"{key.upper()}: {value}")
+    return '\n'.join(lines).strip()
+
+
 def _generate_secondary_character_anchors(
     result: dict, novel_metadata: dict, site_config: dict,
 ) -> dict[str, str]:
@@ -201,11 +233,17 @@ def _generate_secondary_character_anchors(
         )
 
         try:
-            anchor_text = _call_llm_with_config(site_config, system_prompt, '')
-            if anchor_text and len(anchor_text.strip()) > 20:
-                anchors[name] = anchor_text.strip()
+            anchor_response = _call_llm_with_config(site_config, system_prompt, '')
+            anchor_text = _format_anchor_design_lock(anchor_response)
+            if anchor_text and len(anchor_text) > 20:
+                anchors[name] = anchor_text
                 logger.info(
                     "Generated visual anchor for secondary character '%s'.", name,
+                )
+            else:
+                logger.warning(
+                    "Visual anchor for '%s' was empty or too short; "
+                    "using brief description.", name,
                 )
         except Exception:
             logger.warning(
@@ -455,7 +493,7 @@ def _log_graphic_novel_substep(job, pack, substep, label, status, duration=None,
 
 def _run_graphic_novel_substep(job, pack, substep_config, site_config, system_prompt,
                                user_prompt, input_summary, validator=None,
-                               max_retries=1, prompt_template_name=None, ctx=None):
+                               max_retries=2, prompt_template_name=None, ctx=None):
     substep = substep_config['key']
     label = substep_config['label']
     template_name = prompt_template_name or substep_config['template']

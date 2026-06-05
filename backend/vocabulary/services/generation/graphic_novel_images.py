@@ -22,9 +22,79 @@ from vocabulary.services.generation.helpers import (
     _call_openai_image_releasing_db,
     _log_step,
 )
+from vocabulary.services.image_utils import png_to_jpeg_bytes
 import vocabulary.services.llm_service as _llm_service
 
 logger = logging.getLogger(__name__)
+
+
+def _save_jpeg_companion(page, image_bytes, filename):
+    """Save a JPEG companion of a freshly generated PNG page image.
+
+    Best-effort: a conversion failure must not abort image generation, since
+    the PNG (the source of truth) saved successfully. Returns True on success.
+    Caller is responsible for persisting the field via save(update_fields=...).
+    """
+    try:
+        jpeg_bytes = png_to_jpeg_bytes(image_bytes)
+    except ValueError as exc:
+        logger.warning(
+            "JPEG conversion failed for %s; serving PNG to students. %s",
+            filename, exc,
+        )
+        return False
+    page.image_jpeg.save(filename, ContentFile(jpeg_bytes), save=False)
+    return True
+
+
+def _jpeg_from_png_field(png_field, jpeg_field, base_filename):
+    """Read a PNG ImageField, write its JPEG companion to `jpeg_field`.
+
+    Returns True if a JPEG was saved (caller persists via save()). Best-effort:
+    missing files or conversion errors are logged and skipped.
+    """
+    try:
+        png_field.open('rb')
+        try:
+            png_bytes = png_field.read()
+        finally:
+            png_field.close()
+    except (FileNotFoundError, OSError) as exc:
+        logger.warning("Cannot read PNG for JPEG backfill (%s): %s", base_filename, exc)
+        return False
+    try:
+        jpeg_bytes = png_to_jpeg_bytes(png_bytes)
+    except ValueError as exc:
+        logger.warning("JPEG conversion failed for %s: %s", base_filename, exc)
+        return False
+    jpeg_field.save(f"{base_filename}.jpg", ContentFile(jpeg_bytes), save=False)
+    return True
+
+
+def backfill_page_jpegs(page):
+    """Generate any missing JPEG companions for a page's PNG variants.
+
+    Idempotent: only converts variants that have a PNG but no JPEG yet.
+    Persists the page if anything changed. Returns the list of fields written.
+    """
+    base = ''.join(
+        c if c.isalnum() else '_' for c in page.novel.title.lower()
+    ).strip('_')[:60] or 'graphic_novel'
+    updated = []
+    if page.image and not page.image_jpeg:
+        if _jpeg_from_png_field(
+            page.image, page.image_jpeg, f"{base}_page_{page.page_number}"
+        ):
+            updated.append('image_jpeg')
+    if page.edited_image and not page.edited_image_jpeg:
+        if _jpeg_from_png_field(
+            page.edited_image, page.edited_image_jpeg,
+            f"{base}_page_{page.page_number}_edited",
+        ):
+            updated.append('edited_image_jpeg')
+    if updated:
+        page.save(update_fields=updated)
+    return updated
 
 
 def _step_graphic_novel_images(job, packs):
@@ -85,6 +155,9 @@ def _step_graphic_novel_images(job, packs):
             except (FileNotFoundError, OSError):
                 prev_image_bytes = None
             skipped_count += 1
+            # Backfill the student JPEG if this page predates JPEG companions.
+            if page.image and not page.image_jpeg:
+                backfill_page_jpegs(page)
             if page.generation_status != GraphicNovelPage.GenerationStatus.COMPLETED:
                 page.generation_status = GraphicNovelPage.GenerationStatus.COMPLETED
                 page.generation_error = ''
@@ -164,6 +237,8 @@ def _step_graphic_novel_images(job, packs):
             ).strip('_')[:60] or 'graphic_novel'
             filename = f"{title_slug}_page_{page.page_number}.png"
             page.image.save(filename, ContentFile(image_bytes), save=False)
+            jpeg_filename = f"{title_slug}_page_{page.page_number}.jpg"
+            saved_jpeg = _save_jpeg_companion(page, image_bytes, jpeg_filename)
             page.prompt_used = prompt
             page.generation_status = GraphicNovelPage.GenerationStatus.COMPLETED
             page.generation_error = ''
@@ -171,7 +246,7 @@ def _step_graphic_novel_images(job, packs):
             page.save(update_fields=[
                 'image', 'prompt_used', 'generation_status',
                 'generation_error', 'generation_completed_at',
-            ])
+            ] + (['image_jpeg'] if saved_jpeg else []))
             prev_image_bytes = image_bytes
             created_count += 1
             _log_step(
@@ -217,6 +292,8 @@ def _step_graphic_novel_images(job, packs):
                 ).strip('_')[:60] or 'graphic_novel'
                 filename = f"{title_slug}_page_{page.page_number}.png"
                 page.image.save(filename, ContentFile(image_bytes), save=False)
+                jpeg_filename = f"{title_slug}_page_{page.page_number}.jpg"
+                saved_jpeg = _save_jpeg_companion(page, image_bytes, jpeg_filename)
                 page.prompt_used = prompt
                 page.generation_status = GraphicNovelPage.GenerationStatus.COMPLETED
                 page.generation_error = ''
@@ -224,7 +301,7 @@ def _step_graphic_novel_images(job, packs):
                 page.save(update_fields=[
                     'image', 'prompt_used', 'generation_status',
                     'generation_error', 'generation_completed_at',
-                ])
+                ] + (['image_jpeg'] if saved_jpeg else []))
                 prev_image_bytes = image_bytes
                 created_count += 1
                 _log_step(

@@ -21,6 +21,7 @@ from vocabulary.services.generation_pipeline_service import (
 from vocabulary.services.generation.constants import (
     GRAPHIC_NOVEL_BEAT_SHEET_TEMPLATES,
     GRAPHIC_NOVEL_SCRIPT_TEMPLATES,
+    page_count_for_word_count,
 )
 from tests.factories import (
     WordFactory, GenerationJobFactory,
@@ -33,8 +34,11 @@ from tests.vocabulary.generation_fixtures import (
     GRAPHIC_NOVEL_ROUTER_RESPONSE,
     GRAPHIC_NOVEL_SCORING_RESPONSE,
     GRAPHIC_NOVEL_BEAT_RESPONSE,
-    build_six_page_beat_response,
-    build_six_page_script_response,
+    MULTIWORD_TERMS,
+    MULTIWORD_LOOKUP_RESPONSE,
+    build_multiword_cloze_response,
+    build_multiword_six_page_beat_response,
+    build_multiword_six_page_script_response,
 )
 
 
@@ -132,6 +136,7 @@ class TestStepGraphicNovelScript:
             GRAPHIC_NOVEL_ROUTER_RESPONSE,
             ValueError('judge failed'),
             ValueError('judge failed'),
+            ValueError('judge failed'),
         ]
         job = GenerationJobFactory(input_words=['bright'])
         word = WordFactory(text='bright')
@@ -160,6 +165,7 @@ class TestStepGraphicNovelScript:
         }
         mock_anthropic.side_effect = [
             GRAPHIC_NOVEL_TEAM_RESPONSE,
+            bad_router,
             bad_router,
             bad_router,
         ]
@@ -213,7 +219,7 @@ class TestStepGraphicNovelScript:
             **GRAPHIC_NOVEL_ROUTER_RESPONSE,
             'premises': [bad_premise] + GRAPHIC_NOVEL_ROUTER_RESPONSE['premises'][1:],
         }
-        mock_anthropic.side_effect = [GRAPHIC_NOVEL_TEAM_RESPONSE, bad_router, bad_router]
+        mock_anthropic.side_effect = [GRAPHIC_NOVEL_TEAM_RESPONSE, bad_router, bad_router, bad_router]
         job = GenerationJobFactory(input_words=['bright'])
         word = WordFactory(text='bright')
         pack = WordPack.objects.create(word_set=job.word_set, label='Pack 1', order=0)
@@ -240,6 +246,7 @@ class TestStepGraphicNovelScript:
             GRAPHIC_NOVEL_ROUTER_RESPONSE,
             bad_scoring_response,
             bad_scoring_response,
+            bad_scoring_response,
         ]
         job = GenerationJobFactory(input_words=['bright'])
         word = WordFactory(text='bright')
@@ -262,6 +269,7 @@ class TestStepGraphicNovelScript:
             GRAPHIC_NOVEL_ROUTER_RESPONSE,
             GRAPHIC_NOVEL_SCORING_RESPONSE,
             GRAPHIC_NOVEL_CLOZE_RESPONSE,
+            bad_beat_response,
             bad_beat_response,
             bad_beat_response,
         ]
@@ -327,6 +335,7 @@ class TestStepGraphicNovelScript:
             GRAPHIC_NOVEL_CLOZE_RESPONSE,
             bad_beat_response,
             bad_beat_response,
+            bad_beat_response,
         ]
         job = GenerationJobFactory(input_words=['bright', 'discover'])
         word1 = WordFactory(text='bright')
@@ -389,6 +398,23 @@ class TestRouterValidatorPageCount:
             _validate_graphic_novel_router_result(bad_router)
 
 
+class TestPageCountForWordCount:
+    """page_count_for_word_count maps pack word count to page count:
+    <=4 words -> 5 pages; >4 words -> 6 pages."""
+
+    @pytest.mark.parametrize("word_count,expected", [
+        (1, 5),
+        (2, 5),
+        (3, 5),
+        (4, 5),   # boundary: still 5
+        (5, 6),   # boundary: first to flip to 6
+        (6, 6),
+        (12, 6),
+    ])
+    def test_maps_word_count_to_page_count(self, word_count, expected):
+        assert page_count_for_word_count(word_count) == expected
+
+
 @pytest.mark.django_db
 class TestStepGraphicNovelScriptTemplateDispatch:
     """Tests that beat-sheet and final-script substeps dispatch to the
@@ -404,10 +430,10 @@ class TestStepGraphicNovelScriptTemplateDispatch:
 
     @patch('vocabulary.services.llm_service.call_gemini')
     @patch('vocabulary.services.llm_service.load_prompt_template')
-    def test_uses_5page_templates_when_winning_premise_is_5_pages(
+    def test_uses_5page_templates_when_pack_at_or_below_threshold_words(
         self, mock_load, mock_anthropic,
     ):
-        # premise_1 has page_count=5 in the test fixture
+        # A 2-word pack (≤4) forces 5 pages.
         mock_load.side_effect = lambda name: f"Template {name} {{input_json}}"
         mock_anthropic.side_effect = [
             GRAPHIC_NOVEL_TEAM_RESPONSE,
@@ -452,27 +478,26 @@ class TestStepGraphicNovelScriptTemplateDispatch:
 
     @patch('vocabulary.services.llm_service.call_gemini')
     @patch('vocabulary.services.llm_service.load_prompt_template')
-    def test_uses_6page_templates_when_winning_premise_is_6_pages(
+    def test_uses_6page_templates_when_pack_has_more_than_threshold_words(
         self, mock_load, mock_anthropic,
     ):
-        # premise_3 has page_count=6 in the test fixture
+        # A pack with >4 words forces 6 pages regardless of the winning
+        # premise's declared page_count.
         mock_load.side_effect = lambda name: f"Template {name} {{input_json}}"
         mock_anthropic.side_effect = [
             GRAPHIC_NOVEL_TEAM_RESPONSE,
             GRAPHIC_NOVEL_ROUTER_RESPONSE,
-            self._scoring_response_for_winner(2),
-            GRAPHIC_NOVEL_CLOZE_RESPONSE,
-            build_six_page_beat_response(),
-            build_six_page_script_response(),
+            self._scoring_response_for_winner(0),  # premise_1 declares page_count=5
+            build_multiword_cloze_response(),
+            build_multiword_six_page_beat_response(),
+            build_multiword_six_page_script_response(),
         ]
-        job = GenerationJobFactory(input_words=['bright', 'discover'])
-        word1 = WordFactory(text='bright')
-        word2 = WordFactory(text='discover')
+        job = GenerationJobFactory(input_words=list(MULTIWORD_TERMS))
         pack = WordPack.objects.create(word_set=job.word_set, label='Pack 1', order=0)
-        WordPackItem.objects.create(pack=pack, word=word1, order=0)
-        WordPackItem.objects.create(pack=pack, word=word2, order=1)
+        for idx, term in enumerate(MULTIWORD_TERMS):
+            WordPackItem.objects.create(pack=pack, word=WordFactory(text=term), order=idx)
 
-        _step_graphic_novel_script(job, [pack], WORD_LOOKUP_RESPONSE['words'])
+        _step_graphic_novel_script(job, [pack], MULTIWORD_LOOKUP_RESPONSE['words'])
 
         loaded_templates = {call.args[0] for call in mock_load.call_args_list}
         assert GRAPHIC_NOVEL_BEAT_SHEET_TEMPLATES[6] in loaded_templates
@@ -494,6 +519,7 @@ class TestStepGraphicNovelScriptTemplateDispatch:
         assert script_log.output_data['prompt_template'] == GRAPHIC_NOVEL_SCRIPT_TEMPLATES[6]
 
         novel = GraphicNovel.objects.get(pack=pack)
+        # Forced to 6 even though the winning premise declared 5.
         assert novel.metadata['page_count'] == 6
         # 6 story pages + 1 review page
         assert GraphicNovelPage.objects.filter(novel=novel).count() == 7
@@ -578,3 +604,185 @@ class TestFindSecondaryCharactersNeedingAnchors:
             ]
         }
         assert _find_secondary_characters_needing_anchors(result) == []
+
+
+class TestFormatAnchorDesignLock:
+    """The anchor LLM call returns parsed JSON (a dict) because the shared
+    wrappers force JSON mode. The formatter must render that dict into a text
+    block — the original code assumed a plain string and crashed on .strip()."""
+
+    def test_renders_dict_in_section_order(self):
+        from vocabulary.services.generation.step_graphic_novel import (
+            _format_anchor_design_lock,
+        )
+        # Keys deliberately out of canonical order to prove ordering.
+        data = {
+            'NEGATIVE_LOCK': 'do not recolor',
+            'AGE_AND_BODY': 'six years old',
+            'OUTFIT_LOCK': 'yellow shirt, red boots',
+            'FACE_AND_HAIR': 'beige skin',
+            'COLOR_PRIORITY': 'yellow and red',
+        }
+        out = _format_anchor_design_lock(data)
+        lines = out.splitlines()
+        assert lines[0].startswith('AGE_AND_BODY:')
+        assert lines[1].startswith('FACE_AND_HAIR:')
+        assert lines[2].startswith('OUTFIT_LOCK:')
+        assert 'yellow shirt, red boots' in out
+
+    def test_passes_through_plain_string(self):
+        from vocabulary.services.generation.step_graphic_novel import (
+            _format_anchor_design_lock,
+        )
+        assert _format_anchor_design_lock('  raw lock text  ') == 'raw lock text'
+
+    def test_returns_empty_for_unexpected_type(self):
+        from vocabulary.services.generation.step_graphic_novel import (
+            _format_anchor_design_lock,
+        )
+        assert _format_anchor_design_lock(123) == ''
+        assert _format_anchor_design_lock(None) == ''
+
+    def test_skips_blank_section_values(self):
+        from vocabulary.services.generation.step_graphic_novel import (
+            _format_anchor_design_lock,
+        )
+        out = _format_anchor_design_lock({'AGE_AND_BODY': 'kid', 'OUTFIT_LOCK': ''})
+        assert 'AGE_AND_BODY: kid' in out
+        assert 'OUTFIT_LOCK' not in out
+
+
+class TestGenerateSecondaryCharacterAnchors:
+    """Regression: a dict LLM response must produce a stored anchor, not be
+    silently dropped (the bug that let Toby's shirt drift blue->red)."""
+
+    @patch('vocabulary.services.generation.graphic_novel_helpers._call_llm_with_config')
+    def test_dict_response_produces_anchor(self, mock_llm):
+        from vocabulary.services.generation.step_graphic_novel import (
+            _generate_secondary_character_anchors,
+        )
+        mock_llm.return_value = {
+            'AGE_AND_BODY': 'About 6 years old, shorter than the heroes.',
+            'OUTFIT_LOCK': 'Bright yellow (#FFD700) shirt and red (#FF0000) boots.',
+            'COLOR_PRIORITY': 'Yellow shirt and red boots.',
+            'NEGATIVE_LOCK': 'Do not recolor the shirt.',
+        }
+        result = {
+            'title': 'The Muddy Rescue',
+            'style_prompt': 'Bright 2D graphic novel style.',
+            'characters': [
+                {'name': 'Toby', 'visual_description': 'A worried neighborhood boy.'},
+            ],
+            'pages': [
+                {'page_number': 1, 'characters_featured': ['Hugo', 'Toby'], 'panels': [
+                    {'dialogue': [{'speaker': 'Toby', 'text': 'Help!'}]}
+                ]},
+                {'page_number': 4, 'characters_featured': ['Hugo', 'Toby'], 'panels': [
+                    {'dialogue': [{'speaker': 'Toby', 'text': 'Thanks!'}]}
+                ]},
+            ],
+        }
+        anchors = _generate_secondary_character_anchors(
+            result, {'age_band': '9yo'}, {'model': 'm', 'provider_type': 'gemini_native'},
+        )
+        assert 'toby' in anchors
+        assert 'OUTFIT_LOCK' in anchors['toby']
+        assert '#FF0000' in anchors['toby']
+
+    @patch('vocabulary.services.generation.graphic_novel_helpers._call_llm_with_config')
+    def test_llm_failure_skips_character_without_raising(self, mock_llm):
+        from vocabulary.services.generation.step_graphic_novel import (
+            _generate_secondary_character_anchors,
+        )
+        mock_llm.side_effect = RuntimeError('boom')
+        result = {
+            'characters': [{'name': 'Toby', 'visual_description': 'A boy.'}],
+            'pages': [
+                {'page_number': 1, 'characters_featured': ['Hugo', 'Toby'], 'panels': [
+                    {'dialogue': [{'speaker': 'Toby', 'text': 'Help!'}]}
+                ]},
+                {'page_number': 4, 'characters_featured': ['Hugo', 'Toby'], 'panels': [
+                    {'dialogue': [{'speaker': 'Toby', 'text': 'Thanks!'}]}
+                ]},
+            ],
+        }
+        # Must not raise; just yields no anchor for the failed character.
+        assert _generate_secondary_character_anchors(
+            result, {'age_band': '9yo'}, {'model': 'm', 'provider_type': 'gemini_native'},
+        ) == {}
+
+
+@pytest.mark.django_db
+class TestStepGraphicNovelScriptResume:
+    """Resuming the GRAPHIC_NOVEL_SCRIPT step after a mid-pack substep failure
+    must pick up from the failed substep, not restart from team selection."""
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_resumes_from_failed_substep_without_rerunning_earlier_ones(
+        self, mock_load, mock_anthropic,
+    ):
+        mock_load.return_value = "Graphic novel template {input_json}"
+        job = GenerationJobFactory(input_words=['bright', 'discover'])
+        word1 = WordFactory(text='bright')
+        word2 = WordFactory(text='discover')
+        pack = WordPack.objects.create(word_set=job.word_set, label='Pack 1', order=0)
+        WordPackItem.objects.create(pack=pack, word=word1, order=0)
+        WordPackItem.objects.create(pack=pack, word=word2, order=1)
+
+        # First run: team + router succeed, premise scoring fails (after its retries).
+        mock_anthropic.side_effect = [
+            GRAPHIC_NOVEL_TEAM_RESPONSE,
+            GRAPHIC_NOVEL_ROUTER_RESPONSE,
+            ValueError('scorer down'),
+            ValueError('scorer down'),
+            ValueError('scorer down'),
+        ]
+        with pytest.raises(ValueError, match='scorer down'):
+            _step_graphic_novel_script(job, [pack], WORD_LOOKUP_RESPONSE['words'])
+
+        # Resume run: must NOT call team_selection or router again. Only the
+        # remaining substeps (scoring → cloze → beat → final) should hit the LLM.
+        mock_anthropic.reset_mock()
+        mock_anthropic.side_effect = [
+            GRAPHIC_NOVEL_SCORING_RESPONSE,
+            GRAPHIC_NOVEL_CLOZE_RESPONSE,
+            GRAPHIC_NOVEL_BEAT_RESPONSE,
+            GRAPHIC_NOVEL_RESPONSE,
+        ]
+        _step_graphic_novel_script(job, [pack], WORD_LOOKUP_RESPONSE['words'])
+
+        # 4 calls = scoring + cloze + beat + final (team/router reused from disk).
+        assert mock_anthropic.call_count == 4
+        novel = GraphicNovel.objects.get(pack=pack)
+        assert novel.title == 'The Bright Discovery'
+        # away_team comes from the team_selection artifact saved on the first run.
+        assert novel.metadata['away_team'] == ['Leo', 'Amara']
+        assert ClozeItem.objects.filter(pack=pack).count() == 2
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_fresh_pack_runs_all_substeps_from_team_selection(
+        self, mock_load, mock_anthropic,
+    ):
+        """A pack with no prior substep logs must run the full 6-call workflow."""
+        mock_load.return_value = "Graphic novel template {input_json}"
+        mock_anthropic.side_effect = [
+            GRAPHIC_NOVEL_TEAM_RESPONSE,
+            GRAPHIC_NOVEL_ROUTER_RESPONSE,
+            GRAPHIC_NOVEL_SCORING_RESPONSE,
+            GRAPHIC_NOVEL_CLOZE_RESPONSE,
+            GRAPHIC_NOVEL_BEAT_RESPONSE,
+            GRAPHIC_NOVEL_RESPONSE,
+        ]
+        job = GenerationJobFactory(input_words=['bright', 'discover'])
+        word1 = WordFactory(text='bright')
+        word2 = WordFactory(text='discover')
+        pack = WordPack.objects.create(word_set=job.word_set, label='Pack 1', order=0)
+        WordPackItem.objects.create(pack=pack, word=word1, order=0)
+        WordPackItem.objects.create(pack=pack, word=word2, order=1)
+
+        _step_graphic_novel_script(job, [pack], WORD_LOOKUP_RESPONSE['words'])
+
+        assert mock_anthropic.call_count == 6
+        assert GraphicNovel.objects.filter(pack=pack).exists()

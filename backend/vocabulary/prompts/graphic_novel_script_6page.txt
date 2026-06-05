@@ -26,9 +26,21 @@ Page 1 — Establishing beat:
 - The first panel on page 1 must be a wide or establishing shot that orients the reader: show WHERE (the setting), WHO (the main characters), and WHAT (the situation or mood). Include a brief narration caption that grounds the reader before the action begins.
 - This is the "once upon a time" moment. Keep it to one panel — don't burn the whole page on setup.
 
+Re-establishing on location change:
+- When a page's location changes from the previous page AND the reader could not infer the move by simple physical movement, the first panel of that page must briefly re-establish WHERE we are now and, if the move was magical or instant, HOW the character got there — in one short caption.
+- This covers magical, instant, or portal transitions (the Vault leaf-tile travel, a teleport) and jumps to a far-apart, unrelated place. Test: "could a reader assume the character just walked there?" If no, add the caption.
+- Do NOT add a transition caption for adjacent, walkable spaces in the same setting (classroom → hallway, kitchen → backyard) where the move is obvious. A redundant caption wastes the text budget.
+- Phrase the caption in your own words to fit the story's voice; keep it to one short clause, and count it against the page's text budget.
+
 Page 6 — Resolution pacing:
 - Do not rush the resolution. Allow at least one panel for the moment of tension or uncertainty BEFORE the resolution lands. The reader needs to feel the stakes before relief.
 - End with a reflective or closing beat — a moment of calm, a character's reaction, or a brief thought that signals the story is complete. This eases the transition to the review page.
+
+Reading level (target Lexile):
+- The `target_lexile` value in the input JSON is the reading level you must write to — treat it as a ceiling, not a suggestion.
+- Match sentence length and structure to that band: keep most sentences short and simple at lower Lexile; longer sentences with some subordinate clauses are allowed at higher Lexile, but never push above the target.
+- Outside the target vocabulary words, use everyday words an ESL reader at this Lexile already knows; swap any non-target word that is harder than the band for a simpler one.
+- Set the output `reading_level` to the actual Lexile of the script you wrote, and make sure it lands at or below `target_lexile`.
 
 Text budget:
 - Hard limit: 80 words per page across all caption boxes and speech bubbles on that page.
@@ -57,12 +69,13 @@ Self-check before returning:
 - every target word appears naturally
 - no page exceeds the text budget
 - no single speech bubble exceeds 15 words
-- reading level matches the target Lexile
+- reading level matches the target Lexile: sentence length/complexity fit the band, non-target words are within the band, and the output `reading_level` is at or below `target_lexile`
 - at least 2 different layout structures are used across pages
 - each page has at least 2 different shot scales
 - dialogue rhythm varies (short and long lines, some silent panels)
 - every page has characters_featured, setting_key, vault_zone, and is_vault_page
 - page 1 panel 1 is an establishing shot that orients the reader
+- on any page where the location changed from the previous page via a magical/instant transition or a jump to an unrelated place, the first panel re-establishes where we are now (and how the character got there); no transition caption added for ordinary walkable moves
 - page 6 has at least one tension beat before the resolution
 - page 6 ends with a reflective closing beat
 - vocab_anchors has an entry for every target word; each anchor_text describes a teaching cue that actually exists in that panel's scene_description, narration, or dialogue

@@ -630,3 +630,79 @@ def build_six_page_script_response():
         **GRAPHIC_NOVEL_RESPONSE,
         "pages": list(GRAPHIC_NOVEL_RESPONSE["pages"]) + [extra_page],
     }
+
+
+# ---------------------------------------------------------------------------
+# Multi-word fixtures (>4 words) for the deterministic 6-page path.
+#
+# Page count is forced to 6 when a pack has more than
+# GRAPHIC_NOVEL_WORD_COUNT_PAGE_THRESHOLD (4) words, regardless of what the
+# router/scorer return. These builders produce substep responses whose cloze,
+# vocab_roles, page text, and vocab_anchors cover all five target words so the
+# validators pass.
+# ---------------------------------------------------------------------------
+MULTIWORD_TERMS = ["bright", "discover", "gleam", "vanish", "hollow"]
+
+MULTIWORD_LOOKUP_RESPONSE = {
+    "words": [
+        {
+            "term": term,
+            "part_of_speech": "noun",
+            "definition": f"A test definition for {term}.",
+            "example_sentence": f"The {term} appeared in the test sentence.",
+            "lexile_score": 600,
+            "source_context": "From test book",
+        }
+        for term in MULTIWORD_TERMS
+    ]
+}
+
+
+def build_multiword_cloze_response():
+    """Cloze items covering every multi-word target term."""
+    return {
+        "cloze_items": [
+            {
+                "term": term,
+                "sentence_text": f"The _______ was clearly a {term}.",
+                "correct_answer": term,
+                "distractors": ["alpha", "beta"],
+            }
+            for term in MULTIWORD_TERMS
+        ]
+    }
+
+
+def build_multiword_six_page_beat_response():
+    """6-page beat sheet with vocab_roles for every multi-word target term."""
+    return {
+        **build_six_page_beat_response(),
+        "vocab_roles": {term: "clue" for term in MULTIWORD_TERMS},
+    }
+
+
+def build_multiword_six_page_script_response():
+    """6-page script that surfaces every multi-word term in text + anchors."""
+    base = build_six_page_script_response()
+    pages = [dict(page) for page in base["pages"]]
+    final_page = dict(pages[-1])
+    final_panel = {
+        **final_page["panels"][0],
+        "narration": (
+            "The bright gleam would vanish into the hollow as they discover more."
+        ),
+        "vocab_words": list(MULTIWORD_TERMS),
+    }
+    final_page["panels"] = [final_panel]
+    pages[-1] = final_page
+    return {
+        **base,
+        "pages": pages,
+        "vocab_anchors": {
+            term: {
+                "anchor_type": "visible_referent",
+                "anchor_text": f"A panel clearly shows {term} to the reader.",
+            }
+            for term in MULTIWORD_TERMS
+        },
+    }

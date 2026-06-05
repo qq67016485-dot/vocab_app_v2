@@ -1,5 +1,17 @@
 # Plan: Integrate Lexi Legends IP into Graphic Novel Pipeline (Phase 1)
 
+> **Implemented, with significant as-built deviations (current as of 2026-06-04).** This plan shipped 2026-05-22; the IP is fully integrated. The following parts of the plan were changed afterward and the running pipeline is authoritative:
+> - **Template naming:** prompts use the `graphic_novel_*.txt` prefix (in-place replacement), **not** the `lexi_legends_graphic_novel_*.txt` names in this plan (see review item #7).
+> - **Model:** the script step uses Gemini via the DB-backed LLM Configuration Matrix (2026-05-28), not Claude Sonnet. Image gen is GPT-Image-2.
+> - **Substep count:** 5 → **6** (cloze generation split out, 2026-05-29).
+> - **Folio & `shades_present`:** both removed from the team selector, prompts, validators, and review logic (2026-05-27). The team selector outputs `selected_away_team`, `vault_framing`, and `team_rationale` only.
+> - **Ink over-reliance guardrail / `direct_ink_activation`:** replaced by the Lexi Mini system — cap is **1** Mini/story (`uses_direct_ink` / `ink_usage` JSON keys retained for back-compat but now count Mini summons), and `lexi_mini_summon` replaced `direct_ink_activation` in `GRAPHIC_NOVEL_ALLOWED_INTEGRATION_MODES`.
+> - **Scoring dimensions:** the 7 dimensions here (incl. `ink_over_reliance`, `ip_coherence`, `narrative_engagement`, `originality`) were replaced on 2026-05-27 by `{narrative_clarity, visual_potential, vocabulary_integration, pedagogical_clarity, character_fit}`.
+> - **Per-page character routing** (`characters_featured`, `setting_key`, `vault_zone`, `is_vault_page`) and `GraphicNovel.metadata` shipped as planned; the image step reads `characters_featured` directly (not from panel prose) per the implementation update.
+> - Added since: each premise also declares `page_count` ∈ {5,6} + `pedagogical_anchor` + `complexity_budget`; secondary-character anchors; admin image editing; student JPEG companions.
+>
+> See the "Architecture Evolution" section of [design-graphic-novel.md](./design-graphic-novel.md) for the current end-to-end description. This file is kept as the original integration design.
+
 ## Context
 
 The vocabulary app generates AI graphic novels for each word pack using a 4-call Claude Sonnet workflow (router → scorer → beat sheet → script) followed by GPT-Image-2 image generation. Currently, stories have no recurring characters, world-building, or visual consistency across packs.

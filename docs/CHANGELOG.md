@@ -2,6 +2,133 @@
 
 All notable changes to Vocab App V2 are documented in this file.
 
+## [Unreleased] - 2026-06-05 (graphic novel: page count is deterministic from pack word count)
+
+### Changed — Page Count No Longer an LLM Judgment; Derived From Word Count
+- Request: make graphic novel length a fixed function of pack size — **≤4 words → 5 pages, >4 words → 6 pages** — instead of letting the router LLM choose per premise. Supersedes the 2026-06-04 length-bias rebalance below (the LLM no longer picks length, so the scorer-bias problem that prompted it no longer exists).
+- **Constants** (`services/generation/constants.py`): added `GRAPHIC_NOVEL_WORD_COUNT_PAGE_THRESHOLD = 4` and `page_count_for_word_count(word_count)` (returns 6 if `word_count > threshold`, else 5), mirroring the existing `max_locations_for_page_count` pattern.
+- **Script step** (`services/generation/graphic_novel_script.py`): both `_step_graphic_novel_script` and `restart_graphic_novel_from_substep` compute `required_page_count = page_count_for_word_count(len(pack_words_data))`, thread it into `base_input` + `input_summary` (so the router/scorer/cloze/beat/final prompts see it), and then **force** `winning_premise['page_count'] = required_page_count` regardless of what the model returned (the LLM's declared value is logged and overridden, never trusted). All downstream logic — template dispatch, `expected_page_count`, location ceilings — already keys off this single value, so forcing it is sufficient.
+- **Router prompt** (`graphic_novel_router.txt`): the page-count section now states the length is fixed (`required_page_count`, given in the input, derived from word count); every premise must use it and size its plot to fit. Location budget made page-count-aware (≤2 for 5-page, ≤3 for 6-page).
+- **Scorer prompt** (`graphic_novel_premise_scorer.txt`): replaced the "page length is neutral / prefer the shorter premise" comparison block (all premises now share one fixed length) with guidance to judge how well each uses that shared length; penalizes a premise that declares a `page_count` differing from `required_page_count`.
+- **Design choice**: the Python override is the deterministic safety net — no new validator rejection path — so LLM disobedience cannot break the rule. Consistent with "reserve hard limits for measurable constraints, enforce in code" ([feedback_prompt-flexibility]).
+
+### Test
+- `test_step_graphic_novel_script.py`: new `TestPageCountForWordCount` (boundaries 4→5, 5→6); reworked the 6-page dispatch test to drive it with a **5-word pack** (the only way to force 6 pages now), using new multiword fixtures; the 5-page dispatch test (2-word pack) renamed to reflect word-count-driven selection.
+- `generation_fixtures.py`: added `MULTIWORD_TERMS` / `MULTIWORD_LOOKUP_RESPONSE` and `build_multiword_cloze_response` / `build_multiword_six_page_beat_response` / `build_multiword_six_page_script_response` (cover all 5 terms in cloze, vocab_roles, page text, and vocab_anchors so the 6-page validators pass).
+- Full vocabulary suite **380 passed**.
+
+## [Unreleased] - 2026-06-05 (graphic novel: per-pack substep resume + no orphaned packs on restart)
+
+### Fixed — Resuming a Mid-Pack Script Failure Restarted From Team Selection
+- Symptom: when a graphic novel substep failed (e.g. premise scoring) and the admin clicked Resume, the pipeline re-ran that pack's GRAPHIC_NOVEL_SCRIPT step from the first substep (Team Selection), wasting LLM calls and producing a different story than the partially-completed run.
+- **Root cause**: the per-pack `GraphicNovel` record is created only after all 6 substeps succeed, so `last_completed_step` never advances to GRAPHIC_NOVEL_SCRIPT and the per-pack loop had no substep-level memory — it always started at substep 0.
+- **Fix** (`services/generation/graphic_novel_script.py`): `_step_graphic_novel_script` now computes `_resume_substep_index_for_pack(job, pack)` — the first substep without a COMPLETED log for that pack — and, when prior substep artifacts exist on disk, delegates to the existing `restart_graphic_novel_from_substep(...)` to resume from there. A fresh pack (nothing completed) still runs the full 6-call workflow from Team Selection. The COMPLETED log (not artifact presence) is authoritative, because `_run_graphic_novel_substep` writes the artifact *before* validation — a validation failure can leave a stale artifact without a COMPLETED log. No DB field, model, or migration change.
+
+### Fixed — Per-Pack Substep Restart Orphaned Later Packs (job #48)
+- Symptom (job #48, "To Drill or Not to Drill?"): the word set had two packs; only one graphic novel was created and the job was marked COMPLETED. Pack 53 ("Gas Crisis, Endless Sprawl") had no novel at all.
+- **Root cause**: pack 52's beat-sheet substep failed, so the GRAPHIC_NOVEL_SCRIPT step raised before pack 53 ever started. The admin then used the per-substep restart (↻) on pack 52, and `restart_graphic_novel_substep` (`services/generation/orchestrator.py`) regenerated **only pack 52** and then unconditionally marked the **whole job** COMPLETED. A subsequent "Restart Step → Graphic Novel Images" only saw pack 52's novel and also completed. Pack 53 was silently dropped.
+- **Fix** (`services/generation/orchestrator.py`): after the targeted single-pack restart, `restart_graphic_novel_substep` now runs `_step_graphic_novel_script(job, remaining_packs, words_data)` over **all** packs in the word set before marking COMPLETED. The script step's skip-guard leaves packs that already have a novel with pages untouched, so complete packs cost no extra LLM calls; only genuine gaps (like pack 53) are filled. If a remaining pack fails, the step raises and the job is correctly marked FAILED. The image step was already correct (queries `novel__pack__in=packs` and fails on any incomplete page), so the gap was purely script-side.
+- **Note**: the code fix stands; job #48's stale data was intentionally left as-is (re-running any pack 52 substep restart, or a script-step restart, will now also generate pack 53's novel — then run images).
+
+### Test
+- `test_step_graphic_novel_script.py`: `TestStepGraphicNovelScriptResume` (resume from a failed `premise_scoring` makes exactly 4 follow-on LLM calls reusing team/router from disk and reproduces the saved `away_team`; a fresh pack still runs all 6 substeps).
+- `test_orchestrator.py`: `TestRestartGraphicNovelSubstep` (a per-pack restart runs the full script step over both packs so the second is not orphaned; a failing remaining-pack script marks the job FAILED).
+- Combined orchestrator + GN-script suites: **42 passed**.
+
+## [Unreleased] - 2026-06-05 (generation: honest retry display + batch-resumable question generation)
+
+
+### Fixed — Job Status Showed a False "Question Generation Error" While Still Retrying
+- Symptom (job 48): the GenerationReview page rendered Question Generation as ✗ FAILED with a red "Error" while the backend pipeline was still running and recovering on the fallback site. The job was genuinely `RUNNING`; the display lied.
+- **Root cause**: the orchestrator writes a transient `FAILED` `GenerationJobLog` on every recoverable retry attempt (the per-step attempt plan is `[primary, primary, fallback]`), and `last_completed_step` only advances after a step *fully* succeeds. The frontend (`GenerationJobStatus.jsx`) keyed each step's status on the *latest* log for that step, so a step mid-retry showed its last transient failure as if it were terminal.
+- **Backend** (`services/generation/orchestrator.py`): new `_build_retry_payload(plan, failed_idx)` counts attempts *per site role* and writes structured fields (`failed_attempt`, `failed_site_role`, `next_attempt`, `next_site_role`, `failed_model`, `next_model`) plus a ready-made `retry_message` into the retry marker's `output_data` (the logs API exposes `output_data`, not `input_data`). Messages read e.g. "Attempt 1 on primary site (…) failed; retrying — attempt 2 on primary site (…)." and "…attempt 1 on fallback site (…)".
+- **Frontend** (`GenerationJobStatus.jsx`): the active step is now derived from the authoritative `job.status` + `last_completed_step` (the step right after the last completed one) instead of the latest per-step log. While the job is RUNNING/PENDING that step renders RUNNING with an amber "Retrying" line showing `retry_message`; a red "Error" only shows for a genuinely terminal FAILED step.
+
+### Added — Question Generation Resumes at Batch Granularity (no wasted calls, no duplicates)
+- Request: when a question-generation run fails partway, the batches that already returned valid questions should stay in the DB, and resuming the job should skip those words instead of regenerating them.
+- `_step_generate_questions` (`services/generation/step_questions.py`) is now idempotent per batch. Questions already commit per-batch (no transaction wraps the step), so the gap was only that resume/in-step-retry reran *all* batches — wasting LLM calls and creating duplicate questions for already-done words. The step now reads the job's existing `Question.word_id` set up front: a batch whose words are all present is **skipped**; a batch with only some words present (a partial prior attempt) has those stale rows deleted before regenerating. `questions_created` is recomputed as the job's total count, and the COMPLETED log records `batches_skipped`.
+- Composes with all entry paths: fresh `run_full_pipeline` (empty set → generate all), `resume_pipeline` and the in-step `[primary, primary, fallback]` retry (skip completed, finish the rest), and `restart_pipeline_from_step` for QUESTION_GEN which still deletes all questions first for an intentional full regen.
+
+### Docs
+- Corrected stale facts in `PROJECT_CONTEXT.md` and `CLAUDE.md`: question batch size is **2** words per call (code: `QUESTION_BATCH_SIZE = 2`), not 3; admin status polling interval is **30 s** (`POLL_INTERVAL = 30000`), not 10 s.
+
+### Test
+- Added 3 orchestrator tests (`test_orchestrator.py`) for `_build_retry_payload` (per-role attempt counting, role-less image plan, logged retry message) and 3 question-step tests (`test_step_questions.py`: failed batch persists earlier batches, resume skips completed batches with no duplicates, counter/`batches_skipped` reflect totals). Full vocabulary suite **369 passed**.
+
+## [Unreleased] - 2026-06-04 (graphic novel: page-count length bias rebalance)
+
+### Changed — Stop the Scorer From Always Picking 6-Page Premises
+- Investigation: on recent real-content runs the pipeline produced a 6-page graphic novel (+ review sheet) every time, never 5. Tracing the on-disk artifacts (router/scorer/beat/script JSON in `temp/generation_artifacts/`) confirmed the mechanism is sound — the winning premise's `page_count` flows correctly through to the beat sheet and final script in every run. The bias was in the **scoring rubric**, not the code: whenever a premise declared 6 pages, the scorer swept it 5/5/5/5/5 across all dimensions (vs 3s–4s for 5-page premises), because the extra page carried a richer plot and the rubric implicitly rewarded "more story" as higher narrative_clarity / visual_potential / pedagogical_clarity. The router also leaned toward writing its strongest idea at 6 pages.
+- **Router** (`graphic_novel_router.txt`): added two soft nudges to the page-count section — frames 5 pages as the strong default for ESL readers (less text per page → easier word inference, 6 reserved for premises that genuinely need the room), and asks for a real mix across the 3 premises with at least one conceived as a clean 5-page story (not a trimmed-down 6-page idea) so the scorer has a strong short option to choose.
+- **Scorer** (`graphic_novel_premise_scorer.txt`): added a "Page length is neutral, not a quality signal" block — page count is a self-chosen constraint, not a dimension to reward; judge each premise against what it attempts at its own length (a tight 5-page story is not "thin"); a more ambitious plot is only better if it still teaches every target word clearly; and a tiebreaker preferring the shorter premise when two are close.
+- Phrasing follows the soft-guidance convention (prefer/default/aim, no hard mandates).
+- **Scope**: prompt-text only — no Python, validator, or schema changes. Affects **new** generations only. The real test is the next few runs; expect the mix of 5- and 6-page novels to return.
+
+### Test
+- No new tests. The 28 script-step tests mock prompt loading and assert template selection (5- vs 6-page), not prompt content — all 28 pass.
+
+## [Unreleased] - 2026-06-04 (graphic novel: re-establishing caption on location change)
+
+### Changed — Bridge Magical/Instant Scene Changes with an Arrival Caption
+- Reviewing job 47 / "The Empty Case" surfaced an awkward page 1 → page 2 transition: Amara teleports from the Vault to the community garden via the glowing leaf-tile, but page 2 opens in the garden with nothing telling the reader how she got there. For 8–14 ESL readers, an uninferable cut spends attention on "wait, how did she get here?" instead of on the vocab word.
+- **Final-script prompts** (`graphic_novel_script.txt` + `graphic_novel_script_6page.txt`): extended the existing page-1 establishing-panel rule into a conditional **"re-establish on location change"** rule. When a page's location differs from the previous page **and** the reader can't infer the move by simple physical walking (a magical/instant transition like the leaf-tile, or a jump to a far/unrelated place), the page's first panel must open with one short caption re-establishing WHERE we are now and HOW the character arrived. Ordinary walkable moves in the same setting (classroom → hallway, kitchen → backyard) get **no** caption, so the 80-word page budget isn't wasted on redundancy. The decision test written into the prompt: *"could a reader assume the character just walked there?"* Caption wording is left open to the model — no canned template. A matching item was added to each prompt's self-check list.
+- **Beat-sheet prompts** (`graphic_novel_beat_sheet.txt` + `..._6page.txt`): added a planning nudge tied to the per-page `setting_key` the beat sheet already tracks — when a page's `setting_key` differs from the prior page's via such a transition, note an arrival moment in `why_this_page_matters` so the script step has a planned beat to anchor the caption on.
+- **Scope**: prompt-text only — no Python, validator, or schema changes. Affects **new** generations only; the existing job-47 novel needs its GRAPHIC_NOVEL_SCRIPT step re-run + page re-render (or a manual per-page image edit) to gain the caption.
+
+### Test
+- No new tests. The 28 existing script-step tests mock prompt loading and assert which template (5- vs 6-page) is selected, not prompt content, so they're unaffected — all 28 pass.
+
+## [Unreleased] - 2026-06-01 (secondary character anchors never worked — bug fix)
+
+### Fixed — Secondary Character Anchors Were Silently Dropped
+- The secondary-character visual anchor feature (added 2026-05-28) had **never produced a single stored anchor**. Symptom that surfaced it: in job 46 / novel 40 ("The Muddy Rescue"), the secondary kid Toby drifted from a blue shirt on page 1 to a red shirt on page 6 — exactly the drift anchors exist to prevent.
+- **Root cause**: the shared LLM wrappers (`call_gemini`, `call_anthropic`, and the OpenAI-compatible proxy path) **always force JSON mode** (`response_format={'type':'json_object'}`) and return a **parsed dict**, never a string. But `_generate_secondary_character_anchors` asked the model for "plain text, no JSON" and called `anchor_text.strip()` — raising `AttributeError: 'dict' object has no attribute 'strip'`. A broad `except Exception` swallowed it, logged a warning, and returned `{}`, so `novel.metadata['secondary_character_anchors']` was never written and every qualifying secondary character fell back to its bare script description (often missing outfit colors → image-model drift).
+- **Fix** (`graphic_novel_helpers.py`): new `_format_anchor_design_lock(anchor_data) -> str` renders the dict's design-lock sections into a stable `KEY: value` text block (canonical order: AGE_AND_BODY, FACE_AND_HAIR, OUTFIT_LOCK, COLOR_PRIORITY, NEGATIVE_LOCK), passes a plain string through unchanged (defensive), and returns `''` for unexpected types. The consumer now formats the response, stores non-trivial anchors, and logs a warning (instead of crashing) when an anchor is empty/too short.
+- **Prompt** (`prompts/secondary_character_anchor.txt`): rewritten to request a **JSON object** with the five named string fields, matching what the wrapper actually returns, instead of "plain text, no JSON".
+- **Scope**: fix affects **new** generation only. Existing novels rendered with drift (e.g. novel 40) need the GRAPHIC_NOVEL_SCRIPT step re-run for the pack (repopulates the anchor into metadata) followed by page-image regeneration.
+
+### Test
+- Added `TestFormatAnchorDesignLock` (4 cases: dict rendering + section order, plain-string passthrough, unexpected-type → `''`, blank-section skipping) and `TestGenerateSecondaryCharacterAnchors` (2 cases: dict response → stored anchor regression, LLM failure → no raise) in `test_step_graphic_novel_script.py`.
+- Full backend suite **379 passed**.
+
+## [Unreleased] - 2026-05-31 (low-hanging-fruit cleanup: media, indexes, dedup, UX)
+
+### Chore — Stop Tracking Generated Media in Git
+- `backend/media/` held 396 generated files (AI page images + LLM output logs, ~893 MB) committed to the repo, bloating clones and every diff. Untracked the whole tree via `git rm -r --cached backend/media` (files stay on disk) and added it to the root `.gitignore`, keeping the two subdirectories (`generated_images/`, `graphic_novels/`) via `.gitkeep` so Django still has somewhere to write on a fresh clone.
+- Note: this stops *future* growth only. The ~893 MB still lives in git history; reclaiming it needs a history rewrite (`git filter-repo`), deferred as a separate, more disruptive operation.
+
+### Perf — Indexes on Hot Query Paths
+- Added composite indexes (migration `0030_useranswer_..._idx_and_more`) on the two most-queried models:
+  - `UserWordProgress`: `(user, next_review_at)` for the "due for review" practice/dashboard query, and `(user, instructional_status)` for READY/PENDING filtering.
+  - `UserAnswer` (previously had no indexes): `(user, answered_at)` for activity/accuracy queries, `(user, is_correct)` for frequent-mistakes/challenging-words, and `(question, answered_at)` for per-word answer history (struggle-word detection).
+- Closes the `UserWordProgress` + `UserAnswer` portion of BETA_IMPROVEMENTS item #6. `Question.word` index remains pending.
+
+### Refactor — Dedup Definition-Translation Lookup
+- Three services (`dashboard_service`, `practice_service`, `instructional_service`) each carried a near-identical private `_get_translation` / `_get_translations_for_primer` doing the same ContentType + Translation lookup. Consolidated into `vocabulary/utils.py`: `get_definition_translations(word, language, fields=(...))` (returns a dict of field→translated string) and the single-field wrapper `get_definition_translation(word, language)`. Removed the now-unused `ContentType` / `Translation` / `WordDefinition` imports from the affected services.
+
+### Fixed — Replace Blocking alert() Calls with Inline UI
+- Swapped the five native `alert()` dialogs in the teacher flows for inline error/success banners using the existing `t-message` styles:
+  - `GroupManagementView`: save/delete errors now render in a banner (no more raw `JSON.stringify` dump).
+  - `GroupFormModal`: name-required validation shows inline.
+  - `CommandCenter` + `StudentFormModal`: save errors propagate into the modal's existing error slot (the parent handler re-throws; the modal catches).
+  - `BulkStudentFormModal`: success shows an inline banner and auto-closes after a short delay instead of a blocking alert.
+
+### Verification
+- `manage.py check` clean; full backend suite **373 passed**; frontend `npm run build` compiles clean.
+
+## [Unreleased] - 2026-05-31 (student-facing JPEG page images)
+
+### Added — Lightweight JPEG Companions for Students
+- Graphic novel page PNGs average ~3.3 MB each, which is slow to load over mobile data. Every page now gets a smaller JPEG companion (~0.5 MB, ~15% of the PNG — measured 287 MB → 42.6 MB across 85 existing pages) that **students** load instead. The PNG stays the source of truth for admins, image editing, and cross-page style continuity.
+- **Model** (`GraphicNovelPage`): new `image_jpeg` and `edited_image_jpeg` ImageFields mirroring `image` / `edited_image`, plus a `student_image` property that returns the JPEG of the currently displayed variant, falling back to that variant's PNG when no JPEG exists. Migration `0029_graphicnovelpage_edited_image_jpeg_and_more`.
+- **Conversion helper** (`vocabulary/services/image_utils.py`, new): `png_to_jpeg_bytes(png_bytes, quality=85)` opens with Pillow, flattens any alpha onto white, converts to RGB, and writes an optimized JPEG. Pillow is now a **runtime** dependency (added to `requirements.txt`; it was previously dev-only).
+- **JPEG written alongside every PNG save**, all best-effort (a conversion failure never aborts PNG generation): the generation pipeline (`graphic_novel_images.py`, both the main and retry save blocks), the admin edit-image view (`edited_image_jpeg`), and a skip-path backfill (`backfill_page_jpegs`) that fills missing JPEGs when a job resumes over already-rendered pages.
+- **Only the student read path changed**: `instructional_service.py` now serves `student_image`. All admin payloads (review/status/content views, edit/select endpoints) still serve the PNG via `display_image`. The student reader (`GraphicNovelReader.jsx`) needed no change — it already reads `image_url`. The `select-image` endpoint needs no file work since both JPEGs already exist; it just flips `use_edited_image`.
+- **Backfill command** (`vocabulary/management/commands/backfill_jpeg_images.py`, new): idempotent, `--dry-run` supported. Converts every page that has a PNG but no matching JPEG. Pages whose PNG file is missing from disk are skipped (not errors).
+
+### Test
+- 12 new tests (`tests/vocabulary/test_jpeg_companion.py`): PNG→JPEG conversion (RGBA flatten, RGB passthrough, size reduction, invalid-input errors), `student_image` variant selection + PNG fallback, backfill idempotency, and the generation pipeline saving a JPEG companion. Full suite: 373 passed.
+
 ## [Unreleased] - 2026-05-31 (admin per-page image editing + variant selection)
 
 ### Added — Edit & Choose Graphic Novel Page Images
@@ -11,6 +138,12 @@ All notable changes to Vocab App V2 are documented in this file.
 - **Model** (`GraphicNovelPage`): new `edited_image` (ImageField) and `use_edited_image` (Boolean) fields, plus `display_image` and `has_edited_image` properties. **The original `image` is never overwritten** — edits land in `edited_image`. Migration `0028_graphicnovelpage_edited_image_and_more`.
 - **Read paths updated to `display_image`** so the admin's choice propagates everywhere: student instructional flow (`instructional_service.py`), both content serializers + the per-page status helper (`generation_views.py`), and the pipeline's cross-page continuity reference (`graphic_novel_images.py`).
 - **Frontend** (`GraphicNovelPageEditor.jsx`, new): per-page card with an edit-prompt box and an Original/Edited variant picker (✓ marks the live variant). `GenerationReview.jsx` renders it and merges edited pages back into state with cache-busted image URLs.
+
+### Added — Click-to-Zoom Page Thumbnails
+- On the GenerationReview Packs tab, graphic novel page thumbnails are now clickable. Clicking opens a fullscreen lightbox showing the currently previewed variant (original/edited) at full size, so admins can inspect detail that is hard to judge from the small thumbnail. Closes on backdrop click, the × button, or Escape. Implemented as a local `ImageLightbox` component inside `GraphicNovelPageEditor.jsx` — no new route, API, or shared CSS.
+
+### Chore — Repository Hygiene
+- Added a root `.gitignore` covering `temp/`, `tmp/`, machine-local Claude settings (`.claude/settings.local.json`), and standard Python/Node build output. Removed the 67 previously tracked `temp/llm_logs` files and `.claude/settings.local.json` from version control (kept on disk) so generated LLM logs and per-developer state stop polluting history.
 
 ### Fixed — Stale-Job Timeout Detection Test
 - `test_stale_running_job_marks_running_graphic_page_failed` set job activity to 20 minutes ago, but `STALE_JOB_THRESHOLD_SECONDS` is 1800 (30 min), so the job correctly stayed RUNNING and the assertion failed. This is the "1 pre-existing unrelated failure" referenced in prior changelog entries. Bumped the test's log/page timestamps to 31 minutes so they're past the threshold. The view code was correct; only the test timing was wrong.
@@ -114,6 +247,7 @@ All notable changes to Vocab App V2 are documented in this file.
 
 ### Test
 - Added `TestFindSecondaryCharactersNeedingAnchors` (5 cases): empty pages, hero-only, speaking secondary with gap, non-speaking secondary, consecutive-only secondary.
+- **Caveat (discovered 2026-06-01):** these tests covered detection only, not the LLM call + storage path — which was broken from this commit until the 2026-06-01 fix above (the call returned a dict, not the assumed plain-text string, and the result was silently dropped).
 
 ## [Unreleased] - 2026-05-29
 

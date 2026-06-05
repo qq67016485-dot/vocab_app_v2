@@ -7,7 +7,7 @@ Given:
 - Art style: {style_prompt}
 - Target age band: {age_band}
 
-Produce a CHARACTER_DESIGN_LOCK block (plain text, no JSON) with these sections in order:
+Produce a JSON object describing a CHARACTER_DESIGN_LOCK with exactly these keys (in this order), each a plain-text string value:
 
 AGE_AND_BODY: approximate age, height relative to the hero characters (who are {age_band}), build, posture, movement style. 1-2 sentences.
 
@@ -20,8 +20,8 @@ COLOR_PRIORITY: the 1-2 strongest color reads that must be preserved in every pa
 NEGATIVE_LOCK: 2-3 things the artist must NOT do (e.g., do not change outfit color, do not add accessories not listed above, do not age up/down).
 
 Rules:
-- Keep the total output under 150 words.
+- Keep the combined text of all values under 150 words.
 - Use hex color codes for all colors mentioned.
 - The design must be consistent with the art style directive.
 - Do not invent backstory or personality — only visual appearance.
-- Output ONLY the design lock text, no preamble or explanation.
+- Output ONLY the JSON object, no preamble or explanation.

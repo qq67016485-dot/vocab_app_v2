@@ -18,11 +18,10 @@ from vocabulary.services.canon_service import (
     sample_team_options,
 )
 from vocabulary.services.generation.constants import (
-    GRAPHIC_NOVEL_ALLOWED_PAGE_COUNTS,
     GRAPHIC_NOVEL_BEAT_SHEET_TEMPLATES,
-    GRAPHIC_NOVEL_DEFAULT_PAGE_COUNT,
     GRAPHIC_NOVEL_SCRIPT_TEMPLATES,
     GRAPHIC_NOVEL_SUBSTEPS,
+    page_count_for_word_count,
 )
 from vocabulary.services.generation.graphic_novel_helpers import (
     _generate_secondary_character_anchors,
@@ -47,6 +46,48 @@ from vocabulary.services.generation.llm_config_service import get_step_config
 import vocabulary.services.llm_service as _llm_service
 
 logger = logging.getLogger(__name__)
+
+
+def _completed_substep_keys_for_pack(job, pack):
+    """Set of GN substep keys that have a COMPLETED log for this pack.
+
+    The COMPLETED log — not artifact presence — is the authoritative signal:
+    ``_run_graphic_novel_substep`` writes an artifact *before* validation, so a
+    validation failure can leave a stale artifact behind without a COMPLETED log.
+    """
+    return {
+        log.output_data.get('substep')
+        for log in job.logs.filter(
+            step=GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
+            status=GenerationJob.Status.COMPLETED,
+        )
+        if isinstance(log.output_data, dict)
+        and log.output_data.get('pack_id') == pack.id
+        and log.output_data.get('substep')
+    }
+
+
+def _prior_substep_artifacts_exist(job, pack, up_to_idx):
+    """True if every substep before ``up_to_idx`` has a readable artifact on disk."""
+    for idx in range(up_to_idx):
+        if _load_substep_artifact(job, pack, GRAPHIC_NOVEL_SUBSTEPS[idx]) is None:
+            return False
+    return True
+
+
+def _resume_substep_index_for_pack(job, pack):
+    """Index of the first GN substep that should run for ``pack`` on resume.
+
+    Returns the first substep (in order) without a COMPLETED log — i.e. the one
+    that failed or never ran. Returns 0 for a fresh pack (nothing completed yet).
+    When every substep completed but the novel never materialised, clamps to the
+    final substep so it regenerates the script and rebuilds the novel records.
+    """
+    completed = _completed_substep_keys_for_pack(job, pack)
+    for idx, substep in enumerate(GRAPHIC_NOVEL_SUBSTEPS):
+        if substep['key'] not in completed:
+            return idx
+    return len(GRAPHIC_NOVEL_SUBSTEPS) - 1
 
 
 def _step_graphic_novel_script(job, packs, words_data):
@@ -90,6 +131,30 @@ def _step_graphic_novel_script(job, packs, words_data):
             if existing_novel:
                 logger.info("Pack '%s' has a novel but no pages, deleting and regenerating", pack.label)
                 existing_novel.delete()
+
+            # Resume support: if earlier substeps for this pack already completed
+            # (a later substep failed), pick up from the first incomplete substep
+            # instead of restarting from team selection. Requires the prior
+            # substeps' artifacts on disk to reconstruct context.
+            resume_idx = _resume_substep_index_for_pack(job, pack)
+            if resume_idx > 0 and _prior_substep_artifacts_exist(job, pack, resume_idx):
+                resume_key = GRAPHIC_NOVEL_SUBSTEPS[resume_idx]['key']
+                logger.info(
+                    "Pack '%s' resuming graphic novel script from substep '%s' (index %d)",
+                    pack.label, resume_key, resume_idx,
+                )
+                restart_graphic_novel_from_substep(job, pack.id, resume_key, words_data)
+                total_novels += 1
+                total_cloze += ClozeItem.objects.filter(pack=pack).count()
+                artifact_references.append({
+                    'pack_id': pack.id,
+                    'pack_label': pack.label,
+                    'substep': resume_key,
+                    'artifact_path': '',
+                    'resumed_from_substep': resume_key,
+                })
+                continue
+
             logger.info("Generating graphic novel script for pack '%s'", pack.label)
 
             pack_word_texts = list(pack.items.values_list('word__text', flat=True))
@@ -100,17 +165,20 @@ def _step_graphic_novel_script(job, packs, words_data):
             ]
             _validate_words_data_covers_pack(pack, pack_words_data)
 
+            required_page_count = page_count_for_word_count(len(pack_words_data))
             content_lexile = _content_lexile(job)
             base_input = {
                 'pack_label': pack.label,
                 'text_type': pack.text_type,
                 'target_lexile': content_lexile,
+                'required_page_count': required_page_count,
                 'words': _graphic_novel_word_summary(pack_words_data),
             }
             input_summary = {
                 'pack_label': pack.label,
                 'text_type': pack.text_type,
                 'target_lexile': content_lexile,
+                'required_page_count': required_page_count,
                 'word_count': len(pack_words_data),
                 'words': [wd.get('term', '') for wd in pack_words_data],
             }
@@ -241,16 +309,17 @@ def _step_graphic_novel_script(job, packs, words_data):
                     winning_premise = premise
                     break
 
+            # Page count is derived from the pack's word count, not the LLM's
+            # choice. The router is told the required length, but we force it
+            # here so the rule holds regardless of what the model returns.
+            page_count = required_page_count
             page_count_raw = winning_premise.get('page_count')
-            if page_count_raw in GRAPHIC_NOVEL_ALLOWED_PAGE_COUNTS:
-                page_count = page_count_raw
-            else:
-                logger.warning(
-                    "Winning premise for pack '%s' missing valid page_count (%r); "
-                    "defaulting to %d.",
-                    pack.label, page_count_raw, GRAPHIC_NOVEL_DEFAULT_PAGE_COUNT,
+            if page_count_raw != page_count:
+                logger.info(
+                    "Pack '%s' (%d words): forcing page_count to %d "
+                    "(winning premise declared %r).",
+                    pack.label, len(pack_words_data), page_count, page_count_raw,
                 )
-                page_count = GRAPHIC_NOVEL_DEFAULT_PAGE_COUNT
             winning_premise['page_count'] = page_count
 
             cloze_input = {
@@ -488,17 +557,20 @@ def restart_graphic_novel_from_substep(job, pack_id, substep_key, words_data):
     ]
     _validate_words_data_covers_pack(pack, pack_words_data)
 
+    required_page_count = page_count_for_word_count(len(pack_words_data))
     content_lexile = _content_lexile(job)
     base_input = {
         'pack_label': pack.label,
         'text_type': pack.text_type,
         'target_lexile': content_lexile,
+        'required_page_count': required_page_count,
         'words': _graphic_novel_word_summary(pack_words_data),
     }
     input_summary = {
         'pack_label': pack.label,
         'text_type': pack.text_type,
         'target_lexile': content_lexile,
+        'required_page_count': required_page_count,
         'word_count': len(pack_words_data),
         'words': [wd.get('term', '') for wd in pack_words_data],
     }
@@ -685,16 +757,16 @@ def restart_graphic_novel_from_substep(job, pack_id, substep_key, words_data):
             winning_premise = premise
             break
 
+    # Page count is derived from the pack's word count, not the LLM's choice
+    # (kept in sync with _step_graphic_novel_script).
+    page_count = required_page_count
     page_count_raw = winning_premise.get('page_count')
-    if page_count_raw in GRAPHIC_NOVEL_ALLOWED_PAGE_COUNTS:
-        page_count = page_count_raw
-    else:
-        logger.warning(
-            "Restart winning premise for pack '%s' missing valid page_count (%r); "
-            "defaulting to %d.",
-            pack.label, page_count_raw, GRAPHIC_NOVEL_DEFAULT_PAGE_COUNT,
+    if page_count_raw != page_count:
+        logger.info(
+            "Restart pack '%s' (%d words): forcing page_count to %d "
+            "(winning premise declared %r).",
+            pack.label, len(pack_words_data), page_count, page_count_raw,
         )
-        page_count = GRAPHIC_NOVEL_DEFAULT_PAGE_COUNT
     winning_premise['page_count'] = page_count
 
     if start_idx <= 3:

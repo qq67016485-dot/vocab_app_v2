@@ -163,26 +163,67 @@ _STEP_TO_CONFIG_KEY = {
 }
 
 
+def _build_retry_payload(plan, failed_idx):
+    """Build the retry-marker ``output_data`` for a failed-but-recoverable attempt.
+
+    ``plan`` is the ordered list of ``(site_role, model)`` attempts, where
+    ``site_role`` is ``'primary'``/``'fallback'`` (or ``None`` when a step has no
+    site distinction, e.g. image generation). Attempt numbers are counted
+    *within each role*, so a ``[primary, primary, primary, fallback]`` plan
+    reads as "attempts 1-3 on primary, then attempt 1 on fallback" — which is
+    what the pipeline actually does. The structured fields + ``retry_message`` let the
+    frontend show an honest "retrying" state instead of a false failure.
+    """
+    per_role_numbers = []
+    counts = {}
+    for role, _model in plan:
+        counts[role] = counts.get(role, 0) + 1
+        per_role_numbers.append(counts[role])
+
+    failed_role, failed_model = plan[failed_idx]
+    next_role, next_model = plan[failed_idx + 1]
+    failed_n = per_role_numbers[failed_idx]
+    next_n = per_role_numbers[failed_idx + 1]
+
+    def phrase(attempt_n, role, model):
+        site = f" on {role} site" if role else ''
+        return f"attempt {attempt_n}{site} ({model})"
+
+    message = (
+        f"{phrase(failed_n, failed_role, failed_model).capitalize()} failed; "
+        f"retrying — {phrase(next_n, next_role, next_model)}."
+    )
+    return {
+        'retrying': True,
+        'failed_attempt': failed_n,
+        'failed_site_role': failed_role,
+        'failed_model': failed_model,
+        'next_attempt': next_n,
+        'next_site_role': next_role,
+        'next_model': next_model,
+        'retry_message': message,
+    }
+
+
 def _run_step(job, step, words, words_data, packs):
     """Dispatch a single pipeline step with one retry, then fallback model."""
     S = GenerationJobLog.Step
 
     if step == S.GRAPHIC_NOVEL_IMAGES:
         attempts = [GRAPHIC_NOVEL_IMAGE_MODEL, GRAPHIC_NOVEL_IMAGE_MODEL]
+        plan = [(None, model) for model in attempts]
         for attempt_number, model in enumerate(attempts, 1):
             try:
                 return _execute_step(job, step, words, words_data, packs, S, model=model)
             except Exception as exc:
                 if attempt_number == len(attempts):
                     raise
-                logger.warning(
-                    "Step %s failed on attempt %d using model %s; retrying: %s",
-                    step, attempt_number, model, exc,
-                )
+                payload = _build_retry_payload(plan, attempt_number - 1)
+                logger.warning("Step %s: %s (%s)", step, payload['retry_message'], exc)
                 _log_step(
                     job, step, GenerationJob.Status.FAILED,
                     input_data={'attempt': attempt_number, 'model': model},
-                    output_data={'retrying': True},
+                    output_data=payload,
                     error_message=str(exc),
                 )
     elif step == S.GRAPHIC_NOVEL_SCRIPT:
@@ -191,26 +232,32 @@ def _run_step(job, step, words, words_data, packs):
         return _execute_step(job, step, words, words_data, packs, S, site_config=None)
     elif step in _STEP_TO_CONFIG_KEY:
         config = get_step_config(_STEP_TO_CONFIG_KEY[step])
-        attempts = [config['primary'], config['primary'], config['fallback']]
+        attempts = [
+            config['primary'], config['primary'], config['primary'],
+            config['fallback'],
+        ]
+        plan = [
+            ('primary', config['primary']['model']),
+            ('primary', config['primary']['model']),
+            ('primary', config['primary']['model']),
+            ('fallback', config['fallback']['model']),
+        ]
         for attempt_number, site_config in enumerate(attempts, 1):
             try:
                 return _execute_step(job, step, words, words_data, packs, S, site_config=site_config)
             except Exception as exc:
                 if attempt_number == len(attempts):
                     raise
-                next_cfg = attempts[attempt_number]
-                logger.warning(
-                    "Step %s failed on attempt %d using model %s; retrying with %s: %s",
-                    step, attempt_number, site_config['model'], next_cfg['model'], exc,
-                )
+                payload = _build_retry_payload(plan, attempt_number - 1)
+                logger.warning("Step %s: %s (%s)", step, payload['retry_message'], exc)
                 _log_step(
                     job, step, GenerationJob.Status.FAILED,
                     input_data={
                         'attempt': attempt_number,
                         'model': site_config['model'],
-                        'next_model': next_cfg['model'],
+                        'next_model': payload['next_model'],
                     },
-                    output_data={'retrying': True},
+                    output_data=payload,
                     error_message=str(exc),
                 )
     else:
@@ -436,7 +483,16 @@ def restart_pipeline_from_step(job_id, start_step, include_subsequent=True):
 
 
 def restart_graphic_novel_substep(job_id, pack_id, substep_key):
-    """Restart graphic novel generation for a single pack from a specific substep."""
+    """Restart graphic novel generation for a single pack from a specific substep.
+
+    After regenerating the targeted pack, this also generates scripts for any
+    *other* packs in the word set that still lack a complete graphic novel —
+    e.g. packs the original run never reached because an earlier pack failed
+    mid-step. Without this, a substep restart on the first pack would mark the
+    whole job COMPLETED while later packs silently had no novel at all (job #48).
+    The script step's skip-guard leaves already-complete packs untouched, so the
+    common "regenerate one pack of a finished job" case adds no extra LLM calls.
+    """
     _close_old_connections_if_safe()
     job = None
 
@@ -460,6 +516,17 @@ def restart_graphic_novel_substep(job_id, pack_id, substep_key):
         )
 
         restart_graphic_novel_from_substep(job, pack_id, substep_key, words_data)
+
+        # Generate scripts for any remaining packs that never got a novel. The
+        # script step skips packs that already have a novel with pages (incl. the
+        # one just restarted), so this only fills genuine gaps. If a remaining
+        # pack fails, the step raises and the job is correctly marked FAILED.
+        remaining_packs = list(
+            WordPack.objects.filter(word_set=job.word_set)
+            .prefetch_related('items__word')
+            .order_by('order')
+        )
+        _step_graphic_novel_script(job, remaining_packs, words_data)
 
         job.graphic_novels_created = GraphicNovel.objects.filter(
             pack__word_set=job.word_set

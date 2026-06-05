@@ -103,8 +103,25 @@ GRAPHIC_NOVEL_MAX_LOCATIONS_5PAGE = 2
 GRAPHIC_NOVEL_MAX_LOCATIONS_6PAGE = 3
 GRAPHIC_NOVEL_MAX_SECONDARY_CHARACTERS = 2
 
+# Page count is derived deterministically from the number of words in the pack
+# (not chosen by the router LLM): packs with more than this many words get the
+# longer 6-page format so there is room to anchor every target word.
+GRAPHIC_NOVEL_WORD_COUNT_PAGE_THRESHOLD = 4
+
 
 def max_locations_for_page_count(page_count: int) -> int:
     if page_count == 6:
         return GRAPHIC_NOVEL_MAX_LOCATIONS_6PAGE
     return GRAPHIC_NOVEL_MAX_LOCATIONS_5PAGE
+
+
+def page_count_for_word_count(word_count: int) -> int:
+    """Map a pack's word count to its graphic novel page count.
+
+    Up to and including the threshold → 5 pages; more than the threshold → 6.
+    This is authoritative: the router LLM is told the required length, but the
+    pipeline forces this value regardless of what the model returns.
+    """
+    if word_count > GRAPHIC_NOVEL_WORD_COUNT_PAGE_THRESHOLD:
+        return 6
+    return 5
