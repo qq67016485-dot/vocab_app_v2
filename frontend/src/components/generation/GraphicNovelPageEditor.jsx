@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import apiClient from '../../api/axiosConfig.js';
+
+const EDIT_POLL_INTERVAL = 10000;
 
 /**
  * One graphic novel page card with inline image editing + variant selection.
@@ -16,6 +18,7 @@ export default function GraphicNovelPageEditor({ page, onUpdated }) {
   const [zoomed, setZoomed] = useState(false);
   // Which variant the admin is previewing in this card (defaults to the active one).
   const [preview, setPreview] = useState(page.use_edited_image ? 'edited' : 'original');
+  const pollRef = useRef(null);
 
   const status = page.generation_status || (page.image_url ? 'COMPLETED' : 'PENDING');
   const hasEdited = page.has_edited_image;
@@ -33,26 +36,75 @@ export default function GraphicNovelPageEditor({ page, onUpdated }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [zoomed]);
 
+  // Stop polling if the card unmounts mid-edit.
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  const applyResult = (data) => {
+    onUpdated({
+      ...page,
+      ...data,
+      image_url: bust(data.image_url),
+      edited_image_url: bust(data.edited_image_url),
+    });
+  };
+
+  // Poll image-status/ until the background image op finishes, then apply the
+  // result. Shared by the edit and redraw flows (both run async on the server).
+  const pollUntilDone = () => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const poll = await apiClient.get(`/graphic-novel-pages/${page.id}/image-status/`);
+        const data = poll.data;
+        if (data.generation_status === 'COMPLETED') {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+          applyResult(data);
+          setPreview('edited');
+          setBusy(false);
+        } else if (data.generation_status === 'FAILED') {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+          setError(data.generation_error || 'Image generation failed. Try again.');
+          setBusy(false);
+        }
+      } catch (err) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+        setError('Lost track of the image. Refresh to see the result.');
+        setBusy(false);
+      }
+    }, EDIT_POLL_INTERVAL);
+  };
+
   const submitEdit = async () => {
     const trimmed = prompt.trim();
     if (!trimmed) { setError('Enter a description of the edit.'); return; }
     setBusy(true);
     setError('');
     try {
-      const res = await apiClient.post(`/graphic-novel-pages/${page.id}/edit-image/`, { prompt: trimmed });
-      const data = res.data;
-      onUpdated({
-        ...page,
-        ...data,
-        image_url: bust(data.image_url),
-        edited_image_url: bust(data.edited_image_url),
-      });
-      setPreview('edited');
+      // The edit runs in a background worker; the POST returns immediately with
+      // the page in RUNNING state, then we poll until it's COMPLETED or FAILED.
+      await apiClient.post(`/graphic-novel-pages/${page.id}/edit-image/`, { prompt: trimmed });
       setPrompt('');
       setOpen(false);
+      pollUntilDone();
     } catch (err) {
       setError(err.response?.data?.error || 'Image edit failed. Try again.');
-    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitRedraw = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      // Redraw replays the original generation payload (same prompt + reference)
+      // on the server; like edit it runs in a background worker, so we poll.
+      await apiClient.post(`/graphic-novel-pages/${page.id}/redraw-image/`);
+      pollUntilDone();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Image redraw failed. Try again.');
       setBusy(false);
     }
   };
@@ -63,13 +115,7 @@ export default function GraphicNovelPageEditor({ page, onUpdated }) {
     setError('');
     try {
       const res = await apiClient.post(`/graphic-novel-pages/${page.id}/select-image/`, { variant });
-      const data = res.data;
-      onUpdated({
-        ...page,
-        ...data,
-        image_url: bust(data.image_url),
-        edited_image_url: bust(data.edited_image_url),
-      });
+      applyResult(res.data);
       setPreview(variant);
     } catch (err) {
       setError(err.response?.data?.error || 'Could not switch image.');
@@ -110,14 +156,30 @@ export default function GraphicNovelPageEditor({ page, onUpdated }) {
         />
       )}
 
-      {page.image_url && !open && (
-        <button
-          className="t-btn t-btn--secondary"
-          style={{ marginTop: 6, fontSize: '0.75rem', padding: '2px 8px' }}
-          onClick={() => setOpen(true)}
-        >
-          Edit image
-        </button>
+      {page.image_url && !open && !busy && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+          <button
+            className="t-btn t-btn--secondary"
+            style={{ fontSize: '0.75rem', padding: '2px 8px' }}
+            onClick={() => setOpen(true)}
+          >
+            Edit image
+          </button>
+          <button
+            className="t-btn t-btn--secondary"
+            style={{ fontSize: '0.75rem', padding: '2px 8px' }}
+            onClick={submitRedraw}
+            title="Re-run the original generation with the same prompt — a fresh attempt can clear up a bad image."
+          >
+            Redraw
+          </button>
+        </div>
+      )}
+
+      {!open && busy && (
+        <div className="t-hint" style={{ fontSize: '0.72rem', marginTop: 6 }}>
+          Working on the image — this can take up to a minute. You can leave this page; it keeps running.
+        </div>
       )}
 
       {open && (

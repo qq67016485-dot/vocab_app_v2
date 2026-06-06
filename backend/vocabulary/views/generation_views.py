@@ -670,14 +670,154 @@ class RestartGraphicNovelSubstepView(APIView):
         })
 
 
+def _run_page_image_edit(page_id, edit_prompt, reference_bytes):
+    """Background worker: regenerate one page image via OpenAI images.edit.
+
+    Runs in a daemon thread so the request worker is freed during the slow
+    (~30-60s) image call. Reads/writes the page via its own DB connection and
+    records terminal state on the page (COMPLETED + edited_image, or FAILED +
+    generation_error) for the frontend to poll.
+    """
+    from ..services.generation.helpers import (
+        _call_openai_image_releasing_db,
+        _close_old_connections_if_safe,
+    )
+    from ..services.image_utils import png_to_jpeg_bytes
+
+    _close_old_connections_if_safe()
+    try:
+        try:
+            page = (
+                GraphicNovelPage.objects
+                .select_related('novel', 'novel__pack')
+                .get(id=page_id)
+            )
+        except GraphicNovelPage.DoesNotExist:
+            return
+
+        try:
+            new_bytes = _call_openai_image_releasing_db(
+                edit_prompt, size="1792x1024", reference_image=reference_bytes,
+            )
+        except Exception as exc:  # noqa: BLE001 - record provider failure for the admin to see
+            page.generation_status = GraphicNovelPage.GenerationStatus.FAILED
+            page.generation_error = f'Image edit failed: {exc}'
+            page.generation_completed_at = timezone.now()
+            page.save(update_fields=[
+                'generation_status', 'generation_error', 'generation_completed_at',
+            ])
+            return
+
+        title_slug = ''.join(
+            c if c.isalnum() else '_' for c in page.novel.title.lower()
+        ).strip('_')[:60] or 'graphic_novel'
+        filename = f"{title_slug}_page_{page.page_number}_edited.png"
+        # Preserve the original in `image`; the edit lands in `edited_image`.
+        page.edited_image.save(filename, ContentFile(new_bytes), save=False)
+        # Lightweight JPEG companion for students; best-effort.
+        update_fields = [
+            'edited_image', 'use_edited_image', 'prompt_used',
+            'generation_status', 'generation_error', 'generation_completed_at',
+        ]
+        try:
+            jpeg_bytes = png_to_jpeg_bytes(new_bytes)
+            page.edited_image_jpeg.save(
+                f"{title_slug}_page_{page.page_number}_edited.jpg",
+                ContentFile(jpeg_bytes), save=False,
+            )
+            update_fields.append('edited_image_jpeg')
+        except ValueError:
+            pass
+        page.use_edited_image = True
+        page.prompt_used = f"{page.prompt_used}\n\n[ADMIN EDIT] {edit_prompt}".strip()
+        page.generation_status = GraphicNovelPage.GenerationStatus.COMPLETED
+        page.generation_error = ''
+        page.generation_completed_at = timezone.now()
+        page.save(update_fields=update_fields)
+    finally:
+        _close_old_connections_if_safe()
+
+
+def _run_page_image_redraw(page_id, prompt, reference_bytes):
+    """Background worker: re-run one page's original image generation.
+
+    Unlike an edit (which uses this page's own image + an instruction), a redraw
+    replays the exact payload of the original generation attempt — the
+    template-built prompt plus the previous page as the continuity reference —
+    in the hope a second roll of the dice produces a cleaner image. The result
+    lands in `edited_image` and is auto-selected, leaving the original `image`
+    intact and reversible via the variant picker. Records terminal state on the
+    page for the frontend to poll, mirroring `_run_page_image_edit`.
+    """
+    from ..services.generation.helpers import (
+        _call_openai_image_releasing_db,
+        _close_old_connections_if_safe,
+    )
+    from ..services.image_utils import png_to_jpeg_bytes
+
+    _close_old_connections_if_safe()
+    try:
+        try:
+            page = (
+                GraphicNovelPage.objects
+                .select_related('novel', 'novel__pack')
+                .get(id=page_id)
+            )
+        except GraphicNovelPage.DoesNotExist:
+            return
+
+        try:
+            new_bytes = _call_openai_image_releasing_db(
+                prompt, size="1792x1024", reference_image=reference_bytes,
+            )
+        except Exception as exc:  # noqa: BLE001 - record provider failure for the admin to see
+            page.generation_status = GraphicNovelPage.GenerationStatus.FAILED
+            page.generation_error = f'Image redraw failed: {exc}'
+            page.generation_completed_at = timezone.now()
+            page.save(update_fields=[
+                'generation_status', 'generation_error', 'generation_completed_at',
+            ])
+            return
+
+        title_slug = ''.join(
+            c if c.isalnum() else '_' for c in page.novel.title.lower()
+        ).strip('_')[:60] or 'graphic_novel'
+        filename = f"{title_slug}_page_{page.page_number}_edited.png"
+        # Preserve the original in `image`; the redraw lands in `edited_image`.
+        page.edited_image.save(filename, ContentFile(new_bytes), save=False)
+        update_fields = [
+            'edited_image', 'use_edited_image', 'prompt_used',
+            'generation_status', 'generation_error', 'generation_completed_at',
+        ]
+        try:
+            jpeg_bytes = png_to_jpeg_bytes(new_bytes)
+            page.edited_image_jpeg.save(
+                f"{title_slug}_page_{page.page_number}_edited.jpg",
+                ContentFile(jpeg_bytes), save=False,
+            )
+            update_fields.append('edited_image_jpeg')
+        except ValueError:
+            pass
+        page.use_edited_image = True
+        page.prompt_used = f"{page.prompt_used}\n\n[REDRAW] {prompt}".strip()
+        page.generation_status = GraphicNovelPage.GenerationStatus.COMPLETED
+        page.generation_error = ''
+        page.generation_completed_at = timezone.now()
+        page.save(update_fields=update_fields)
+    finally:
+        _close_old_connections_if_safe()
+
+
 class EditGraphicNovelPageImageView(APIView):
     """
     POST /api/graphic-novel-pages/{page_id}/edit-image/
 
     Re-generate a single graphic novel page image using the page's current
     image as a visual reference plus an admin-supplied edit instruction.
-    Runs synchronously (the admin waits for the single image) and routes
-    through the same OpenAI images.edit path used for cross-page continuity.
+    Validates synchronously, then runs the slow OpenAI images.edit call in a
+    background thread so the request worker is not held for the ~30-60s wait.
+    Returns 202 with the page in RUNNING state; the frontend polls
+    `image-status/` for the terminal result.
     """
     permission_classes = [IsAuthenticated, IsAdmin]
 
@@ -701,13 +841,21 @@ class EditGraphicNovelPageImageView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        if page.generation_status == GraphicNovelPage.GenerationStatus.RUNNING:
+            return Response(
+                {'error': 'An image edit is already in progress for this page.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
         if not page.image:
             return Response(
                 {'error': 'This page has no image to edit yet. Generate it first.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Edit builds on whatever variant is currently displayed.
+        # Edit builds on whatever variant is currently displayed. Read the
+        # reference bytes synchronously so an unreadable file fails fast (404)
+        # before we spawn a worker.
         source = page.display_image
         try:
             source.open('rb')
@@ -721,49 +869,99 @@ class EditGraphicNovelPageImageView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        from ..services.generation.helpers import _call_openai_image_releasing_db
-
-        try:
-            new_bytes = _call_openai_image_releasing_db(
-                edit_prompt, size="1792x1024", reference_image=reference_bytes,
-            )
-        except Exception as exc:  # noqa: BLE001 - surface provider failure to admin
-            page.generation_error = f'Image edit failed: {exc}'
-            page.save(update_fields=['generation_error'])
-            return Response(
-                {'error': f'Image generation failed: {exc}'},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        title_slug = ''.join(
-            c if c.isalnum() else '_' for c in page.novel.title.lower()
-        ).strip('_')[:60] or 'graphic_novel'
-        filename = f"{title_slug}_page_{page.page_number}_edited.png"
-        # Preserve the original in `image`; the edit lands in `edited_image`.
-        page.edited_image.save(filename, ContentFile(new_bytes), save=False)
-        # Lightweight JPEG companion for students; best-effort.
-        from ..services.image_utils import png_to_jpeg_bytes
-        update_fields = [
-            'edited_image', 'use_edited_image', 'prompt_used',
-            'generation_status', 'generation_error', 'generation_completed_at',
-        ]
-        try:
-            jpeg_bytes = png_to_jpeg_bytes(new_bytes)
-            page.edited_image_jpeg.save(
-                f"{title_slug}_page_{page.page_number}_edited.jpg",
-                ContentFile(jpeg_bytes), save=False,
-            )
-            update_fields.append('edited_image_jpeg')
-        except ValueError:
-            pass
-        page.use_edited_image = True
-        page.prompt_used = f"{page.prompt_used}\n\n[ADMIN EDIT] {edit_prompt}".strip()
-        page.generation_status = GraphicNovelPage.GenerationStatus.COMPLETED
+        page.generation_status = GraphicNovelPage.GenerationStatus.RUNNING
         page.generation_error = ''
-        page.generation_completed_at = timezone.now()
-        page.save(update_fields=update_fields)
+        page.generation_attempts = (page.generation_attempts or 0) + 1
+        page.generation_started_at = timezone.now()
+        page.generation_completed_at = None
+        page.save(update_fields=[
+            'generation_status', 'generation_error', 'generation_attempts',
+            'generation_started_at', 'generation_completed_at',
+        ])
 
-        return Response(_graphic_novel_page_image_payload(page, message='Image edited successfully.'))
+        thread = threading.Thread(
+            target=_run_page_image_edit,
+            args=(page.id, edit_prompt, reference_bytes),
+            daemon=True,
+        )
+        thread.start()
+
+        return Response(
+            _graphic_novel_page_image_payload(page, message='Image edit started.'),
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class RedrawGraphicNovelPageImageView(APIView):
+    """
+    POST /api/graphic-novel-pages/{page_id}/redraw-image/
+
+    Re-run the page's original image generation with the exact same payload the
+    pipeline used — the template-built prompt plus the previous page as the
+    continuity reference. A second attempt on the same prompt sometimes clears
+    artifacts in a bad image. Validates + builds the payload synchronously, then
+    runs the slow OpenAI call in a background thread (returns 202 + RUNNING;
+    frontend polls `image-status/`). The result saves to `edited_image` and is
+    auto-selected, so the original is preserved and reversible.
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, page_id):
+        from ..services.generation.graphic_novel_images import (
+            build_page_image_prompt,
+            previous_page_reference_bytes,
+        )
+
+        try:
+            page = (
+                GraphicNovelPage.objects
+                .select_related('novel', 'novel__pack')
+                .get(id=page_id)
+            )
+        except GraphicNovelPage.DoesNotExist:
+            return Response(
+                {'error': 'Graphic novel page not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if page.generation_status == GraphicNovelPage.GenerationStatus.RUNNING:
+            return Response(
+                {'error': 'An image operation is already in progress for this page.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if not page.image:
+            return Response(
+                {'error': 'This page has no image to redraw yet. Generate it first.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Build the original-generation payload synchronously so any failure
+        # surfaces before we spawn a worker.
+        prompt = build_page_image_prompt(page)
+        reference_bytes = previous_page_reference_bytes(page)
+
+        page.generation_status = GraphicNovelPage.GenerationStatus.RUNNING
+        page.generation_error = ''
+        page.generation_attempts = (page.generation_attempts or 0) + 1
+        page.generation_started_at = timezone.now()
+        page.generation_completed_at = None
+        page.save(update_fields=[
+            'generation_status', 'generation_error', 'generation_attempts',
+            'generation_started_at', 'generation_completed_at',
+        ])
+
+        thread = threading.Thread(
+            target=_run_page_image_redraw,
+            args=(page.id, prompt, reference_bytes),
+            daemon=True,
+        )
+        thread.start()
+
+        return Response(
+            _graphic_novel_page_image_payload(page, message='Image redraw started.'),
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 def _graphic_novel_page_image_payload(page, message=None):
@@ -782,6 +980,31 @@ def _graphic_novel_page_image_payload(page, message=None):
     if message:
         payload['message'] = message
     return payload
+
+
+class GraphicNovelPageImageStatusView(APIView):
+    """
+    GET /api/graphic-novel-pages/{page_id}/image-status/
+
+    Poll target for the async edit-image flow. Returns the page's current
+    image state (both variant URLs + which is active + generation_status), so
+    the admin UI can detect when a background edit has COMPLETED or FAILED.
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request, page_id):
+        try:
+            page = (
+                GraphicNovelPage.objects
+                .select_related('novel')
+                .get(id=page_id)
+            )
+        except GraphicNovelPage.DoesNotExist:
+            return Response(
+                {'error': 'Graphic novel page not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(_graphic_novel_page_image_payload(page))
 
 
 class SelectGraphicNovelPageImageView(APIView):

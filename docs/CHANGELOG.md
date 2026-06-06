@@ -2,6 +2,46 @@
 
 All notable changes to Vocab App V2 are documented in this file.
 
+## [Unreleased] - 2026-06-06 (LLM config: 3 selectable configuration sets)
+
+### Added — Three LLM Config Sets With One Active
+- Request: have **3 sets of step configurations**, be able to edit each set independently, and choose which set is active — the pipeline processes generation jobs using the active set's configs.
+- **Model** (`models.py`): new `LLMConfigSet` (`name`, `position` 1-based unique, `is_active`). `LLMStepConfig` gained a `config_set` FK (CASCADE) and its uniqueness moved from `step_key` alone to `unique_together = (config_set, step_key)` — each set holds its own full copy of all 11 step configs.
+- **Migration** `0031_llm_config_sets`: creates `LLMConfigSet`, seeds "Set 1/2/3" (Set 1 active), adds the FK as nullable, attaches pre-existing step configs to Set 1, **clones** them into Sets 2 & 3 (so all three are immediately usable), then makes the FK non-null and swaps in the new unique constraint. Reversible (collapses back to the active/first set's rows).
+- **Single-active** is enforced in application logic (MySQL has no partial unique index): activating one set deactivates the others in the same request, and the API refuses to deactivate the active set.
+- **Service** (`llm_config_service.py`): `get_step_config(step_key)` keeps its signature and now resolves rows from the active set (via new `get_active_set()`), so the orchestrator and all graphic-novel substep callers needed **zero** changes. Switching the active set takes effect on the next job/step (5-min cache, invalidated on any edit/activation).
+- **API** (`llm_config_views.py`, `urls.py`): `GET /api/admin/llm-config-sets/` lists sets; `PUT /api/admin/llm-config-sets/<id>/` renames (`name`) and/or activates (`is_active: true`). Step-config GET/PUT are now set-scoped via `?set=<id>` (default = active set) and return `{set, configs}` instead of a bare list. Sites stay shared across sets. No create/delete (fixed at 3).
+- **Frontend** (`pages/admin/LLMConfig.jsx`): the Step Configuration tab gained a set selector, an inline rename, and a "Make this set active" button; "Save All" writes to the currently selected set. The API Sites tab is unchanged.
+
+### Test
+- `tests/vocabulary/test_llm_config_sets.py` (new, **11 passed**): set listing + admin-only guard, activate-deactivates-others, refuse-deactivate-active, rename, set-scoped GET (default active + explicit `?set=`), set-scoped PUT isolation (editing one set leaves others untouched), invalid-site rejection, and the service reading/following the active set. Fixture clears seeded LLM rows first (the data migration seeds 3 sets into the test DB). Full backend suite: **408 passed** pre-existing + 11 new.
+
+## [Unreleased] - 2026-06-06 (graphic novel: admin can redraw a page image)
+
+### Added — "Redraw" Button Replays the Original Generation Payload
+- Request: a button next to "Edit image" that re-runs a page's image with **exactly the same payload as the first generation attempt** — sometimes a second roll of the identical prompt clears artifacts in a bad image.
+- **Redraw ≠ edit.** Edit feeds *this* page's own image plus an admin instruction into `images.edit`. Redraw rebuilds the page's *original generation* payload: the template-built prompt + the previous page as the continuity reference (`None` for page 1).
+- **Refactor** (`services/generation/graphic_novel_images.py`): extracted `build_page_image_prompt(page)` (the review/normal-page prompt construction, formerly inline in `_step_graphic_novel_images`) and added `previous_page_reference_bytes(page)` (mirrors the pipeline's per-novel continuity reference). The image step now calls `build_page_image_prompt`, so the pipeline and redraw build the identical prompt — no behavior change to generation.
+- **View** (`generation_views.RedrawGraphicNovelPageImageView`, `POST /api/graphic-novel-pages/<page_id>/redraw-image/`, admin-only, no body): validates (404 missing / 409 already RUNNING / 400 no image yet), builds the prompt + reads the previous-page reference **synchronously** (fail fast), sets the page `RUNNING`, hands the slow call to a daemon `threading.Thread`, returns **202**.
+- **Worker** (`generation_views._run_page_image_redraw(page_id, prompt, reference_bytes)`): same shape as `_run_page_image_edit` — saves `edited_image` (+ best-effort JPEG companion), `use_edited_image=True`, appends `[REDRAW]` to `prompt_used`, status `COMPLETED`; on failure status `FAILED` + `generation_error`. Original `image` never overwritten; reversible via `select-image/`.
+- **Poll**: reuses the existing `GET .../image-status/` endpoint (no new poll route).
+- **Frontend** (`GraphicNovelPageEditor.jsx`): a "Redraw" button beside "Edit image"; the edit flow's poll loop was extracted into a shared `pollUntilDone()` helper used by both edit and redraw.
+
+### Test
+- `test_views.py`: added redraw coverage alongside the edit tests — 202 + `RUNNING` + worker args (asserts `None` reference for page 1), worker COMPLETED save into `edited_image` (original preserved, `[REDRAW]` tag), worker FAILED path, 409-when-running, 404-missing-page, 400-no-image, 403-for-student. Full `TestGenerationViews` class: **32 passed**.
+
+## [Unreleased] - 2026-06-06 (graphic novel: page image editing is now asynchronous)
+
+### Changed — Edit-Image No Longer Holds a Worker for the Image Call
+- Request: stop the `edit-image/` endpoint from occupying a gunicorn worker for the ~30-60s OpenAI `images.edit` wait (only 3 workers in production, so two concurrent edits + traffic could starve the pool). Mirrors the existing async pattern used by `run-pipeline` / `resume` / `restart-substep`.
+- **View** (`generation_views.py`): `EditGraphicNovelPageImageView.post` now validates the prompt, looks up the page, reads the reference image bytes synchronously (so an unreadable file still fails fast with 404), sets the page `generation_status=RUNNING` (+ `generation_started_at`, bumps `generation_attempts`, clears the error), and hands the slow image call to a daemon `threading.Thread`. Returns **202** with the `RUNNING` payload. Returns **409** if an edit is already `RUNNING` for the page.
+- **Worker** (`generation_views._run_page_image_edit(page_id, edit_prompt, reference_bytes)`): module-level function holding the moved OpenAI call + file-save logic. Wrapped in `_close_old_connections_if_safe()` so it doesn't pin a MySQL connection during the wait. On success: saves `edited_image` (+ best-effort JPEG companion), `use_edited_image=True`, appends `[ADMIN EDIT]` to `prompt_used`, status `COMPLETED`. On failure: status `FAILED` + `generation_error` (no more 502 — the admin sees the error via polling).
+- **Poll endpoint** `GET /api/graphic-novel-pages/<page_id>/image-status/` (`GraphicNovelPageImageStatusView`, admin-only): returns the standard page image payload for the frontend to poll.
+- **Frontend** (`GraphicNovelPageEditor.jsx`): after the POST returns, polls `image-status/` every **10s** (`EDIT_POLL_INTERVAL`) until `generation_status` leaves `RUNNING`; on `COMPLETED` merges the result with cache-busted URLs and switches preview to edited, on `FAILED` surfaces `generation_error`. The card stays in a busy state with a "you can leave this page; the edit keeps running" hint, and the interval is cleared on unmount. `select-image/` is unchanged (synchronous instant DB flip).
+
+### Test
+- `test_views.py`: reworked the edit-image tests — happy path now patches `threading.Thread` and asserts 202 + `RUNNING` + worker args; new tests drive `_run_page_image_edit` directly for the COMPLETED save and the FAILED path; added 409-when-already-running and `image-status/` (200 + 403-for-student) tests. The select-back-to-original test now seeds the edited variant via the worker.
+
 ## [Unreleased] - 2026-06-05 (graphic novel: page count is deterministic from pack word count)
 
 ### Changed — Page Count No Longer an LLM Judgment; Derived From Word Count

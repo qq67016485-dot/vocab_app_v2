@@ -71,6 +71,76 @@ def _jpeg_from_png_field(png_field, jpeg_field, base_filename):
     return True
 
 
+def build_page_image_prompt(page):
+    """Build the OpenAI image prompt for one graphic novel page.
+
+    Shared by the generation pipeline and the admin "redraw" action so both
+    send the identical payload the original generation attempt used. Loads the
+    page/review templates internally and dispatches on `page.is_review_page`.
+    """
+    if page.is_review_page:
+        review_template = _llm_service.load_prompt_template('graphic_novel_review_page')
+        characters_text = _format_characters_for_image_prompt(
+            _characters_for_graphic_novel_page(page)
+        )
+        vocab_details = _format_vocab_details_for_review(page)
+        return review_template.format(
+            style_prompt=page.novel.style_prompt,
+            characters=characters_text,
+            synopsis=page.novel.synopsis,
+            vocab_details=vocab_details,
+            setting_context=_format_graphic_novel_setting_context(page),
+            review_artifact_type=page.novel.metadata.get('review_artifact_type', 'review spread'),
+        )
+
+    template = _llm_service.load_prompt_template('graphic_novel_page')
+    panel_details = _format_panels_as_prose(page.panel_descriptions or [])
+    characters_text = _format_characters_for_image_prompt(
+        _characters_for_graphic_novel_page(page)
+    )
+    return template.format(
+        title=page.novel.title,
+        synopsis=_format_synopsis_for_page(page),
+        characters=characters_text,
+        style_prompt=page.novel.style_prompt,
+        page_number=page.page_number,
+        panel_count=page.panel_count,
+        layout_description=page.layout_description,
+        panel_details=panel_details,
+        vocab_highlighting=_format_vocab_highlighting(page),
+        setting_context=_format_graphic_novel_setting_context(page),
+        character_name_colors=_format_character_name_colors(page),
+    )
+
+
+def previous_page_reference_bytes(page):
+    """Return the prior page's displayed-image bytes for visual continuity.
+
+    Mirrors the pipeline's per-novel continuity reference: the original
+    generation passes the previous page's image as the OpenAI `reference_image`
+    (None for the first page). Returns None for the first page or when the prior
+    image cannot be read from storage.
+    """
+    prev_page = (
+        GraphicNovelPage.objects
+        .filter(novel_id=page.novel_id, page_number__lt=page.page_number)
+        .exclude(pk=page.pk)
+        .order_by('-page_number')
+        .first()
+    )
+    if not prev_page or not prev_page.display_image:
+        return None
+    ref = prev_page.display_image
+    try:
+        ref.open('rb')
+        try:
+            return ref.read()
+        finally:
+            ref.close()
+    except (FileNotFoundError, OSError):
+        return None
+
+
 def backfill_page_jpegs(page):
     """Generate any missing JPEG companions for a page's PNG variants.
 
@@ -109,8 +179,6 @@ def _step_graphic_novel_images(job, packs):
         output_data={'message': 'Starting graphic novel image generation'},
     )
     start = time.time()
-    template = _llm_service.load_prompt_template('graphic_novel_page')
-    review_template = _llm_service.load_prompt_template('graphic_novel_review_page')
     created_count = 0
     pending_count = 0
     skipped_count = 0
@@ -192,37 +260,7 @@ def _step_graphic_novel_images(job, packs):
             },
         )
 
-        if page.is_review_page:
-            characters_text = _format_characters_for_image_prompt(
-                _characters_for_graphic_novel_page(page)
-            )
-            vocab_details = _format_vocab_details_for_review(page)
-            prompt = review_template.format(
-                style_prompt=page.novel.style_prompt,
-                characters=characters_text,
-                synopsis=page.novel.synopsis,
-                vocab_details=vocab_details,
-                setting_context=_format_graphic_novel_setting_context(page),
-                review_artifact_type=page.novel.metadata.get('review_artifact_type', 'review spread'),
-            )
-        else:
-            panel_details = _format_panels_as_prose(page.panel_descriptions or [])
-            characters_text = _format_characters_for_image_prompt(
-                _characters_for_graphic_novel_page(page)
-            )
-            prompt = template.format(
-                title=page.novel.title,
-                synopsis=_format_synopsis_for_page(page),
-                characters=characters_text,
-                style_prompt=page.novel.style_prompt,
-                page_number=page.page_number,
-                panel_count=page.panel_count,
-                layout_description=page.layout_description,
-                panel_details=panel_details,
-                vocab_highlighting=_format_vocab_highlighting(page),
-                setting_context=_format_graphic_novel_setting_context(page),
-                character_name_colors=_format_character_name_colors(page),
-            )
+        prompt = build_page_image_prompt(page)
 
         try:
             logger.info(

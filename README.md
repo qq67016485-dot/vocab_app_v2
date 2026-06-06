@@ -113,6 +113,30 @@ pytest
 - [Changelog](docs/CHANGELOG.md)
 - [Beta Improvements Checklist](BETA_IMPROVEMENTS.md)
 
+## Production Deployment
+
+The app is deployed on a bare Ubuntu 24.04 server (nginx + gunicorn + MySQL 8).
+
+| Component | Detail |
+|-----------|--------|
+| URL | http://106.52.164.47 |
+| Server | Tencent Cloud, 2 vCPU / 3.6 GB RAM |
+| Web server | nginx 1.24 — serves React `dist/`, proxies `/api` + `/admin`, serves `/media` + `/static` |
+| App server | gunicorn 3 workers, systemd unit `vocab.service`, socket at `/run/vocab/vocab.sock` |
+| Database | MySQL 8, database `vocab_app` |
+
+**Redeploy after code change (on server):**
+```bash
+cd ~/vocab_app_v2/backend && source venv/bin/activate
+python manage.py migrate                    # if migrations changed
+python manage.py collectstatic --noinput    # if static files changed
+sudo systemctl restart vocab
+```
+
+Frontend change: `npm run build` locally, then scp the new `frontend/dist/` to the server.
+
+**Next steps:** add a domain name and HTTPS via Certbot, then configure the LLM sites + per-step models in the admin LLM Config UI at `/teacher/llm-config` (three editable config sets; pick which one is active).
+
 ## License
 
 Private — all rights reserved.

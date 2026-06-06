@@ -4,7 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ..models import LLMSite, LLMStepConfig
+from ..models import LLMConfigSet, LLMSite, LLMStepConfig
 from ..permissions import IsAdmin
 from vocabulary.services.generation.llm_config_service import invalidate_cache
 
@@ -15,9 +15,30 @@ from vocabulary.services.generation.llm_config_service import invalidate_cache
 _STEP_KEY_ORDER = {key: idx for idx, key in enumerate(LLMStepConfig.StepKey.values)}
 
 
-def _step_configs_in_pipeline_order():
-    configs = LLMStepConfig.objects.select_related('primary_site', 'fallback_site')
+def _step_configs_in_pipeline_order(config_set):
+    configs = LLMStepConfig.objects.filter(config_set=config_set).select_related(
+        'primary_site', 'fallback_site',
+    )
     return sorted(configs, key=lambda cfg: _STEP_KEY_ORDER.get(cfg.step_key, len(_STEP_KEY_ORDER)))
+
+
+def _resolve_set(request):
+    """Return the config set targeted by ?set=<id>, defaulting to the active set.
+
+    Returns (config_set, error_response). Exactly one is non-None.
+    """
+    set_id = request.query_params.get('set') if hasattr(request, 'query_params') else None
+    if set_id:
+        try:
+            return LLMConfigSet.objects.get(pk=set_id), None
+        except (LLMConfigSet.DoesNotExist, ValueError, TypeError):
+            return None, Response({'error': 'Config set not found.'}, status=status.HTTP_404_NOT_FOUND)
+    active = LLMConfigSet.objects.filter(is_active=True).order_by('position').first()
+    if active is None:
+        active = LLMConfigSet.objects.order_by('position').first()
+    if active is None:
+        return None, Response({'error': 'No config sets exist.'}, status=status.HTTP_404_NOT_FOUND)
+    return active, None
 
 
 class LLMSitesView(APIView):
@@ -117,15 +138,64 @@ class LLMSiteDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class LLMConfigSetsView(APIView):
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request):
+        sets = LLMConfigSet.objects.order_by('position')
+        return Response([_serialize_set(s) for s in sets])
+
+
+class LLMConfigSetDetailView(APIView):
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def put(self, request, pk):
+        try:
+            config_set = LLMConfigSet.objects.get(pk=pk)
+        except LLMConfigSet.DoesNotExist:
+            return Response({'error': 'Config set not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Rename (optional).
+        if 'name' in request.data:
+            name = (request.data.get('name') or '').strip()
+            if not name:
+                return Response({'error': 'name cannot be blank.'}, status=status.HTTP_400_BAD_REQUEST)
+            config_set.name = name
+
+        # Activate (optional) — activating one deactivates the others.
+        activate = request.data.get('is_active')
+        if activate is True:
+            LLMConfigSet.objects.exclude(pk=config_set.pk).update(is_active=False)
+            config_set.is_active = True
+        elif activate is False and config_set.is_active:
+            return Response(
+                {'error': 'Cannot deactivate the active set. Activate a different set instead.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        config_set.save()
+        invalidate_cache()
+        return Response(_serialize_set(config_set))
+
+
 class LLMStepConfigsView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]
 
     def get(self, request):
-        configs = _step_configs_in_pipeline_order()
-        data = [_serialize_step_config(cfg) for cfg in configs]
-        return Response(data)
+        config_set, error = _resolve_set(request)
+        if error:
+            return error
+        configs = _step_configs_in_pipeline_order(config_set)
+        return Response({
+            'set': _serialize_set(config_set),
+            'configs': [_serialize_step_config(cfg) for cfg in configs],
+        })
 
     def put(self, request):
+        config_set, error = _resolve_set(request)
+        if error:
+            return error
+
         configs_data = request.data
         if not isinstance(configs_data, list):
             return Response(
@@ -155,7 +225,9 @@ class LLMStepConfigsView(APIView):
             return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
 
         for item in configs_data:
-            LLMStepConfig.objects.filter(step_key=item['step_key']).update(
+            LLMStepConfig.objects.filter(
+                config_set=config_set, step_key=item['step_key'],
+            ).update(
                 primary_site_id=item['primary_site'],
                 primary_model=item['primary_model'].strip(),
                 fallback_site_id=item['fallback_site'],
@@ -163,8 +235,20 @@ class LLMStepConfigsView(APIView):
             )
 
         invalidate_cache()
-        configs = _step_configs_in_pipeline_order()
-        return Response([_serialize_step_config(cfg) for cfg in configs])
+        configs = _step_configs_in_pipeline_order(config_set)
+        return Response({
+            'set': _serialize_set(config_set),
+            'configs': [_serialize_step_config(cfg) for cfg in configs],
+        })
+
+
+def _serialize_set(config_set: LLMConfigSet) -> dict:
+    return {
+        'id': config_set.id,
+        'name': config_set.name,
+        'position': config_set.position,
+        'is_active': config_set.is_active,
+    }
 
 
 def _serialize_site(site: LLMSite) -> dict:

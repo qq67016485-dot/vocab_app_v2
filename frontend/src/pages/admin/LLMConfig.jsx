@@ -11,6 +11,8 @@ export default function LLMConfig() {
   const [activeTab, setActiveTab] = useState('sites');
   const [sites, setSites] = useState([]);
   const [stepConfigs, setStepConfigs] = useState([]);
+  const [configSets, setConfigSets] = useState([]);
+  const [selectedSetId, setSelectedSetId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -19,6 +21,9 @@ export default function LLMConfig() {
   const [editingSite, setEditingSite] = useState(null);
   const [siteForm, setSiteForm] = useState({ name: '', base_url: '', api_key_env_var: '', provider_type: 'gemini_native' });
 
+  // Set rename state
+  const [setNameDraft, setSetNameDraft] = useState('');
+
   useEffect(() => {
     loadData();
   }, []);
@@ -26,12 +31,16 @@ export default function LLMConfig() {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [sitesRes, configsRes] = await Promise.all([
+      const [sitesRes, setsRes] = await Promise.all([
         apiClient.get('/admin/llm-sites/'),
-        apiClient.get('/admin/llm-step-configs/'),
+        apiClient.get('/admin/llm-config-sets/'),
       ]);
       setSites(sitesRes.data);
-      setStepConfigs(configsRes.data);
+      setConfigSets(setsRes.data);
+      // Default the editor to the active set (or the first one).
+      const active = setsRes.data.find(s => s.is_active) || setsRes.data[0];
+      const targetId = selectedSetId || (active && active.id);
+      await loadStepConfigs(targetId);
     } catch (err) {
       setError('Failed to load LLM configuration.');
     } finally {
@@ -39,7 +48,51 @@ export default function LLMConfig() {
     }
   };
 
+  const loadStepConfigs = async (setId) => {
+    const url = setId ? `/admin/llm-step-configs/?set=${setId}` : '/admin/llm-step-configs/';
+    const res = await apiClient.get(url);
+    setStepConfigs(res.data.configs);
+    setSelectedSetId(res.data.set.id);
+    setSetNameDraft(res.data.set.name);
+  };
+
   const clearMessages = () => { setError(''); setSuccess(''); };
+
+  // --- Config Sets ---
+  const selectSet = async (setId) => {
+    clearMessages();
+    try {
+      await loadStepConfigs(setId);
+    } catch (err) {
+      setError('Failed to load config set.');
+    }
+  };
+
+  const activateSet = async () => {
+    if (!selectedSetId) return;
+    clearMessages();
+    try {
+      const res = await apiClient.put(`/admin/llm-config-sets/${selectedSetId}/`, { is_active: true });
+      setConfigSets(prev => prev.map(s => ({ ...s, is_active: s.id === res.data.id })));
+      setSuccess(`"${res.data.name}" is now the active set.`);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to activate set.');
+    }
+  };
+
+  const saveSetName = async () => {
+    if (!selectedSetId) return;
+    const name = setNameDraft.trim();
+    if (!name) { setError('Set name cannot be blank.'); return; }
+    clearMessages();
+    try {
+      const res = await apiClient.put(`/admin/llm-config-sets/${selectedSetId}/`, { name });
+      setConfigSets(prev => prev.map(s => (s.id === res.data.id ? { ...s, name: res.data.name } : s)));
+      setSuccess('Set name updated.');
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to rename set.');
+    }
+  };
 
   // --- Site CRUD ---
   const startAddSite = () => {
@@ -102,9 +155,10 @@ export default function LLMConfig() {
       fallback_model: cfg.fallback_model,
     }));
     try {
-      const res = await apiClient.put('/admin/llm-step-configs/', payload);
-      setStepConfigs(res.data);
-      setSuccess('Step configurations saved.');
+      const url = selectedSetId ? `/admin/llm-step-configs/?set=${selectedSetId}` : '/admin/llm-step-configs/';
+      const res = await apiClient.put(url, payload);
+      setStepConfigs(res.data.configs);
+      setSuccess(`Step configurations saved to "${res.data.set.name}".`);
     } catch (err) {
       const errors = err.response?.data?.errors;
       setError(errors ? errors.join('; ') : 'Failed to save step configs.');
@@ -210,6 +264,36 @@ export default function LLMConfig() {
             <h2 style={{ margin: 0 }}>Step Configuration</h2>
             <button className="t-btn t-btn--primary" onClick={saveStepConfigs}>Save All</button>
           </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem', alignItems: 'flex-end', marginBottom: '1.25rem', paddingBottom: '1rem', borderBottom: '1px solid var(--t-border, #e2e2e2)' }}>
+            <div>
+              <label className="t-form-label" style={{ display: 'block', marginBottom: '0.25rem' }}>Editing set</label>
+              <select className="t-form-select" value={selectedSetId || ''} onChange={e => selectSet(Number(e.target.value))}>
+                {configSets.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}{s.is_active ? ' — active' : ''}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="t-form-label" style={{ display: 'block', marginBottom: '0.25rem' }}>Set name</label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input className="t-form-input" value={setNameDraft} onChange={e => setSetNameDraft(e.target.value)} />
+                <button className="t-btn t-btn--small t-btn--secondary" onClick={saveSetName}>Rename</button>
+              </div>
+            </div>
+            <div>
+              {configSets.find(s => s.id === selectedSetId)?.is_active ? (
+                <span style={{ color: 'green', fontWeight: 600 }}>This set is active</span>
+              ) : (
+                <button className="t-btn t-btn--secondary" onClick={activateSet}>Make this set active</button>
+              )}
+            </div>
+          </div>
+
+          <p style={{ marginTop: 0, color: 'var(--t-text-muted, #666)', fontSize: '0.9em' }}>
+            The pipeline uses the <strong>active</strong> set. Editing a non-active set is safe — changes apply only when you activate it. API Sites are shared across all sets.
+          </p>
+
           <table className="t-table">
             <thead>
               <tr>

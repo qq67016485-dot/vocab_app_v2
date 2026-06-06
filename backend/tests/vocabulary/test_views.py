@@ -1587,10 +1587,9 @@ class TestGenerationViews:
         page.image.save('orig_page_1.png', ContentFile(b'\x89PNG\r\n\x1a\nORIGINAL'), save=True)
         return page
 
-    @patch('vocabulary.services.generation.helpers._llm_service.call_openai_image')
-    def test_admin_can_edit_graphic_novel_page_image(self, mock_image, settings, tmp_path):
+    @patch('vocabulary.views.generation_views.threading.Thread')
+    def test_admin_edit_starts_async_image_job(self, mock_thread, settings, tmp_path):
         settings.MEDIA_ROOT = str(tmp_path)
-        mock_image.return_value = b'\x89PNG\r\n\x1a\nEDITED'
         admin = AdminUserFactory()
         page = self._make_page_with_image(admin)
 
@@ -1601,15 +1600,38 @@ class TestGenerationViews:
             format='json',
         )
 
-        assert response.status_code == 200
+        # Validates synchronously, hands the slow image call to a worker thread.
+        assert response.status_code == 202
         assert response.data['id'] == page.id
-        assert response.data['generation_status'] == GraphicNovelPage.GenerationStatus.COMPLETED
-        assert response.data['has_edited_image'] is True
-        assert response.data['use_edited_image'] is True
+        assert response.data['generation_status'] == GraphicNovelPage.GenerationStatus.RUNNING
+        mock_thread.return_value.start.assert_called_once()
+        _, kwargs = mock_thread.call_args
+        # The worker receives the page id, prompt, and reference image bytes.
+        assert kwargs['args'][0] == page.id
+        assert kwargs['args'][1] == 'Make the sky purple.'
+        assert kwargs['args'][2].startswith(b'\x89PNG')
+
+        page.refresh_from_db()
+        assert page.generation_status == GraphicNovelPage.GenerationStatus.RUNNING
+        assert page.generation_attempts == 1
+
+    @patch('vocabulary.services.generation.helpers._llm_service.call_openai_image')
+    def test_run_page_image_edit_worker_saves_edited_variant(self, mock_image, settings, tmp_path):
+        from vocabulary.views.generation_views import _run_page_image_edit
+
+        settings.MEDIA_ROOT = str(tmp_path)
+        mock_image.return_value = b'\x89PNG\r\n\x1a\nEDITED'
+        admin = AdminUserFactory()
+        page = self._make_page_with_image(admin)
+
+        _run_page_image_edit(page.id, 'Make the sky purple.', b'\x89PNG\r\n\x1a\nORIGINAL')
+
         # Reference image bytes were passed to the edit call.
         _, kwargs = mock_image.call_args
         assert kwargs['reference_image'].startswith(b'\x89PNG')
         page.refresh_from_db()
+        assert page.generation_status == GraphicNovelPage.GenerationStatus.COMPLETED
+        assert page.use_edited_image is True
         assert '[ADMIN EDIT] Make the sky purple.' in page.prompt_used
         # Original is preserved; edit lands in the separate edited_image field.
         page.image.open('rb')
@@ -1618,8 +1640,59 @@ class TestGenerationViews:
         page.edited_image.open('rb')
         assert page.edited_image.read() == b'\x89PNG\r\n\x1a\nEDITED'
         page.edited_image.close()
-        assert page.use_edited_image is True
         assert page.display_image == page.edited_image
+
+    @patch('vocabulary.services.generation.helpers._llm_service.call_openai_image')
+    def test_run_page_image_edit_worker_records_failure(self, mock_image, settings, tmp_path):
+        from vocabulary.views.generation_views import _run_page_image_edit
+
+        settings.MEDIA_ROOT = str(tmp_path)
+        mock_image.side_effect = RuntimeError('provider exploded')
+        admin = AdminUserFactory()
+        page = self._make_page_with_image(admin)
+
+        _run_page_image_edit(page.id, 'Make the sky purple.', b'\x89PNG\r\n\x1a\nORIGINAL')
+
+        page.refresh_from_db()
+        assert page.generation_status == GraphicNovelPage.GenerationStatus.FAILED
+        assert 'provider exploded' in page.generation_error
+        assert not page.edited_image
+
+    @patch('vocabulary.views.generation_views.threading.Thread')
+    def test_edit_image_409_when_already_running(self, mock_thread, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        admin = AdminUserFactory()
+        page = self._make_page_with_image(admin)
+        page.generation_status = GraphicNovelPage.GenerationStatus.RUNNING
+        page.save(update_fields=['generation_status'])
+
+        client = _make_client(admin)
+        response = client.post(
+            f'/api/graphic-novel-pages/{page.id}/edit-image/',
+            {'prompt': 'Make the sky purple.'},
+            format='json',
+        )
+        assert response.status_code == 409
+        mock_thread.return_value.start.assert_not_called()
+
+    def test_image_status_returns_page_state(self, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        admin = AdminUserFactory()
+        page = self._make_page_with_image(admin)
+        client = _make_client(admin)
+        response = client.get(f'/api/graphic-novel-pages/{page.id}/image-status/')
+        assert response.status_code == 200
+        assert response.data['id'] == page.id
+        assert response.data['generation_status'] == GraphicNovelPage.GenerationStatus.COMPLETED
+
+    def test_image_status_403_for_student(self, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        admin = AdminUserFactory()
+        page = self._make_page_with_image(admin)
+        student = StudentUserFactory()
+        client = _make_client(student)
+        response = client.get(f'/api/graphic-novel-pages/{page.id}/image-status/')
+        assert response.status_code == 403
 
     def test_edit_image_requires_prompt(self, settings, tmp_path):
         settings.MEDIA_ROOT = str(tmp_path)
@@ -1677,17 +1750,16 @@ class TestGenerationViews:
 
     @patch('vocabulary.services.generation.helpers._llm_service.call_openai_image')
     def test_admin_can_select_back_to_original_image(self, mock_image, settings, tmp_path):
+        from vocabulary.views.generation_views import _run_page_image_edit
+
         settings.MEDIA_ROOT = str(tmp_path)
         mock_image.return_value = b'\x89PNG\r\n\x1a\nEDITED'
         admin = AdminUserFactory()
         page = self._make_page_with_image(admin)
         client = _make_client(admin)
 
-        # Edit auto-selects the edited variant.
-        client.post(
-            f'/api/graphic-novel-pages/{page.id}/edit-image/',
-            {'prompt': 'Make it brighter.'}, format='json',
-        )
+        # Produce an edited variant (auto-selected) via the worker directly.
+        _run_page_image_edit(page.id, 'Make it brighter.', b'\x89PNG\r\n\x1a\nORIGINAL')
         page.refresh_from_db()
         assert page.use_edited_image is True
 
@@ -1710,6 +1782,130 @@ class TestGenerationViews:
         )
         assert response.status_code == 200
         assert response.data['use_edited_image'] is True
+
+    @patch('vocabulary.views.generation_views.threading.Thread')
+    def test_admin_redraw_starts_async_image_job(self, mock_thread, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        admin = AdminUserFactory()
+        page = self._make_page_with_image(admin)
+
+        client = _make_client(admin)
+        response = client.post(
+            f'/api/graphic-novel-pages/{page.id}/redraw-image/',
+            format='json',
+        )
+
+        # Validates + builds the original payload synchronously, hands the slow
+        # image call to a worker thread.
+        assert response.status_code == 202
+        assert response.data['id'] == page.id
+        assert response.data['generation_status'] == GraphicNovelPage.GenerationStatus.RUNNING
+        mock_thread.return_value.start.assert_called_once()
+        _, kwargs = mock_thread.call_args
+        # Worker gets (page_id, built prompt, previous-page reference bytes).
+        assert kwargs['args'][0] == page.id
+        assert isinstance(kwargs['args'][1], str) and kwargs['args'][1]
+        # Page 1 has no previous page, so the continuity reference is None.
+        assert kwargs['args'][2] is None
+
+        page.refresh_from_db()
+        assert page.generation_status == GraphicNovelPage.GenerationStatus.RUNNING
+        assert page.generation_attempts == 1
+
+    @patch('vocabulary.services.generation.helpers._llm_service.call_openai_image')
+    def test_run_page_image_redraw_worker_saves_edited_variant(self, mock_image, settings, tmp_path):
+        from vocabulary.views.generation_views import _run_page_image_redraw
+
+        settings.MEDIA_ROOT = str(tmp_path)
+        mock_image.return_value = b'\x89PNG\r\n\x1a\nREDRAWN'
+        admin = AdminUserFactory()
+        page = self._make_page_with_image(admin)
+
+        _run_page_image_redraw(page.id, 'Built page prompt.', None)
+
+        page.refresh_from_db()
+        assert page.generation_status == GraphicNovelPage.GenerationStatus.COMPLETED
+        assert page.use_edited_image is True
+        assert '[REDRAW] Built page prompt.' in page.prompt_used
+        # Original is preserved; redraw lands in the separate edited_image field.
+        page.image.open('rb')
+        assert page.image.read() == b'\x89PNG\r\n\x1a\nORIGINAL'
+        page.image.close()
+        page.edited_image.open('rb')
+        assert page.edited_image.read() == b'\x89PNG\r\n\x1a\nREDRAWN'
+        page.edited_image.close()
+        assert page.display_image == page.edited_image
+
+    @patch('vocabulary.services.generation.helpers._llm_service.call_openai_image')
+    def test_run_page_image_redraw_worker_records_failure(self, mock_image, settings, tmp_path):
+        from vocabulary.views.generation_views import _run_page_image_redraw
+
+        settings.MEDIA_ROOT = str(tmp_path)
+        mock_image.side_effect = RuntimeError('provider exploded')
+        admin = AdminUserFactory()
+        page = self._make_page_with_image(admin)
+
+        _run_page_image_redraw(page.id, 'Built page prompt.', None)
+
+        page.refresh_from_db()
+        assert page.generation_status == GraphicNovelPage.GenerationStatus.FAILED
+        assert 'provider exploded' in page.generation_error
+        assert not page.edited_image
+
+    @patch('vocabulary.views.generation_views.threading.Thread')
+    def test_redraw_image_409_when_already_running(self, mock_thread, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        admin = AdminUserFactory()
+        page = self._make_page_with_image(admin)
+        page.generation_status = GraphicNovelPage.GenerationStatus.RUNNING
+        page.save(update_fields=['generation_status'])
+
+        client = _make_client(admin)
+        response = client.post(
+            f'/api/graphic-novel-pages/{page.id}/redraw-image/',
+            format='json',
+        )
+        assert response.status_code == 409
+        mock_thread.return_value.start.assert_not_called()
+
+    def test_redraw_image_404_for_missing_page(self):
+        admin = AdminUserFactory()
+        client = _make_client(admin)
+        response = client.post(
+            '/api/graphic-novel-pages/999999/redraw-image/',
+            format='json',
+        )
+        assert response.status_code == 404
+
+    def test_redraw_image_400_when_page_has_no_image(self):
+        admin = AdminUserFactory()
+        ws = WordSetFactory(creator=admin)
+        pack = WordPack.objects.create(word_set=ws, label='Pack 1', order=0)
+        novel = GraphicNovel.objects.create(
+            pack=pack, title='No Image Novel', synopsis='s',
+            style_prompt='art', reading_level=650,
+        )
+        page = GraphicNovelPage.objects.create(
+            novel=novel, page_number=1, panel_count=1,
+        )
+        client = _make_client(admin)
+        response = client.post(
+            f'/api/graphic-novel-pages/{page.id}/redraw-image/',
+            format='json',
+        )
+        assert response.status_code == 400
+
+    def test_student_cannot_redraw_graphic_novel_page_image(self, settings, tmp_path):
+        settings.MEDIA_ROOT = str(tmp_path)
+        admin = AdminUserFactory()
+        page = self._make_page_with_image(admin)
+        student = StudentUserFactory()
+        client = _make_client(student)
+        response = client.post(
+            f'/api/graphic-novel-pages/{page.id}/redraw-image/',
+            format='json',
+        )
+        assert response.status_code == 403
 
     def test_select_edited_without_edited_image_400(self, settings, tmp_path):
         settings.MEDIA_ROOT = str(tmp_path)

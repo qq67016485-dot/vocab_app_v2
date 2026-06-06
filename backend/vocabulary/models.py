@@ -737,6 +737,30 @@ class LLMSite(models.Model):
         return os.environ.get(self.api_key_env_var, '')
 
 
+class LLMConfigSet(models.Model):
+    """A named collection of per-step LLM configs. Exactly one set is active at
+    a time; the pipeline reads step configs from the active set. Sets are seeded
+    (3 of them) by migration — there is no create/delete in the app."""
+    name = models.CharField(max_length=100)
+    position = models.PositiveSmallIntegerField(
+        unique=True,
+        help_text='Stable display/sort order (1-based).',
+    )
+    is_active = models.BooleanField(
+        default=False,
+        help_text='Exactly one set is active; the pipeline uses it.',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'LLM Config Set'
+        ordering = ['position']
+
+    def __str__(self) -> str:
+        return f"{self.name}{' (active)' if self.is_active else ''}"
+
+
 class LLMStepConfig(models.Model):
     class StepKey(models.TextChoices):
         WORD_LOOKUP = 'word_lookup', 'Word Lookup'
@@ -751,7 +775,10 @@ class LLMStepConfig(models.Model):
         GN_BEAT_SHEET = 'gn_beat_sheet', 'GN: Beat Sheet'
         GN_FINAL_SCRIPT = 'gn_final_script', 'GN: Final Script'
 
-    step_key = models.CharField(max_length=30, choices=StepKey.choices, unique=True)
+    config_set = models.ForeignKey(
+        LLMConfigSet, on_delete=models.CASCADE, related_name='step_configs',
+    )
+    step_key = models.CharField(max_length=30, choices=StepKey.choices)
     primary_site = models.ForeignKey(
         LLMSite, on_delete=models.PROTECT, related_name='primary_steps',
     )
@@ -765,6 +792,7 @@ class LLMStepConfig(models.Model):
     class Meta:
         verbose_name = 'LLM Step Configuration'
         verbose_name_plural = 'LLM Step Configurations'
+        unique_together = ('config_set', 'step_key')
 
     def __str__(self) -> str:
-        return f"{self.get_step_key_display()} → {self.primary_model}"
+        return f"{self.config_set.name}/{self.get_step_key_display()} → {self.primary_model}"
