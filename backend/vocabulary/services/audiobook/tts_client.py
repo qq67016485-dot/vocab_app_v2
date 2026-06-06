@@ -1,9 +1,11 @@
 """Isolated Gemini TTS call — the only place that touches the audio API.
 
-Uses the native `google.genai` client directly (the project's OpenAI-compatible
-GEMINI_BASE_URL proxy does not support audio output), always authenticating with
-settings.GEMINI_API_KEY. Returns raw little-endian PCM plus the sample rate
-parsed from the response mime type, so the stitcher never hardcodes a rate.
+Uses the native `google.genai` client (audio modality is served by Gemini's
+native generateContent API, not an OpenAI-compatible chat proxy). Credentials
+and endpoint come from the dedicated GEMINI_TTS_* settings so the TTS endpoint
+can be pointed at its own proxy independent of text-generation routing. Returns
+raw little-endian PCM plus the sample rate parsed from the response mime type,
+so the stitcher never hardcodes a rate.
 """
 import logging
 import re
@@ -22,9 +24,24 @@ class TTSError(RuntimeError):
 
 
 def _client():
-    api_key = settings.GEMINI_API_KEY
+    """Native genai client for TTS.
+
+    Uses the dedicated GEMINI_TTS_* settings (falling back to the main Gemini
+    key) so the TTS endpoint can be pointed at a proxy that serves the native
+    generateContent audio API, independent of the text-generation routing.
+    """
+    api_key = settings.GEMINI_TTS_API_KEY or settings.GEMINI_API_KEY
     if not api_key:
-        raise TTSError('GEMINI_API_KEY is not configured; cannot synthesize audio.')
+        raise TTSError(
+            'No TTS API key configured. Set GEMINI_TTS_API_KEY (or GEMINI_API_KEY) '
+            'in the backend .env.'
+        )
+    base_url = settings.GEMINI_TTS_BASE_URL or None
+    if base_url:
+        return genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(base_url=base_url),
+        )
     return genai.Client(api_key=api_key)
 
 
@@ -61,7 +78,7 @@ def _synthesize_once(client, text, voice_name):
         ),
     )
     response = client.models.generate_content(
-        model=C.TTS_MODEL,
+        model=settings.GEMINI_TTS_MODEL or C.TTS_MODEL,
         contents=text,
         config=config,
     )

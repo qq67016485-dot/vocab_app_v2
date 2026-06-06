@@ -140,6 +140,15 @@ ANTHROPIC_BASE_URL = env('ANTHROPIC_BASE_URL', default='')
 GEMINI_API_KEY = env('GEMINI_API_KEY', default='')
 GEMINI_BASE_URL = env('GEMINI_BASE_URL', default='')
 
+# Text-to-speech (Gemini native TTS). Kept separate from the text Gemini config
+# because TTS needs the native generateContent API with audio modality, which an
+# OpenAI-compatible text proxy usually does not serve. Falls back to the main
+# Gemini key when its own key is unset. Leave TTS_BASE_URL empty to hit Google
+# directly; set it to a proxy that supports the native Gemini TTS endpoint.
+GEMINI_TTS_API_KEY = env('GEMINI_TTS_API_KEY', default='')
+GEMINI_TTS_BASE_URL = env('GEMINI_TTS_BASE_URL', default='')
+GEMINI_TTS_MODEL = env('GEMINI_TTS_MODEL', default='gemini-2.5-pro-preview-tts')
+
 # Image generation API (OpenAI GPT-Image-2)
 OPENAI_API_KEY = env('OPENAI_API_KEY', default='')
 OPENAI_BASE_URL = env('OPENAI_BASE_URL', default='')

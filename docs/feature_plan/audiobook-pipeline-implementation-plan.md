@@ -1,5 +1,7 @@
 # Audiobook Pipeline — Implementation Plan (Phase 1)
 
+> **Status: IMPLEMENTED 2026-06-07** — phase 1 is built and verified working (novel 50, 6/6 pages, via the Vector TTS proxy). The TTS endpoint uses dedicated `GEMINI_TTS_*` settings (the plan's `settings.GEMINI_API_KEY` assumption was wrong — that key is empty in this deployment). See `docs/PROJECT_CONTEXT.md` → "Read-Along Audiobook" and `CLAUDE.md` for the as-built description; this file is kept as the design record.
+
 Goal: generate a read-along audio track for a completed graphic novel, **one stitched audio file per page**, on demand (admin-triggered per novel), using `gemini-2.5-pro-preview-tts`. Each speech event (one narration box or one dialogue line) is rendered as its own single-voice TTS call, then concatenated into a per-page file with pauses. No per-event timing metadata in this phase.
 
 This phase delivers backend generation + storage + admin trigger/poll + serving the URL to students. Frontend playback UI in the reader is a thin follow-on.

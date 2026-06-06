@@ -46,6 +46,13 @@ vocab_app_v2/
 │  │  │  │  ├── helpers.py                # Shared LLM wrappers, logging
 │  │  │  │  └── constants.py              # Models, step order, config
 │  │  │  ├── generation_pipeline_service.py # Backwards-compat shim (re-exports)
+│  │  │  ├── audiobook/                     # On-demand read-along audio (Gemini TTS)
+│  │  │  │  ├── events.py                  # panel_descriptions → ordered speech events
+│  │  │  │  ├── voices.py                  # speaker → prebuilt voice resolution
+│  │  │  │  ├── tts_client.py              # isolated native Gemini TTS call
+│  │  │  │  ├── stitch.py                  # stdlib wave PCM concatenation
+│  │  │  │  ├── generator.py               # per-page/per-novel orchestration
+│  │  │  │  └── constants.py               # voice map, pauses, PCM format
 │  │  │  ├── practice_service.py           # Answer processing, XP, mastery, streaks
 │  │  │  ├── dashboard_service.py          # Roster analytics, learning patterns
 │  │  │  ├── instructional_service.py      # Pack data assembly for students
@@ -113,6 +120,7 @@ vocab_app_v2/
 - **PrimerCardContent** — OneToOne→Word, `syllable_text`, `kid_friendly_definition`, `example_sentence`
 - **GraphicNovel** — FK→WordPack, `channel` ('5page' kept as vestigial field for legacy rows; new novels always save as '5page'), `title`, `synopsis`, `style_prompt`, `reading_level`, `metadata` (JSONField — stores `page_count` ∈ {5, 6}, derived deterministically from the pack's word count: ≤4 words → 5 pages, >4 → 6), `created_at`. `unique_together = ('pack', 'channel')`. New generated packs use this as the Story/Read step.
 - **GraphicNovelPage** — FK→GraphicNovel, `page_number`, `image` (the original generated PNG), `edited_image` (admin-edited PNG variant; the original in `image` is never overwritten), `use_edited_image` (Boolean — when True and an edited image exists, the edited variant is shown everywhere), `image_jpeg` / `edited_image_jpeg` (lightweight JPEG companions of `image` / `edited_image`, served only to students to save mobile bandwidth), `prompt_used`, page image generation tracking (`generation_status`, `generation_attempts`, `generation_error`, `generation_started_at`, `generation_completed_at`), `panel_count`, `layout_description`, `panel_descriptions` (JSON accessibility/tooltip metadata), `vocab_words_used`. Properties: `display_image` returns the selected PNG variant (edited if selected+present, else original) — used by admins and cross-page continuity; `student_image` returns the JPEG of the displayed variant, falling back to that variant's PNG when no JPEG exists — used by the student instructional flow; `has_edited_image` is truthy when an edit exists. **Admin/editing read paths use `display_image` and the student read path uses `student_image`, so the admin's variant choice drives what everyone sees while students always get the smaller JPEG.** Each record stores one complete 1792x1024 landscape comic page image containing 1-4 panels.
+- **GraphicNovelPageAudio** — OneToOne→GraphicNovelPage, `audio` (stitched WAV FileField), `duration_ms`, `voice_manifest` (JSON — per-event voice assignments for debug/regen), `status` (PENDING/RUNNING/COMPLETED/FAILED), `attempts`, `error`, timestamps. One row per page holds the on-demand read-along audio (one stitched WAV per page). Kept separate from the page so audio is fully optional/regenerable and never touches image rows. See the read-along audiobook pipeline below.
 - **MicroStory** — FK→WordPack, `story_text` (target words in `**bold**`), `reading_level` (Lexile). Legacy format retained so existing word sets keep working.
 - **ClozeItem** — FK→WordPack, FK→Word, `sentence_text` (with `_______` blank), `correct_answer`, `distractors`
 - **StudentPackCompletion** — FK→user, FK→WordPack. Completing a pack flips words from PENDING→READY.
@@ -261,6 +269,9 @@ For the multi-pack GRAPHIC_NOVEL_SCRIPT step, resume is per-pack and per-substep
 | POST | `/api/graphic-novel-pages/<page_id>/redraw-image/` | Re-run the page's **original generation** payload (template-built prompt + previous page as reference) for a fresh roll of the same prompt — distinct from edit. No body. Stores the result in `edited_image` (original preserved) and auto-selects it (`prompt_used` tagged `[REDRAW]`). Asynchronous, same machinery as edit: returns **202** with the page `RUNNING` (or **409** if an image op is already running); poll `image-status/`. |
 | GET | `/api/graphic-novel-pages/<page_id>/image-status/` | Poll target for the async edit/redraw: returns the page's image state (variant URLs + `generation_status`). The admin UI polls this every 10s until `COMPLETED`/`FAILED`. |
 | POST | `/api/graphic-novel-pages/<page_id>/select-image/` | Choose which stored variant students see. Body: `{"variant": "original"｜"edited"}`. Reversible; neither file is deleted. Synchronous (instant DB flip). |
+| POST | `/api/graphic-novels/<novel_id>/generate-audio/` | Generate read-along audio for every story page of a novel. Body: `{"regenerate": bool}`. Asynchronous: validates synchronously, runs TTS in a background thread, returns **202** (or **409** if a run is already in progress). |
+| GET | `/api/graphic-novels/<novel_id>/audio-status/` | Poll target for audio generation: per-page `{status, audio_url, duration_ms, error}`. Admin UI polls every 5s. |
+| POST | `/api/graphic-novel-pages/<page_id>/regenerate-audio/` | Re-run audio generation for a single page (async; **409** if that page is already running). |
 
 ### LLM Configuration (Admin only)
 | Method | Path | Description |
@@ -323,6 +334,12 @@ For the multi-pack GRAPHIC_NOVEL_SCRIPT step, resume is per-pack and per-substep
 3. Student completes the 3-step flow. `GraphicNovelReader` shows one 16:9 page image at a time (the lightweight JPEG companion, served via `student_image` to keep mobile load times low) with arrow/keyboard/swipe navigation, a sticky toolbar (title, page dots, "Done Reading" button), and a vocabulary overlay shown by default on each page. The "Done Reading" button appears with a 3-second delay on the last page to encourage reading before advancing. Legacy `MicroStoryView` still renders bold target words with tooltips.
 4. On completion, `CompletePackView` flips all PENDING words in the pack to READY with `next_review_at=now`, making them available for SRS practice.
 
+### Read-Along Audiobook (on-demand, admin-triggered — NOT a pipeline step)
+- A completed graphic novel can have read-along audio generated per page (phase 1). The admin triggers it from the Generation Review page (`POST /api/graphic-novels/<id>/generate-audio/`); it runs in a background thread and the UI polls `audio-status/`.
+- Service package `backend/vocabulary/services/audiobook/`: `events.build_page_events` (pure — walks a page's `panel_descriptions` into ordered speech events, one narration box or dialogue line each, with pauses), `voices.voice_for` (stable hero→prebuilt-voice map; narrator varies by `age_band`; supporting characters hashed into a pool), `tts_client.synthesize` (isolated **native** `genai.Client` TTS call using the dedicated `GEMINI_TTS_*` settings; parses the sample rate from the response mime type; retries once), `stitch` (stdlib `wave` only — concatenates per-event PCM + silence into one WAV; no ffmpeg/pydub dependency), `generator.generate_novel_audio` (continue-on-failure per page; skips the review page and already-COMPLETED pages unless `regenerate`).
+- Spoken text is read verbatim from `panel_descriptions` (`narration` + `dialogue[].speaker/.text`) — no OCR. Output is one stitched WAV per page (24kHz/16-bit/mono), stored on `GraphicNovelPageAudio`. The student instructional payload exposes `audio_url` per page. Verified working end-to-end 2026-06-07 against the Vector TTS proxy.
+- Model: `gemini-2.5-pro-preview-tts` (configurable via `GEMINI_TTS_MODEL`). Deferred: per-event timing/highlight sync, MP3/Opus encoding, ambience/SFX, auto-advance. Full production rules: `docs/feature_plan/lexi-legends-audiobook-production-bible.md`.
+
 ### XP & Level System
 - Tier progression: BRONZE (1-20, 200 XP/level), SILVER (21-40, 300), GOLD (41-60, 400), PLATINUM (61-80, 500), DIAMOND (81+, 600).
 - XP sources: correct answers (5-12 XP), focus streak bonus (up to 10 XP per session).
@@ -350,6 +367,7 @@ Teachers/admins can add, remove, or change words before generation starts. Once 
 ### Environment Variables (`.env`)
 - `DATABASE_URL` — MySQL connection string
 - `GEMINI_API_KEY` / `GEMINI_BASE_URL` — Gemini API (word lookup, translations, pack grouping, primers, and question generation)
+- `GEMINI_TTS_API_KEY` / `GEMINI_TTS_BASE_URL` / `GEMINI_TTS_MODEL` — read-along audiobook TTS, kept separate from the text Gemini config because audio needs the **native** generateContent API (an OpenAI-compatible text proxy usually does not serve it). `GEMINI_TTS_API_KEY` falls back to `GEMINI_API_KEY` if unset; leave `GEMINI_TTS_BASE_URL` empty to call Google directly, or point it at a proxy that serves the native Gemini TTS endpoint; `GEMINI_TTS_MODEL` defaults to `gemini-2.5-pro-preview-tts`.
 - `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` — Claude API (graphic novel script planning)
 - `OPENAI_API_KEY` / `OPENAI_BASE_URL` — OpenAI API (GPT-Image-2 image generation)
 - `QWEN_API_KEY` / `QWEN_BASE_URL` — SiliconFlow Qwen3 embeddings

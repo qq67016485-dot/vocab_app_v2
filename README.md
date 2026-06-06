@@ -14,6 +14,7 @@ A K-8 vocabulary learning platform with AI-generated instructional content, adap
 **Instructional Flow**
 - Primer cards with images and syllable breakdowns
 - Graphic novel reader (16:9 landscape pages with vocabulary overlay)
+- Read-along audiobook: per-page narrated audio generated on demand via Gemini TTS (admin-triggered)
 - Cloze quiz (fill-in-the-blank) for comprehension check
 - Pack completion tracking before words enter practice
 
@@ -101,6 +102,9 @@ pytest
 | `ALLOWED_HOSTS` | Comma-separated allowed hosts |
 | `GEMINI_API_KEY` | Gemini API key (text generation; also used as auth when routing through `GEMINI_BASE_URL`) |
 | `GEMINI_BASE_URL` | Optional — OpenAI-compatible proxy URL for Gemini (e.g., `https://api.b.ai/v1`). When set, `call_gemini` uses the OpenAI SDK against this base URL. |
+| `GEMINI_TTS_API_KEY` | Optional — API key for read-along audiobook TTS. Falls back to `GEMINI_API_KEY` if unset. |
+| `GEMINI_TTS_BASE_URL` | Optional — proxy that serves the **native** Gemini TTS (`generateContent` audio) endpoint. Leave empty to call Google directly. Kept separate from `GEMINI_BASE_URL` because an OpenAI-compatible text proxy usually does not serve audio. |
+| `GEMINI_TTS_MODEL` | Optional — TTS model name (default `gemini-2.5-pro-preview-tts`). |
 | `ANTHROPIC_API_KEY` | Anthropic API key (reserved for fallback / future Claude steps) |
 | `ANTHROPIC_BASE_URL` | Optional proxy URL for Anthropic API |
 | `OPENAI_API_KEY` | OpenAI API key (image generation) |

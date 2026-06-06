@@ -2,6 +2,13 @@
 
 All notable changes to Vocab App V2 are documented in this file.
 
+## [Unreleased] - 2026-06-07 (audiobook: dedicated TTS endpoint config + verified working)
+
+### Fixed — TTS Routing Uses Dedicated `GEMINI_TTS_*` Settings
+- The initial audiobook commit (below) read `settings.GEMINI_API_KEY`, which is **empty** in this deployment — the real Gemini key lives in the LLM Config Matrix (`GEMINI_API_KEY_Vector`), and audio modality needs the **native** generateContent API that an OpenAI-compatible text proxy does not serve. First live run failed with "GEMINI_API_KEY is not configured".
+- Added dedicated, independently-configurable settings (`config/settings.py`, `.env.example`): `GEMINI_TTS_API_KEY` (falls back to `GEMINI_API_KEY`), `GEMINI_TTS_BASE_URL` (passed into the native `genai.Client` via `HttpOptions(base_url=...)`; empty = call Google directly), `GEMINI_TTS_MODEL` (default `gemini-2.5-pro-preview-tts`). `tts_client._client()` builds the client from these.
+- **Verified working end-to-end**: novel 50 generated 6/6 pages through the Vector TTS proxy; output confirmed PCM 24kHz/16-bit/mono. The phase-1 "manual smoke test still pending" caveat below is now resolved.
+
 ## [Unreleased] - 2026-06-07 (graphic novel: read-along audiobook pipeline, phase 1)
 
 ### Added — On-Demand Per-Page Read-Along Audio (Gemini TTS)
