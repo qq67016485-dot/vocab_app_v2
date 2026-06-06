@@ -1,8 +1,19 @@
 # Lexi Legends Audiobook Production Bible
 
 Status: Phase 1-2 production companion
-Canonical sources: `lexi-legends-setting-bible.md`, `lexi-legends-cast-bible.md`, age-specific character sheets under `runtime_canon/lexi_legends/cast/`, and setting script sheets under `runtime_canon/lexi_legends/settings/`
+Canonical sources: `docs/feature_plan/lexi-legends-setting-bible.md`, `backend/data/canon/lexi-legends-cast-bible.md`, the per-hero image sheets in `backend/data/canon/script-character-sheets.md`, and the team-selection summaries in `backend/data/canon/team-selector-summaries.md`
 Created: 2026-05-20
+Last updated: 2026-06-07 — synced to current canon (Folio and Shades removed; cast is Leo, Amara, Mei, Hugo; Ink VFX replaced by Lexi Mini summons; provider decided)
+
+## Canon Changes Since Creation (read first)
+
+This bible was written on 2026-05-20. The graphic novel pipeline has since changed in ways that affect audio. The sections below have been updated to match, but the headline changes are:
+
+- **Folio is gone.** The origami-owl guide is no longer part of canon. All Folio voice direction, the `folio` speaker type, and Folio pronunciation entries have been removed. Vocabulary clarification now happens only through the script itself (a hero's dialogue/narration), never a separate guide voice.
+- **Shades are gone.** The antagonist "Shade" concept was removed. Shade ambience/SFX and the "don't make Shades sound like horror" rule no longer apply.
+- **Cast is exactly four heroes:** Leo, Amara, Mei, Hugo (`canon_service.LEXI_CHARACTERS`). Their voice profiles below are current.
+- **Ink VFX → Lexi Mini summons.** Writing a vocab word with a hero's tool can summon a temporary creature that acts out the word's meaning (hard cap 0–1 per story). Minis are *silent visual* events — they have no dialogue and are not voiced. Tools: Leo = cyan wax crayon, Amara = golden quill, Mei = multicolor marker, Hugo = orange carpenter's pencil.
+- **Page format is 5 or 6 pages,** chosen deterministically from the pack's word count (>4 words → 6 pages). `GraphicNovel.Channel` is `FIVE_PAGE`/`SIX_PAGE`; `metadata['page_count']` records the length. Audio is generated per stored page.
 
 ## Purpose
 
@@ -12,7 +23,9 @@ The goal is not flat text-to-speech. The goal is clear pronunciation, expressive
 
 ## Current Provider Note
 
-Provider details must be re-verified when implementation begins. As of 2026-05-20, Google's official Gemini speech generation docs describe controllable native TTS for audiobook-style use, list Gemini 2.5 Flash Preview TTS and Gemini 2.5 Pro Preview TTS as supported TTS models, and note that multi-speaker TTS supports up to 2 speakers per request.
+Selected provider/model (2026-06-07): **Gemini 2.5 Pro Preview TTS** (`gemini-2.5-pro-preview-tts`) for the read-along audio. Google's Gemini speech-generation docs describe controllable native TTS suitable for audiobook-style use, list Gemini 2.5 Flash Preview TTS and Gemini 2.5 Pro Preview TTS as supported TTS models, and note that multi-speaker TTS supports **up to 2 speakers per request** (see the two-speaker strategy in Micro-Segmentation Workflow). Re-verify model name, voice list, and the 2-speaker limit against the current docs at implementation time, since preview models change.
+
+The project already routes Gemini through `vocabulary/services/llm_service.py` (`call_gemini`), with optional `GEMINI_BASE_URL` proxy support; the TTS path can follow the same key/proxy resolution. Note that `call_gemini` is JSON-only — TTS will need its own audio-returning call path, not the existing text wrapper.
 
 Reference: https://ai.google.dev/gemini-api/docs/speech-generation
 
@@ -37,23 +50,25 @@ Do not produce:
 
 ## Source Of Truth
 
-All audiobook text should derive from `GraphicNovel` and `GraphicNovelPage` metadata:
-- `GraphicNovel.title`
-- `GraphicNovel.synopsis`
-- `GraphicNovel.characters`
-- `GraphicNovel.style_prompt`
-- `GraphicNovelPage.page_number`
-- `GraphicNovelPage.panel_count`
-- `GraphicNovelPage.layout_description`
-- `GraphicNovelPage.panel_descriptions`
-- Each panel's `scene_description`
-- Each panel's `narration`
-- Each panel's `dialogue`
-- Each panel's `vocab_words`
-- `GraphicNovelPage.vocab_words_used`
-- `GraphicNovelPage.is_review_page`
+All audiobook text should derive from `GraphicNovel` and `GraphicNovelPage` rows (verified against the live schema, `vocabulary/models.py`):
 
-The audio system may add direction, pauses, ambience, and emotional tags, but it should not invent new plot content or change the transcript.
+`GraphicNovel`:
+- `title`
+- `synopsis`
+- `characters` (list of `{name, visual_description}`)
+- `style_prompt`
+- `metadata` (e.g. `age_band` = `'9yo'` / `'12yo'`, `away_team`, `page_count`, `vault_framing`, `review_artifact_type`)
+
+`GraphicNovelPage`:
+- `page_number`
+- `panel_count`
+- `layout_description`
+- `panel_descriptions` — the per-panel list; **this is the spoken-text source.** Each entry holds: `panel_number`, `narration`, `dialogue` (list of `{speaker, text}`), `vocab_words`, `scene_description`, `alt_text`, and an optional `vocab_highlight_note`.
+- `characters_featured`
+- `vocab_words_used`
+- `is_review_page`
+
+Note the audio system reads `dialogue[*].speaker` / `dialogue[*].text` and `narration` straight from `panel_descriptions` — those fields match the final-script artifact verbatim, so no OCR of the rendered images is needed. The audio system may add direction, pauses, ambience, and emotional tags, but it must not invent new plot content or change the transcript.
 
 ## Age Presentation Audio Rules
 
@@ -132,10 +147,11 @@ Suggested speech event fields:
 
 Speaker types:
 - `narrator`
-- `recurring_hero`
-- `folio`
+- `recurring_hero` (Leo, Amara, Mei, Hugo)
 - `story_specific_character`
 - `ambient_or_sfx`
+
+A Lexi Mini summon is a silent visual creature, not a speaker — it never produces a speech event. Any spoken line during a summon belongs to a hero or narrator.
 
 ## Audio Director Prompt Structure
 
@@ -279,29 +295,6 @@ Vocabulary performance:
 - Hugo is the best model for struggling productively with a word.
 - If he asks for clarification, the tone should normalize learning, not embarrassment.
 
-### Folio
-
-Core voice:
-- Small, warm, precise, encouraging.
-- A guide voice, not a lecturer.
-- Can be gently witty.
-
-Folio (9 years old):
-- Brighter, friendlier, a little chirpy but not silly.
-- Short definitions and nudges should feel safe and encouraging.
-- Emotional range: helpful, delighted, alert, reassuring.
-- Performance tags: `[brightly]`, `[gentle hint]`, `[soft chime]`, `[encouraging]`.
-
-Folio (12 years old):
-- Cleaner, more field-guide-like, quietly clever.
-- Can be concise and dry in a friendly way.
-- Emotional range: observant, calm, lightly amused, precise.
-- Performance tags: `[precise]`, `[quietly amused]`, `[field-note tone]`, `[low warning]`.
-
-Vocabulary performance:
-- Folio may clarify pronunciation or definition briefly when the script supports it.
-- Folio should not define every word in a lecture style.
-
 ## Story-Specific Character Voices
 
 Story-specific characters may have distinct voices, but their profiles should stay simple.
@@ -326,18 +319,15 @@ Use clear American English pronunciation unless a future pack explicitly chooses
 
 - Lexi Legends: LEK-see LEH-jends
 - The Vault: thuh VAWLT
-- Folio: FOH-lee-oh
 - Leo: LEE-oh
 - Amara: ah-MAH-rah
-- Mei: Mei
+- Mei: MAY
 - Hugo: HYOO-goh
-- Shade: SHAYD
-- Shades: SHAYDZ
 - Ink: INK
+- Lexi Mini: LEK-see MIN-ee
+- Lexi Minis: LEK-see MIN-eez
 - Story Realm: STOH-ree RELM
 - Story Realms: STOH-ree RELMZ
-- Lexi Monster: LEK-see MON-ster
-- Lexi Monsters: LEK-see MON-sterz
 
 Vocabulary pronunciation:
 - Target words should be pronounced clearly the first time they appear.
@@ -352,8 +342,7 @@ Allowed:
 - Soft room tone.
 - Gentle Vault ambience: soft page turns, low catalog-line hum, subtle platform glow, quiet page-screen shimmer, faint upper-dome paper-light shimmer.
 - Realm ambience: market murmur, rain, distant crowd, wind, machine hum, water, footsteps.
-- Ink effects: soft spray shimmer, quill sparkle, multicolor marker whoosh, broad paintbrush glow, paper-light chime.
-- Shade effects when present: light static, soft smudge sound, muffled word fade.
+- Lexi Mini summon effects (only when a summon actually occurs, 0–1 per story): a soft Ink-bloom shimmer as the creature forms and a gentle dissolve as it fades — matched to the hero's tool (Leo's cyan crayon, Amara's golden quill, Mei's multicolor marker, Hugo's orange carpenter's pencil). Keep these under any spoken line; never let a summon sound cover a vocabulary word.
 
 Avoid:
 - Loud music over speech.
@@ -374,7 +363,7 @@ Rules:
 - Target words should be cleanly pronounced.
 - Emotional delivery should reinforce meaning when natural.
 - Do not over-enunciate every target word like a drill.
-- Do not add definitions unless they are part of the script or Folio's scripted guidance.
+- Do not add definitions unless they are already part of the script (e.g. an in-context appositive a hero speaks).
 - Use performance to carry meaning: if a character says "wheeze," the breath can be strained, but the word must still be clear.
 
 Useful techniques:
@@ -442,7 +431,7 @@ Produce an immersive read-along audiobook for a Lexi Legends graphic novel. Use 
 
 ### VOICE_PROFILE_CANON
 
-Narrator: warm, clear, emotionally present, never test-like. Leo: bright, creative, energetic, friendly; 9 years old is openly excited, 12 years old is witty and intentional. Amara: thoughtful, precise, calm; 9 years old is curious and careful, 12 years old is composed and subtly dry. Mei: fast, alert, kinetic, and route-smart; 9 years old is reactive and energetic, 12 years old is tactical, controlled, and aware of who can follow the signal. Hugo: gentle, grounded, practical, and builder-minded; 9 years old is careful and a little self-conscious, 12 years old is steady, test-oriented, and quietly confident. Folio: small, warm, precise guide; 9 years old is bright and encouraging, 12 years old is field-guide-like and quietly clever.
+Narrator: warm, clear, emotionally present, never test-like. Leo: bright, creative, energetic, friendly; 9 years old is openly excited, 12 years old is witty and intentional. Amara: thoughtful, precise, calm; 9 years old is curious and careful, 12 years old is composed and subtly dry. Mei: fast, alert, kinetic, and route-smart; 9 years old is reactive and energetic, 12 years old is tactical, controlled, and aware of who can follow the signal. Hugo: gentle, grounded, practical, and builder-minded; 9 years old is careful and a little self-conscious, 12 years old is steady, test-oriented, and quietly confident.
 
 ### AUDIO_DIRECTOR_PROMPT_TEMPLATE
 
@@ -474,7 +463,7 @@ Use 0.2 to 0.4 seconds between dialogue turns, 0.4 to 0.7 seconds after narratio
 
 ### SAFETY_AND_QUALITY_RULES
 
-Do not add unscripted plot content. Do not mock accents. Do not use loud effects over speech. Do not make Shades sound like horror. Do not make Folio lecture. Do not rush target vocabulary. Do not use background music or ambience that reduces intelligibility.
+Do not add unscripted plot content. Do not mock accents. Do not use loud effects over speech. Do not rush target vocabulary. Do not use background music or ambience that reduces intelligibility. Do not voice a Lexi Mini — summons are silent visual events.
 
 ## Production Acceptance Checklist
 
