@@ -81,6 +81,11 @@ urlpatterns = [
     path('graphic-novel-pages/<int:page_id>/image-status/', generation_views.GraphicNovelPageImageStatusView.as_view(), name='graphic-novel-page-image-status'),
     path('graphic-novel-pages/<int:page_id>/select-image/', generation_views.SelectGraphicNovelPageImageView.as_view(), name='graphic-novel-page-select-image'),
 
+    # Graphic novel read-along audio (Admin only)
+    path('graphic-novels/<int:novel_id>/generate-audio/', generation_views.GenerateGraphicNovelAudioView.as_view(), name='graphic-novel-generate-audio'),
+    path('graphic-novels/<int:novel_id>/audio-status/', generation_views.GraphicNovelAudioStatusView.as_view(), name='graphic-novel-audio-status'),
+    path('graphic-novel-pages/<int:page_id>/regenerate-audio/', generation_views.RegenerateGraphicNovelPageAudioView.as_view(), name='graphic-novel-page-regenerate-audio'),
+
     # LLM Configuration (Admin only)
     path('admin/llm-config-sets/', llm_config_views.LLMConfigSetsView.as_view(), name='llm-config-sets'),
     path('admin/llm-config-sets/<int:pk>/', llm_config_views.LLMConfigSetDetailView.as_view(), name='llm-config-set-detail'),

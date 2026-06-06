@@ -10,7 +10,7 @@ const EDIT_POLL_INTERVAL = 10000;
  * separate `edited_image` and exposes both URLs. The admin can flip between
  * the original and edited variant; whichever is selected is what students see.
  */
-export default function GraphicNovelPageEditor({ page, onUpdated }) {
+export default function GraphicNovelPageEditor({ page, audioUrl, onUpdated }) {
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
@@ -138,6 +138,10 @@ export default function GraphicNovelPageEditor({ page, onUpdated }) {
         <div className="t-hint" style={{ aspectRatio: '16 / 9', display: 'grid', placeItems: 'center', background: 'var(--t-surface-muted)', borderRadius: 4, marginBottom: 4 }}>Image pending</div>
       )}
       <div style={{ fontSize: '0.78rem' }}>Page {page.page_number} · {page.panel_count} panel{page.panel_count === 1 ? '' : 's'}</div>
+
+      {audioUrl && (
+        <audio controls src={audioUrl} style={{ width: '100%', marginTop: 4, height: 28 }} />
+      )}
       <div
         style={{ fontSize: '0.75rem', color: status === 'FAILED' ? 'var(--t-danger)' : 'var(--t-text-secondary)' }}
         title={page.generation_error || ''}

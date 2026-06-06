@@ -17,7 +17,7 @@ STALE_JOB_THRESHOLD_SECONDS = 1800
 from ..models import (
     GenerationJob, GenerationJobLog, WordSet,
     WordPack, PrimerCardContent, MicroStory, ClozeItem, Question,
-    GraphicNovelPage,
+    GraphicNovelPage, GraphicNovel, GraphicNovelPageAudio,
 )
 from ..permissions import IsAdmin
 from ..services.generation_pipeline_service import (
@@ -1050,9 +1050,176 @@ class SelectGraphicNovelPageImageView(APIView):
         ))
 
 
+def _audio_row_payload(page):
+    """Serialize a page's audio state for the status poll."""
+    audio = getattr(page, 'audio', None)
+    return {
+        'page_id': page.id,
+        'page_number': page.page_number,
+        'is_review_page': page.is_review_page,
+        'status': audio.status if audio else GraphicNovelPageAudio.Status.PENDING,
+        'audio_url': audio.audio.url if (audio and audio.audio) else '',
+        'duration_ms': audio.duration_ms if audio else 0,
+        'error': audio.error if audio else '',
+    }
+
+
+def _run_novel_audio(novel_id, regenerate):
+    """Background worker: generate read-along audio for a whole novel.
+
+    Runs in a daemon thread so the request worker is freed during the slow TTS
+    calls. Per-page terminal state is recorded on each GraphicNovelPageAudio row
+    for the frontend to poll.
+    """
+    from ..services.audiobook.generator import generate_novel_audio
+    from ..services.generation.helpers import _close_old_connections_if_safe
+
+    _close_old_connections_if_safe()
+    try:
+        generate_novel_audio(novel_id, regenerate=regenerate)
+    finally:
+        _close_old_connections_if_safe()
+
+
+def _run_page_audio(page_id):
+    """Background worker: (re)generate read-along audio for a single page."""
+    from ..services.audiobook.generator import generate_page_audio, _mark_failed
+    from ..services.generation.helpers import _close_old_connections_if_safe
+
+    _close_old_connections_if_safe()
+    try:
+        try:
+            page = GraphicNovelPage.objects.select_related('novel').get(id=page_id)
+        except GraphicNovelPage.DoesNotExist:
+            return
+        try:
+            generate_page_audio(page)
+        except Exception as exc:  # noqa: BLE001 - record failure for the admin to see
+            _mark_failed(page, exc)
+    finally:
+        _close_old_connections_if_safe()
+
+
+class GenerateGraphicNovelAudioView(APIView):
+    """
+    POST /api/graphic-novels/{novel_id}/generate-audio/  {"regenerate": bool}
+
+    Kick off read-along audio generation for every story page of a novel.
+    Validates synchronously, then runs the slow TTS work in a background thread
+    (202 + poll `audio-status/`). 409 if a run is already in progress.
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, novel_id):
+        regenerate = _parse_bool(request.data.get('regenerate', False))
+
+        try:
+            novel = GraphicNovel.objects.get(id=novel_id)
+        except GraphicNovel.DoesNotExist:
+            return Response(
+                {'error': 'Graphic novel not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        pages = list(
+            GraphicNovelPage.objects
+            .filter(novel=novel, is_review_page=False)
+            .select_related('audio')
+            .order_by('page_number')
+        )
+        if not pages:
+            return Response(
+                {'error': 'This novel has no story pages to narrate.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if any(
+            getattr(p, 'audio', None)
+            and p.audio.status == GraphicNovelPageAudio.Status.RUNNING
+            for p in pages
+        ):
+            return Response(
+                {'error': 'Audio generation is already in progress for this novel.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        thread = threading.Thread(
+            target=_run_novel_audio, args=(novel_id, regenerate), daemon=True,
+        )
+        thread.start()
+
+        return Response(
+            {
+                'novel_id': novel_id,
+                'message': 'Audio generation started.',
+                'pages': [_audio_row_payload(p) for p in pages],
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class RegenerateGraphicNovelPageAudioView(APIView):
+    """
+    POST /api/graphic-novel-pages/{page_id}/regenerate-audio/
+
+    Re-run audio generation for a single page (e.g. after fixing a bad take).
+    Async like the novel-level trigger; 409 if this page is already running.
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, page_id):
+        try:
+            page = GraphicNovelPage.objects.select_related('novel', 'audio').get(id=page_id)
+        except GraphicNovelPage.DoesNotExist:
+            return Response(
+                {'error': 'Graphic novel page not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        audio = getattr(page, 'audio', None)
+        if audio and audio.status == GraphicNovelPageAudio.Status.RUNNING:
+            return Response(
+                {'error': 'Audio generation is already in progress for this page.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        thread = threading.Thread(target=_run_page_audio, args=(page_id,), daemon=True)
+        thread.start()
+
+        return Response(
+            _audio_row_payload(page) | {'message': 'Audio generation started.'},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class GraphicNovelAudioStatusView(APIView):
+    """
+    GET /api/graphic-novels/{novel_id}/audio-status/
+
+    Poll target for audio generation. Returns per-page audio state so the admin
+    UI can detect COMPLETED/FAILED and surface the playable URLs.
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def get(self, request, novel_id):
+        if not GraphicNovel.objects.filter(id=novel_id).exists():
+            return Response(
+                {'error': 'Graphic novel not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        pages = (
+            GraphicNovelPage.objects
+            .filter(novel_id=novel_id, is_review_page=False)
+            .select_related('audio')
+            .order_by('page_number')
+        )
+        return Response({
+            'novel_id': novel_id,
+            'pages': [_audio_row_payload(p) for p in pages],
+        })
+
+
 def _next_resume_step(last_completed_step):
-    if not last_completed_step:
-        return PIPELINE_STEP_ORDER[0]
     try:
         return PIPELINE_STEP_ORDER[PIPELINE_STEP_ORDER.index(last_completed_step) + 1]
     except ValueError:

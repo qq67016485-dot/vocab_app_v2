@@ -2,6 +2,21 @@
 
 All notable changes to Vocab App V2 are documented in this file.
 
+## [Unreleased] - 2026-06-07 (graphic novel: read-along audiobook pipeline, phase 1)
+
+### Added — On-Demand Per-Page Read-Along Audio (Gemini TTS)
+- Goal: generate a read-along audio track for a completed graphic novel — **one stitched audio file per page** — on demand, using `gemini-2.5-pro-preview-tts`. Phase 1 delivers backend generation + storage + admin trigger/poll + serving the URL to students. The production rules live in `docs/feature_plan/lexi-legends-audiobook-production-bible.md`; the design in `docs/feature_plan/audiobook-pipeline-implementation-plan.md`.
+- **Decisions**: separate **on-demand** job (not a 9th pipeline step); **per-event single-voice** TTS calls (one narration box or one dialogue line each), stitched with pauses; no per-event timing metadata yet.
+- **Model** (`models.py`): new `GraphicNovelPageAudio` (OneToOne → `GraphicNovelPage`): `audio` (WAV FileField), `duration_ms`, `voice_manifest` (per-event voice assignments for debug/regen), `status` PENDING/RUNNING/COMPLETED/FAILED, `attempts`, `error`, timestamps. Migration `0032_graphicnovelpageaudio`. Kept separate from the page so audio is fully optional/regenerable and never touches image rows.
+- **Service package** `services/audiobook/`: `constants.py` (voice map, age style prefixes, pause timings, PCM format), `events.py` (`build_page_events` — pure, walks `panel_descriptions` into ordered speech events with pauses), `voices.py` (`voice_for` — stable hero map + deterministic supporting-pool fallback by name hash; narrator varies by `age_band`), `tts_client.py` (isolated native `genai.Client` TTS call — the project's GEMINI_BASE_URL proxy can't do audio; parses sample rate from the response mime type; retries once), `stitch.py` (stdlib `wave` only — concat PCM + insert silence → one WAV; **no ffmpeg/pydub on the box**), `generator.py` (`generate_page_audio` / `generate_novel_audio` — continue-on-failure per page like the image step; skips the review page and already-COMPLETED pages unless `regenerate`).
+- **Source of truth**: spoken text is read verbatim from `GraphicNovelPage.panel_descriptions` (`narration` + `dialogue[].speaker/.text`), confirmed to match the rendered images — no OCR.
+- **Views/URLs** (`generation_views.py`, `urls.py`, admin-only, mirror the async edit-image pattern): `POST /api/graphic-novels/<novel_id>/generate-audio/` (`{regenerate}`) → **202** + daemon thread (409 if already RUNNING); `GET /api/graphic-novels/<novel_id>/audio-status/` poll target (per-page status + URLs); `POST /api/graphic-novel-pages/<page_id>/regenerate-audio/` for a single page.
+- **Student serving** (`instructional_service.py`): each graphic-novel page in the student payload now carries `audio_url` (the COMPLETED audio's URL, else `''`); added `graphic_novels__pages__audio` to the prefetch.
+- **Admin UI** (`pages/admin/GenerationReview.jsx`, `components/generation/GraphicNovelPageEditor.jsx`): a "Generate audio" / "Regen audio" button per novel with a 5s status poller, and an `<audio controls>` player on each page card when audio exists.
+
+### Test
+- `tests/vocabulary/test_audiobook.py` (new, **30 passed**): `build_page_events` ordering + pause assignment + age-band defaults; `voice_for` determinism + hero/supporting resolution; `stitch_pcm`/`silence_pcm` length math via `wave` round-trip; generator with a mocked TTS client (all-completed, skip-completed, regenerate, per-page failure isolation); view status codes (202 / 404 / 409 / status poll). Real-key TTS smoke test is manual (documented, not in CI) — the one assumption not verifiable offline (PCM 24kHz/16-bit/mono + voice quality).
+
 ## [Unreleased] - 2026-06-06 (LLM config: 3 selectable configuration sets)
 
 ### Added — Three LLM Config Sets With One Active

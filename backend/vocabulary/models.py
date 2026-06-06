@@ -589,6 +589,41 @@ class GraphicNovelPage(models.Model):
         return self.image_jpeg or self.image
 
 
+class GraphicNovelPageAudio(models.Model):
+    """Stitched read-along audio for one graphic novel page (generated on demand)."""
+
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', 'Pending'
+        RUNNING = 'RUNNING', 'Running'
+        COMPLETED = 'COMPLETED', 'Completed'
+        FAILED = 'FAILED', 'Failed'
+
+    page = models.OneToOneField(
+        GraphicNovelPage, on_delete=models.CASCADE, related_name='audio',
+    )
+    audio = models.FileField(
+        upload_to='graphic_novel_audio/', blank=True,
+        help_text='Stitched WAV file for the page read-along.',
+    )
+    duration_ms = models.IntegerField(default=0)
+    voice_manifest = models.JSONField(
+        default=dict, blank=True,
+        help_text='Per-event voice assignments used during generation, for debugging / regen.',
+    )
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING,
+    )
+    attempts = models.IntegerField(default=0)
+    error = models.TextField(blank=True, default='')
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Audio for {self.page}"
+
+
 class ClozeItem(models.Model):
     pack = models.ForeignKey(WordPack, on_delete=models.CASCADE, related_name='cloze_items')
     word = models.ForeignKey(Word, on_delete=models.CASCADE, related_name='cloze_items')

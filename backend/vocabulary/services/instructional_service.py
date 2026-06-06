@@ -17,7 +17,7 @@ from django.utils import timezone
 from vocabulary.models import (
     WordPack, WordPackItem, PrimerCardContent, MicroStory, ClozeItem,
     StudentPackCompletion, StudentWordSetAssignment, UserWordProgress,
-    GraphicNovel,
+    GraphicNovel, GraphicNovelPageAudio,
 )
 from vocabulary.utils import get_definition_translations
 
@@ -37,6 +37,7 @@ class InstructionalService:
                 'cloze_items__word',
                 'stories',
                 'graphic_novels__pages',
+                'graphic_novels__pages__audio',
             ).get(id=pack_id)
         except WordPack.DoesNotExist:
             raise ValueError("Pack not found.")
@@ -79,9 +80,15 @@ class InstructionalService:
         if graphic_novel:
             pages_data = []
             for page in graphic_novel.pages.all():
+                audio = getattr(page, 'audio', None)
+                audio_url = ''
+                if (audio and audio.audio
+                        and audio.status == GraphicNovelPageAudio.Status.COMPLETED):
+                    audio_url = audio.audio.url
                 pages_data.append({
                     'page_number': page.page_number,
                     'image_url': page.student_image.url if page.student_image else '',
+                    'audio_url': audio_url,
                     'panel_count': page.panel_count,
                     'layout_description': page.layout_description,
                     'panel_descriptions': page.panel_descriptions,
