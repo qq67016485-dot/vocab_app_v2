@@ -14,7 +14,8 @@ from rest_framework.test import APIClient
 
 from vocabulary.models import GraphicNovel, GraphicNovelPage, GraphicNovelPageAudio
 from vocabulary.services.audiobook.constants import (
-    DEFAULT_AGE_BAND, HERO_VOICES, NARRATOR_VOICE_BY_AGE,
+    DEFAULT_AGE_BAND, HERO_VOICES, NARRATOR_VOICE_FEMALE, NARRATOR_VOICE_MALE,
+    NARRATOR_VOICE_DEFAULT,
     PAUSE_AFTER_DIALOGUE_MS, PAUSE_AFTER_NARRATION_MS, PAUSE_PAGE_END_MS,
     PAUSE_BETWEEN_PANELS_MS,
 )
@@ -27,10 +28,11 @@ from vocabulary.services.audiobook.voices import voice_for
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_novel(metadata=None):
+def _make_novel(metadata=None, characters=None):
     novel = MagicMock(spec=GraphicNovel)
     novel.metadata = metadata or {'age_band': '9yo'}
     novel.title = 'Test Novel'
+    novel.characters = characters or []
     return novel
 
 
@@ -149,13 +151,21 @@ class TestBuildPageEvents:
 # ---------------------------------------------------------------------------
 
 class TestVoiceFor:
-    def test_narrator_9yo(self):
-        novel = _make_novel({'age_band': '9yo'})
-        assert voice_for('narrator', novel) == NARRATOR_VOICE_BY_AGE['9yo']
+    def test_narrator_female_team_uses_male_narrator(self):
+        novel = _make_novel({'age_band': '9yo', 'away_team': ['Amara']})
+        assert voice_for('narrator', novel) == NARRATOR_VOICE_MALE
 
-    def test_narrator_12yo(self):
-        novel = _make_novel({'age_band': '12yo'})
-        assert voice_for('narrator', novel) == NARRATOR_VOICE_BY_AGE['12yo']
+    def test_narrator_male_team_uses_female_narrator(self):
+        novel = _make_novel({'age_band': '9yo', 'away_team': ['Hugo']})
+        assert voice_for('narrator', novel) == NARRATOR_VOICE_FEMALE
+
+    def test_narrator_mixed_team_uses_male_narrator(self):
+        novel = _make_novel({'age_band': '9yo', 'away_team': ['Leo', 'Mei']})
+        assert voice_for('narrator', novel) == NARRATOR_VOICE_MALE
+
+    def test_narrator_unknown_team_uses_default(self):
+        novel = _make_novel({'age_band': '9yo'})
+        assert voice_for('narrator', novel) == NARRATOR_VOICE_DEFAULT
 
     def test_hero_amara(self):
         assert voice_for('Amara', _make_novel()) == HERO_VOICES['amara']
@@ -174,6 +184,80 @@ class TestVoiceFor:
         # Not guaranteed to differ but high probability; just check no crash
         voice_for('Speaker A', novel)
         voice_for('Speaker B', novel)
+
+    def test_male_secondary_uses_male_pool(self):
+        from vocabulary.services.audiobook.constants import SUPPORTING_VOICE_POOL_MALE
+        novel = _make_novel(characters=[{'name': 'Toby', 'gender': 'male'}])
+        assert voice_for('Toby', novel) in SUPPORTING_VOICE_POOL_MALE
+
+    def test_female_secondary_uses_female_pool(self):
+        from vocabulary.services.audiobook.constants import SUPPORTING_VOICE_POOL_FEMALE
+        novel = _make_novel(characters=[{'name': 'Nadia', 'gender': 'female'}])
+        assert voice_for('Nadia', novel) in SUPPORTING_VOICE_POOL_FEMALE
+
+    def test_secondary_gender_is_stable(self):
+        novel = _make_novel(characters=[{'name': 'Toby', 'gender': 'male'}])
+        assert voice_for('Toby', novel) == voice_for('Toby', novel)
+
+    def test_unlabeled_secondary_uses_combined_pool(self):
+        from vocabulary.services.audiobook.constants import SUPPORTING_VOICE_POOL
+        novel = _make_novel(characters=[{'name': 'Toby', 'visual_description': 'A boy.'}])
+        assert voice_for('Toby', novel) in SUPPORTING_VOICE_POOL
+
+    def test_neutral_gender_falls_back_to_combined_pool(self):
+        from vocabulary.services.audiobook.constants import SUPPORTING_VOICE_POOL
+        novel = _make_novel(characters=[{'name': 'Sprite', 'gender': 'neutral'}])
+        assert voice_for('Sprite', novel) in SUPPORTING_VOICE_POOL
+
+
+# ---------------------------------------------------------------------------
+# voice_director.py — gender in events payload
+# ---------------------------------------------------------------------------
+
+class TestVoiceDirectorEventsPayload:
+    def test_secondary_gender_attached_to_dialogue_event(self):
+        from vocabulary.services.audiobook.voice_director import _build_events_payload
+        novel = _make_novel(characters=[{'name': 'Toby', 'gender': 'male'}])
+        page = _make_page([{
+            'panel_number': 1,
+            'narration': 'A quiet street.',
+            'dialogue': [{'speaker': 'Toby', 'text': 'Wait for me!'}],
+            'vocab_words': [],
+        }])
+        page.novel = novel
+        rows = _build_events_payload([page], novel)
+        toby = next(r for r in rows if r['speaker'] == 'Toby')
+        assert toby['gender'] == 'male'
+        narration = next(r for r in rows if r['source'] == 'narration')
+        assert 'gender' not in narration  # narrator carries no character gender
+
+    def test_hero_gender_attached_from_canon(self):
+        from vocabulary.services.audiobook.voice_director import _build_events_payload
+        novel = _make_novel()  # no script-provided characters
+        page = _make_page([{
+            'panel_number': 1,
+            'narration': '',
+            'dialogue': [{'speaker': 'Amara', 'text': 'I see it.'}],
+            'vocab_words': [],
+        }])
+        page.novel = novel
+        rows = _build_events_payload([page], novel)
+        amara = next(r for r in rows if r['speaker'] == 'Amara')
+        assert amara['gender'] == 'female'
+
+    def test_unlabeled_secondary_has_no_gender_key(self):
+        from vocabulary.services.audiobook.voice_director import _build_events_payload
+        novel = _make_novel(characters=[{'name': 'Toby'}])
+        page = _make_page([{
+            'panel_number': 1,
+            'narration': '',
+            'dialogue': [{'speaker': 'Toby', 'text': 'Hi.'}],
+            'vocab_words': [],
+        }])
+        page.novel = novel
+        rows = _build_events_payload([page], novel)
+        toby = next(r for r in rows if r['speaker'] == 'Toby')
+        assert 'gender' not in toby
 
 
 # ---------------------------------------------------------------------------
@@ -211,6 +295,32 @@ class TestStitchPcm:
     def test_none_clip_skipped(self):
         _, dur = stitch_pcm([(None, 200)])
         assert dur == 200
+
+
+# ---------------------------------------------------------------------------
+# encode.py (WAV -> MP3)
+# ---------------------------------------------------------------------------
+
+class TestWavToMp3:
+    def test_encodes_to_mp3_and_shrinks(self):
+        from vocabulary.services.audiobook.encode import wav_bytes_to_mp3_bytes
+        # ~1s of silence is enough for the MP3 frame header to appear.
+        wav_bytes, _ = stitch_pcm([(_short_pcm(duration_ms=1000), 0)])
+        mp3_bytes = wav_bytes_to_mp3_bytes(wav_bytes)
+        assert mp3_bytes
+        # MP3 frame sync word (0xFFE) or an ID3 tag at the start.
+        assert mp3_bytes[:3] == b'ID3' or mp3_bytes[0] == 0xFF
+        assert len(mp3_bytes) < len(wav_bytes)
+
+    def test_empty_input_raises(self):
+        from vocabulary.services.audiobook.encode import wav_bytes_to_mp3_bytes
+        with pytest.raises(ValueError):
+            wav_bytes_to_mp3_bytes(b'')
+
+    def test_non_wav_input_raises(self):
+        from vocabulary.services.audiobook.encode import wav_bytes_to_mp3_bytes
+        with pytest.raises(ValueError):
+            wav_bytes_to_mp3_bytes(b'not a wav file at all')
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +381,11 @@ class TestGenerateNovelAudio:
             assert audio.status == GraphicNovelPageAudio.Status.COMPLETED
             assert audio.duration_ms > 0
             assert audio.audio
+            # MP3 companion is generated best-effort alongside the WAV.
+            assert audio.audio_mp3
+            assert audio.audio_mp3.name.endswith('.mp3')
+            # Students get the MP3 via student_audio.
+            assert audio.student_audio.name == audio.audio_mp3.name
 
     @patch('vocabulary.services.audiobook.generator.synthesize', side_effect=_fake_synthesize)
     def test_skips_already_completed(self, _mock, novel_with_pages):

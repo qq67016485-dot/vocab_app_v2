@@ -2,6 +2,53 @@
 
 All notable changes to Vocab App V2 are documented in this file.
 
+## [Unreleased] - 2026-06-08 (audiobook: student playback + MP3 companion)
+
+### Added — Student Read-Along Playback Controls
+- **Frontend** (`frontend/src/components/GraphicNovelReader.jsx`): students can now play the read-along audio while reading a graphic novel. Each page shows a **Listen / Pause** button (only when that page has audio) and an **Auto-read** toggle switch grouped beside it. With auto-read on, a page's audio starts automatically when the student lands on it — the first page and every manual page turn — while still requiring manual page turns (per-page only, no cross-page auto-advance). Audio always stops/resets when the page changes.
+- The Auto-read preference is persisted in `localStorage` (`gnReaderAutoplay`, default **on**) so it carries across pages, packs, and sessions. Toggling the switch mid-page never interrupts audio already playing — it only affects the next page turn (implemented via an `autoplayRef` so the page-change effect reads the latest value without re-firing). The switch renders whenever the novel has any audio; the button only when the current page does. Styles in `frontend/src/styles/graphic-novel-reader.css`.
+- Browser autoplay policy caveat: the very first auto-play when the reader opens may be blocked until a user gesture; a blocked `play()` degrades to the idle "Listen" state, and every subsequent page turn counts as a gesture so those auto-play reliably.
+
+### Added — Compressed MP3 Companion (Students Stream MP3, WAV Stays Source of Truth)
+- The stitched WAV is now converted to a compressed **MP3** (~64 kbps mono, roughly 6× smaller) right after the WAV is saved, mirroring the PNG→JPEG image-companion pattern. The WAV remains the source of truth for admin/review and regeneration; students stream the MP3.
+- **Model** (`models.py`): new `GraphicNovelPageAudio.audio_mp3` FileField (`upload_to='graphic_novel_audio_mp3/'`) + a `student_audio` property returning `audio_mp3 or audio`. Migration `0034_graphicnovelpageaudio_audio_mp3_and_more`.
+- **Encoder** (`services/audiobook/encode.py`): `wav_bytes_to_mp3_bytes()` uses **`lameenc`** — a pure binary-wheel LAME encoder — **not** ffmpeg/pydub, consistent with the "no ffmpeg/pydub on the box" constraint that already governs the WAV stitcher. Reads rate/width/channels from the WAV header; requires 16-bit PCM. Pinned `lameenc==1.8.2` in `requirements.txt`.
+- **Generator** (`services/audiobook/generator.py`): `_save_mp3_companion()` runs after the WAV save **best-effort** — a conversion failure is logged and swallowed, never aborting the WAV (student path falls back to WAV via `student_audio`). `audio_mp3` added to the row's `save(update_fields=...)`.
+- **Student serving** (`instructional_service.py`): the per-page `audio_url` in the student payload now resolves via `audio.student_audio.url` (MP3 preferred). Admin review endpoints unchanged (still serve WAV).
+- **Backfill**: `python manage.py backfill_audio_mp3 [--dry-run]` converts existing COMPLETED WAV rows (idempotent; safely skips non-16-bit-PCM-WAV files). Must be run on **production** after deploy + migrate to give existing audio its MP3 companion (until then those pages fall back to WAV).
+
+### Test
+- `tests/vocabulary/test_audiobook.py`: new `TestWavToMp3` (encode + shrink, empty/non-WAV input raises); `test_all_pages_completed` now asserts the MP3 companion is produced and `student_audio` resolves to it. **43 audiobook / 70 audio+instructional tests pass.**
+
+## [Unreleased] - 2026-06-07 (audiobook: voice reassignment + slow-pace tag fix)
+
+### Changed — Finalized Hero Voices + Gender-Contrasting Narrator
+- Reassigned the prebuilt Gemini TTS voices in `services/audiobook/constants.py` `HERO_VOICES`: **Hugo → Achird**, **Amara → Despina**, **Mei → Zephyr** (Leo stays **Puck**). Supersedes the first-draft picks (Amara=Kore, Mei=Fenrir, Hugo=Aoede).
+- Replaced the age-band narrator (Sulafat 9yo / Charon 12yo) with a **gender-contrast rule** so the narrator never sounds like a hero: any female hero on the team → male narrator **Charon**; an all-male team → female narrator **Aoede**; unknown/empty team → Aoede default. Implemented as `voices.narrator_voice_for(novel)`, reading `novel.metadata['away_team']` against a new `HERO_GENDERS` map (Leo/Hugo male, Amara/Mei female, confirmed from the canon cast sheets). New constants `NARRATOR_VOICE_MALE`/`NARRATOR_VOICE_FEMALE`/`NARRATOR_VOICE_DEFAULT`; `NARRATOR_VOICE_BY_AGE` removed.
+- Voices only change on (re)generation — existing WAVs and `voice_manifest` rows keep their old voices until the page is regenerated.
+
+### Fixed — Voice Director No Longer Slows Lines Down
+- The voice director LLM was tagging some lines with `[slowly]` (e.g. Amara on "The Flowers That Wake at Night" page 4), which Gemini TTS honors literally and which compounds the already-gentle kid-friendly pacing, making delivery drag.
+- **Prompt** (`prompts/audiobook_voice_director.txt`): removed slow-pace tags from the allowed set and added an explicit PACING rule forbidding them (weight should come from emotion tags or the player's between-line pauses, never a slow tag).
+- **Defensive sanitizer** (`voice_director.py`): `_index_directed_events` now runs every directed line through `_strip_slow_tags()`, which removes slow-pace cues (`slowly`, `very slowly`, `one word at a time`, `drawn-out`, `word by word`, …) from inline `[...]` tags — surgically (e.g. `[nervously, very slowly]` → `[nervously]`) and dropping a tag entirely if it becomes empty. Runs on the **read path**, so already-cached director output (this novel and any other) is cleaned without re-running the LLM; emotion tags like `[amazed]` pass through untouched.
+- Tests: `tests/vocabulary/test_audiobook.py` updated for the new narrator rule (female/male/mixed/unknown team cases) — **32 passed**.
+
+## [Unreleased] - 2026-06-07 (audiobook: fix missing play button on review page)
+
+### Fixed — Admin Review Content Endpoints Now Expose `audio_url`
+- After generating read-along audio, the `<audio>` player did not appear on the Generation Review page (`/teacher/generation-jobs/<id>`) until audio was re-triggered, even though the WAVs existed on disk. Root cause: `GenerationJobContentView` and `WordSetContentView` serialized every graphic-novel page field **except** the audio. The frontend player only renders when `audioUrl` is truthy, and on initial load that value comes from `page.audio_url` in the content payload — which was never sent. (The student `instructional_service` payload already carried `audio_url`; only the two **admin review** content endpoints were missing it.)
+- **Backend** (`views/generation_views.py`): added a shared `_graphic_novel_page_review_payload()` helper that includes `audio_url` (the page's `audio` reverse-OneToOne URL when it exists and is `COMPLETED`, else `''`); both content endpoints now use it. Added `graphic_novels__pages__audio` to each endpoint's `prefetch_related` to avoid an N+1 on the audio relation.
+- **Frontend** (`pages/admin/GenerationReview.jsx`): seed `audioState` from the loaded content (`seedAudioFromContent`) so existing per-page players render on first paint and the novel-level button reads "↺ Regen audio" instead of "🔊 Generate audio" without waiting for a poll.
+
+## [Unreleased] - 2026-06-07 (audiobook: voice director LLM step)
+
+### Added — Per-Novel Voice Director (LLM-Directed TTS Performance)
+- Before synthesis, `services/audiobook/voice_director.py` makes **one LLM call per novel** (step key `audiobook_director`, configurable in the LLM Config Matrix). The LLM reads every page's speech events and returns (1) a short Audio Profile + Director's Notes block per speaker and (2) the full transcript with inline Gemini TTS audio tags (`[excitedly]`, `[whispers]`, etc.). Each TTS call then wraps the spoken line in the speaker's profile for richer, differentiated per-character performance.
+- **Caching**: result stored in `novel.metadata['voice_director']` — per-page regeneration reuses the cached output without a new LLM call. Graceful degradation: any director failure falls back to the bare transcript text.
+- **Migration `0033_audiobook_director_step_key`**: adds `audiobook_director` to `LLMStepConfig.StepKey` and seeds one row per config set (cloned from `gn_final_script`). Total step keys: 12.
+- Prompt: `vocabulary/prompts/audiobook_voice_director.txt` (Audio Profile + Director's Notes format per the Gemini TTS prompting guide).
+- `generator.generate_novel_audio` runs the director once before the synthesis loop; `_run_page_audio` in views loads the cached direction before single-page regen. `generate_page_audio` accepts `direction=` and uses per-speaker profiles as the TTS style prefix.
+
 ## [Unreleased] - 2026-06-07 (audiobook: dedicated TTS endpoint config + verified working)
 
 ### Fixed — TTS Routing Uses Dedicated `GEMINI_TTS_*` Settings

@@ -12,10 +12,12 @@ from django.utils import timezone
 
 from vocabulary.models import GraphicNovelPage, GraphicNovelPageAudio
 from vocabulary.services.audiobook import constants as C
+from vocabulary.services.audiobook.encode import wav_bytes_to_mp3_bytes
 from vocabulary.services.audiobook.events import build_page_events
 from vocabulary.services.audiobook.stitch import stitch_pcm
 from vocabulary.services.audiobook.tts_client import synthesize
-from vocabulary.services.audiobook.voices import style_prefix_for, voice_for
+from vocabulary.services.audiobook.voice_director import direct_novel
+from vocabulary.services.audiobook.voices import voice_for
 from vocabulary.services.generation.helpers import _close_old_connections_if_safe
 
 logger = logging.getLogger(__name__)
@@ -28,11 +30,37 @@ def _audio_filename(page):
     return f'{base}_page_{page.page_number}.wav'
 
 
-def generate_page_audio(page):
+def _mp3_filename(page):
+    return _audio_filename(page).rsplit('.', 1)[0] + '.mp3'
+
+
+def _save_mp3_companion(audio_row, page, wav_bytes):
+    """Best-effort: encode the stitched WAV to MP3 and attach it to the row.
+
+    Mirrors the PNG->JPEG companion: the WAV is the source of truth, so a
+    conversion failure is logged and swallowed rather than aborting the audio
+    (the student path falls back to the WAV via `student_audio`).
+    """
+    try:
+        mp3_bytes = wav_bytes_to_mp3_bytes(wav_bytes)
+    except Exception as exc:  # noqa: BLE001 - never let MP3 failure break audio
+        logger.warning(
+            'MP3 conversion failed for novel %s page %s: %s',
+            page.novel_id, page.page_number, exc,
+        )
+        return
+    audio_row.audio_mp3.save(_mp3_filename(page), ContentFile(mp3_bytes), save=False)
+
+
+def generate_page_audio(page, direction=None):
     """Synthesize + stitch one page's audio onto its GraphicNovelPageAudio row.
 
-    Returns the audio row. Raises on synthesis/stitch failure (caller records
-    terminal state). The row is created on demand if missing.
+    `direction` is the dict returned by `direct_novel` (character_profiles +
+    directed_index). When provided, each TTS call gets a rich per-character
+    Audio Profile as its style prefix and uses the director's tagged transcript
+    text. Omit (or pass None) to fall back to the bare original text.
+
+    Returns the audio row. Raises on synthesis/stitch failure.
     """
     audio_row, _ = GraphicNovelPageAudio.objects.get_or_create(page=page)
     audio_row.status = GraphicNovelPageAudio.Status.RUNNING
@@ -45,7 +73,8 @@ def generate_page_audio(page):
     ])
 
     events = build_page_events(page)
-    style_prefix = style_prefix_for(page.novel)
+    profiles = (direction or {}).get('character_profiles', {})
+    directed_index = (direction or {}).get('directed_index', {})
 
     clips_with_pauses = []
     manifest_events = []
@@ -54,9 +83,16 @@ def generate_page_audio(page):
     # Release the DB connection while waiting on the (slow) TTS calls.
     _close_old_connections_if_safe()
     try:
-        for event in events:
+        for idx, event in enumerate(events):
+            speaker_key = event['speaker'].strip().lower()
             voice = voice_for(event['speaker'], page.novel)
-            pcm, rate = synthesize(event['text'], voice, style_prefix)
+            # Director's Audio Profile block becomes the style prefix; fall back
+            # to empty string so synthesize() speaks the text without wrapping.
+            style_prefix = profiles.get(speaker_key, '')
+            directed_text = directed_index.get(
+                (page.page_number, idx), event['text']
+            )
+            pcm, rate = synthesize(directed_text, voice, style_prefix)
             sample_rate = rate  # all clips share the model's rate
             clips_with_pauses.append((pcm, event['pause_after_ms']))
             manifest_events.append({
@@ -65,7 +101,8 @@ def generate_page_audio(page):
                 'voice': voice,
                 'source': event['source'],
                 'panel_number': event['panel_number'],
-                'chars': len(event['text']),
+                'chars': len(directed_text),
+                'directed': bool(directed_index),
             })
     finally:
         _close_old_connections_if_safe()
@@ -73,6 +110,8 @@ def generate_page_audio(page):
     wav_bytes, duration_ms = stitch_pcm(clips_with_pauses, sample_rate=sample_rate)
 
     audio_row.audio.save(_audio_filename(page), ContentFile(wav_bytes), save=False)
+    # Compressed MP3 companion for the student read-along (best-effort).
+    _save_mp3_companion(audio_row, page, wav_bytes)
     audio_row.duration_ms = duration_ms
     audio_row.voice_manifest = {
         'age_band': (page.novel.metadata or {}).get('age_band', C.DEFAULT_AGE_BAND),
@@ -84,7 +123,8 @@ def generate_page_audio(page):
     audio_row.error = ''
     audio_row.completed_at = timezone.now()
     audio_row.save(update_fields=[
-        'audio', 'duration_ms', 'voice_manifest', 'status', 'error', 'completed_at',
+        'audio', 'audio_mp3', 'duration_ms', 'voice_manifest',
+        'status', 'error', 'completed_at',
     ])
     return audio_row
 
@@ -101,8 +141,10 @@ def _mark_failed(page, exc):
 def generate_novel_audio(novel_id, regenerate=False):
     """Generate audio for every story page of a novel. Continue-on-failure.
 
-    Skips the review page (no narration/dialogue). Skips pages that already have
-    COMPLETED audio unless `regenerate` is True. Returns a summary dict.
+    Calls the voice director LLM once for the whole novel before synthesis so
+    every TTS call gets a per-character Audio Profile and tagged transcript.
+    Skips the review page. Skips COMPLETED pages unless `regenerate` is True.
+    Returns a summary dict.
     """
     pages = list(
         GraphicNovelPage.objects
@@ -110,6 +152,10 @@ def generate_novel_audio(novel_id, regenerate=False):
         .select_related('novel')
         .order_by('page_number')
     )
+
+    # Run the voice director once for the whole novel (result cached on novel).
+    novel = pages[0].novel if pages else None
+    direction = direct_novel(novel, pages) if novel else {'character_profiles': {}, 'directed_index': {}}
 
     created, skipped, failed = 0, 0, []
     for page in pages:
@@ -126,7 +172,7 @@ def generate_novel_audio(novel_id, regenerate=False):
             continue
 
         try:
-            generate_page_audio(page)
+            generate_page_audio(page, direction=direction)
             created += 1
         except Exception as exc:  # noqa: BLE001 - isolate per-page failures
             logger.error(

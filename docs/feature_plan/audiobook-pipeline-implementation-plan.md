@@ -20,13 +20,13 @@ This phase delivers backend generation + storage + admin trigger/poll + serving 
 - Async pattern to mirror: `_run_page_image_edit` / `EditGraphicNovelPageImageView` (validate sync → set RUNNING → daemon thread → poll status endpoint). DB hygiene via `_close_old_connections_if_safe`.
 
 ## Voice mapping (prebuilt Gemini voices)
-Stable per-character assignment so a voice never drifts between pages:
-- Narrator: `Sulafat` (warm) for 9yo / `Charon` (informative) for 12yo
+Stable per-character assignment so a voice never drifts between pages (finalized 2026-06-07):
+- Narrator: **gender-contrasts the hero team** so narrator and heroes stay distinct — any female hero on the team → `Charon` (male); an all-male team → `Aoede` (female); unknown/empty team → `Aoede` default. Resolved by `narrator_voice_for()` from `novel.metadata['away_team']` + the `HERO_GENDERS` map (Leo/Hugo male, Amara/Mei female). (Superseded the earlier age-band narrator: Sulafat 9yo / Charon 12yo.)
 - Leo: `Puck` (upbeat)
-- Amara: `Kore` (firm/measured)
-- Mei: `Fenrir` (excitable)
-- Hugo: `Aoede` (breezy-gentle) — candidate; finalize during testing
-- Story-specific speakers: deterministic fallback by hashing the speaker name into a small "supporting voices" pool (e.g. Zephyr, Leda, Orus), so the same character keeps one voice within a novel.
+- Amara: `Despina` (smooth)
+- Mei: `Zephyr` (bright)
+- Hugo: `Achird` (friendly)
+- Story-specific speakers: deterministic fallback by hashing the speaker name into a small "supporting voices" pool (e.g. Leda, Orus, Enceladus), so the same character keeps one voice within a novel.
 Voice table lives in a new `constants.py` block; tone/age is steered via a natural-language style prefix prepended to the line text (the bible's AGE_PRESENTATION rules), not by switching voices.
 
 ## New model: `GraphicNovelPageAudio`
@@ -42,7 +42,7 @@ error         TextField(blank=True, default='')
 started_at / completed_at  DateTimeField(null=True)
 created_at / updated_at
 ```
-Migration `0032_graphic_novel_page_audio`. (WAV is large but fine for phase 1; an MP3/Opus pass can come later once ffmpeg is available — noted, not blocking.)
+Migration `0032_graphic_novel_page_audio`. (The WAV stays the source of truth; a compressed MP3 companion is now generated alongside it via `lameenc` — no ffmpeg required — and served to students. See migration `0034` + the 2026-06-08 CHANGELOG entry.)
 
 ## New service package: `services/audiobook/`
 Keep files small per the repo's house style:
@@ -79,7 +79,9 @@ In `GraphicNovelPageEditor.jsx` (already the per-page admin surface): a "Generat
 - Voice picks (esp. Hugo) are first-draft; finalize in the manual smoke test.
 
 ## Out of scope (phase 1)
-Per-event timing metadata / panel highlight sync, 2-speaker batching, MP3/Opus encoding, auto-advance reader, ambience/SFX layering (the bible's richer production targets are deferred).
+Per-event timing metadata / panel highlight sync, 2-speaker batching, Opus encoding, cross-page auto-advance reader, ambience/SFX layering (the bible's richer production targets are deferred).
+
+> **Update 2026-06-08**: two items originally listed here have since shipped — **MP3 encoding** (the stitched WAV is now compressed to an MP3 companion via `lameenc`, no ffmpeg needed; students stream the MP3 while the WAV stays the source of truth) and **student playback UI** (`GraphicNovelReader.jsx` Listen/Pause button + Auto-read toggle). See the 2026-06-08 CHANGELOG entry.
 
 ## Build order
 1. Model + migration (`GraphicNovelPageAudio`, `0032`).

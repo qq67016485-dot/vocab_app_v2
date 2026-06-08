@@ -17,34 +17,65 @@ PCM_CHANNELS = 1
 
 # --- Voice catalog ----------------------------------------------------------
 # Stable per-character voices so a speaker never drifts between pages. Heroes
-# get fixed picks; the narrator varies by age band. Story-specific speakers
-# fall back to SUPPORTING_VOICE_POOL, assigned deterministically by name.
-NARRATOR_VOICE_BY_AGE = {
-    '9yo': 'Sulafat',   # warm storytelling
-    '12yo': 'Charon',   # informative, more cinematic
-}
-NARRATOR_VOICE_DEFAULT = 'Sulafat'
+# get fixed picks. The narrator is chosen to CONTRAST the hero team's gender so
+# narrator and heroes stay distinct: an all-male team gets the female narrator
+# and any team with a female hero (female-only or mixed) gets the male narrator.
+# Story-specific speakers fall back to SUPPORTING_VOICE_POOL, assigned
+# deterministically by name.
+NARRATOR_VOICE_MALE = 'Charon'     # informative, cinematic
+NARRATOR_VOICE_FEMALE = 'Aoede'    # warm storytelling
+# Used when the hero team is unknown (no away_team metadata / no recognized
+# hero): fall back to the warm storytelling voice.
+NARRATOR_VOICE_DEFAULT = NARRATOR_VOICE_FEMALE
 
 HERO_VOICES = {
-    'leo': 'Puck',      # upbeat
-    'amara': 'Kore',    # firm, measured
-    'mei': 'Fenrir',    # excitable
-    'hugo': 'Aoede',    # breezy, gentle
+    'leo': 'Puck',        # upbeat
+    'amara': 'Despina',   # smooth
+    'mei': 'Zephyr',      # bright
+    'hugo': 'Achird',     # friendly
 }
 
-# Deterministic pool for story-specific (non-hero) speakers. Order matters:
-# selection hashes the speaker name into this list so a given character keeps
-# one voice for the whole novel.
-SUPPORTING_VOICE_POOL = (
-    'Zephyr',       # bright
-    'Leda',         # youthful
+# Hero genders drive narrator selection (see narrator rule above). Keep in sync
+# with the LEXI_CHARACTERS canon set.
+HERO_GENDERS = {
+    'leo': 'male',
+    'hugo': 'male',
+    'amara': 'female',
+    'mei': 'female',
+}
+
+# Gendered pools for story-specific (non-hero) speakers. A secondary character's
+# gender comes from the final script's `characters[].gender`; the speaker name is
+# hashed into the matching pool so the character keeps ONE gender-appropriate
+# voice across every page. An unknown/neutral/unlabeled gender (e.g. older novels
+# generated before gender was emitted) falls back to the combined pool, which
+# preserves the prior name-hash behavior.
+SUPPORTING_VOICE_POOL_MALE = (
     'Orus',         # firm
     'Enceladus',    # breathy
-    'Aoede',        # breezy
-    'Charon',       # informative
+    'Iapetus',      # clear
+    'Umbriel',      # easy-going
 )
+SUPPORTING_VOICE_POOL_FEMALE = (
+    'Leda',         # youthful
+    'Aoede',        # breezy
+    'Callirrhoe',   # easy-going
+    'Achernar',     # soft
+)
+# Combined fallback for unknown/neutral gender. Order matters: selection hashes
+# the speaker name into this list so a given character keeps one voice.
+SUPPORTING_VOICE_POOL = SUPPORTING_VOICE_POOL_FEMALE + SUPPORTING_VOICE_POOL_MALE
 
 NARRATOR_SPEAKER = 'narrator'
+
+# Map the gender label a secondary character carries in the final script's
+# `characters[].gender` to a supporting voice pool. Anything that is not clearly
+# male or female (e.g. 'nonbinary', 'unknown', '', a creature) uses the combined
+# fallback pool so behavior matches pre-gender novels.
+SUPPORTING_GENDER_POOLS = {
+    'male': SUPPORTING_VOICE_POOL_MALE,
+    'female': SUPPORTING_VOICE_POOL_FEMALE,
+}
 
 # --- Age-band performance prefixes ------------------------------------------
 # Prepended to a line as natural-language style direction (Gemini TTS honors a

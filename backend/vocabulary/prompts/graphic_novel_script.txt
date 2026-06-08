@@ -9,6 +9,7 @@ Requirements:
 - Use every target vocabulary word naturally in dialogue or narration at least once.
 - Vocabulary words should serve the story, not feel inserted.
 - Add a vocab_highlight_note for each panel that uses a target word.
+- For every named character in the `characters` list (heroes and secondary characters alike), set `gender` to "male", "female", or "neutral" based on how the character reads in the story. This drives audiobook voice casting, so label it for everyone who speaks. Use "neutral" only for creatures or characters with no clear gender.
 
 Mini summon cap (strict):
 - AT MOST 1 panel in the entire script may show a Lexi Mini summon. Zero is the default.
@@ -93,6 +94,7 @@ Return only valid JSON with this shape:
   "characters": [
     {
       "name": "Leo",
+      "gender": "male | female | neutral",
       "visual_description": "Age, skin tone, hair style/color, build, and one distinctive outfit detail. Keep to 1-2 sentences; this is a reference sheet for the artist."
     }
   ],

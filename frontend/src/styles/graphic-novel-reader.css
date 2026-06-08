@@ -47,6 +47,108 @@
   font-weight: 700;
 }
 
+.graphic-reader-audio-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+.graphic-reader-audio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #0d9488;
+  border-radius: 999px;
+  background: #f0fdfa;
+  color: #0f766e;
+  font-size: 0.95rem;
+  font-weight: 800;
+  padding: 6px 14px;
+  min-height: 36px;
+  cursor: pointer;
+  box-shadow: var(--shadow-1);
+  flex-shrink: 0;
+}
+
+.graphic-reader-audio:hover {
+  background: #ccfbf1;
+}
+
+.graphic-reader-audio.playing {
+  background: #0d9488;
+  color: #fff;
+}
+
+.graphic-reader-audio:focus-visible {
+  outline: 3px solid #0d9488;
+  outline-offset: 3px;
+}
+
+.graphic-reader-audio-label {
+  line-height: 1;
+}
+
+.graphic-reader-autoplay {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* Visually-hidden native checkbox keeps the control keyboard-accessible. */
+.graphic-reader-autoplay input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.graphic-reader-autoplay-track {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.graphic-reader-autoplay-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--shadow-1);
+  transition: transform 0.15s ease;
+}
+
+.graphic-reader-autoplay input:checked + .graphic-reader-autoplay-track {
+  background: #0d9488;
+}
+
+.graphic-reader-autoplay input:checked + .graphic-reader-autoplay-track .graphic-reader-autoplay-thumb {
+  transform: translateX(18px);
+}
+
+.graphic-reader-autoplay input:checked ~ .graphic-reader-autoplay-label {
+  color: #0f766e;
+}
+
+.graphic-reader-autoplay input:focus-visible + .graphic-reader-autoplay-track {
+  outline: 3px solid #0d9488;
+  outline-offset: 2px;
+}
+
 .graphic-reader-stage {
   display: grid;
   grid-template-columns: 48px minmax(0, 1fr) 48px;

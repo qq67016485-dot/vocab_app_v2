@@ -136,6 +136,40 @@ def _graphic_novel_script_substep_statuses(job):
     ]
 
 
+def _graphic_novel_page_review_payload(page):
+    """Serialize one graphic novel page for the admin review screen.
+
+    Includes the read-along `audio_url` (when audio exists and COMPLETED) so the
+    inline <audio> player shows on initial load — not just after a fresh
+    generate-audio run. Relies on the `audio` reverse OneToOne being prefetched.
+    """
+    audio = getattr(page, 'audio', None)
+    audio_url = ''
+    if (
+        audio
+        and audio.audio
+        and audio.status == GraphicNovelPageAudio.Status.COMPLETED
+    ):
+        audio_url = audio.audio.url
+    return {
+        'id': page.id,
+        'page_number': page.page_number,
+        'image_url': page.display_image.url if page.display_image else '',
+        'original_image_url': page.image.url if page.image else '',
+        'edited_image_url': page.edited_image.url if page.edited_image else '',
+        'has_edited_image': page.has_edited_image,
+        'use_edited_image': page.use_edited_image,
+        'generation_status': page.generation_status,
+        'generation_attempts': page.generation_attempts,
+        'generation_error': page.generation_error,
+        'panel_count': page.panel_count,
+        'layout_description': page.layout_description,
+        'vocab_words': page.vocab_words_used,
+        'is_review_page': page.is_review_page,
+        'audio_url': audio_url,
+    }
+
+
 class GenerationQueueView(APIView):
     """GET /api/admin/generation-queue/ — List word sets awaiting generation."""
     permission_classes = [IsAuthenticated, IsAdmin]
@@ -377,7 +411,7 @@ class GenerationJobContentView(APIView):
         packs = WordPack.objects.filter(
             word_set=job.word_set,
         ).prefetch_related(
-            'items__word', 'stories', 'graphic_novels__pages', 'cloze_items__word',
+            'items__word', 'stories', 'graphic_novels__pages__audio', 'cloze_items__word',
         ).order_by('order')
 
         packs_data = []
@@ -417,22 +451,7 @@ class GenerationJobContentView(APIView):
                     'synopsis': graphic_novel.synopsis,
                     'reading_level': graphic_novel.reading_level,
                     'pages': [
-                        {
-                            'id': page.id,
-                            'page_number': page.page_number,
-                            'image_url': page.display_image.url if page.display_image else '',
-                            'original_image_url': page.image.url if page.image else '',
-                            'edited_image_url': page.edited_image.url if page.edited_image else '',
-                            'has_edited_image': page.has_edited_image,
-                            'use_edited_image': page.use_edited_image,
-                            'generation_status': page.generation_status,
-                            'generation_attempts': page.generation_attempts,
-                            'generation_error': page.generation_error,
-                            'panel_count': page.panel_count,
-                            'layout_description': page.layout_description,
-                            'vocab_words': page.vocab_words_used,
-                            'is_review_page': page.is_review_page,
-                        }
+                        _graphic_novel_page_review_payload(page)
                         for page in graphic_novel.pages.all()
                     ],
                 }
@@ -1084,6 +1103,7 @@ def _run_novel_audio(novel_id, regenerate):
 def _run_page_audio(page_id):
     """Background worker: (re)generate read-along audio for a single page."""
     from ..services.audiobook.generator import generate_page_audio, _mark_failed
+    from ..services.audiobook.voice_director import direct_novel
     from ..services.generation.helpers import _close_old_connections_if_safe
 
     _close_old_connections_if_safe()
@@ -1092,8 +1112,15 @@ def _run_page_audio(page_id):
             page = GraphicNovelPage.objects.select_related('novel').get(id=page_id)
         except GraphicNovelPage.DoesNotExist:
             return
+        # Load cached direction (no new LLM call if already cached on novel).
+        story_pages = list(
+            GraphicNovelPage.objects
+            .filter(novel=page.novel, is_review_page=False)
+            .order_by('page_number')
+        )
+        direction = direct_novel(page.novel, story_pages)
         try:
-            generate_page_audio(page)
+            generate_page_audio(page, direction=direction)
         except Exception as exc:  # noqa: BLE001 - record failure for the admin to see
             _mark_failed(page, exc)
     finally:
@@ -1334,7 +1361,7 @@ class WordSetContentView(APIView):
         packs = WordPack.objects.filter(
             word_set=word_set,
         ).prefetch_related(
-            'items__word', 'stories', 'graphic_novels__pages', 'cloze_items__word',
+            'items__word', 'stories', 'graphic_novels__pages__audio', 'cloze_items__word',
         ).order_by('order')
 
         packs_data = []
@@ -1374,22 +1401,7 @@ class WordSetContentView(APIView):
                     'synopsis': graphic_novel.synopsis,
                     'reading_level': graphic_novel.reading_level,
                     'pages': [
-                        {
-                            'id': page.id,
-                            'page_number': page.page_number,
-                            'image_url': page.display_image.url if page.display_image else '',
-                            'original_image_url': page.image.url if page.image else '',
-                            'edited_image_url': page.edited_image.url if page.edited_image else '',
-                            'has_edited_image': page.has_edited_image,
-                            'use_edited_image': page.use_edited_image,
-                            'generation_status': page.generation_status,
-                            'generation_attempts': page.generation_attempts,
-                            'generation_error': page.generation_error,
-                            'panel_count': page.panel_count,
-                            'layout_description': page.layout_description,
-                            'vocab_words': page.vocab_words_used,
-                            'is_review_page': page.is_review_page,
-                        }
+                        _graphic_novel_page_review_payload(page)
                         for page in graphic_novel.pages.all()
                     ],
                 }

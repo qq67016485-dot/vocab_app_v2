@@ -82,9 +82,9 @@ class InstructionalService:
             for page in graphic_novel.pages.all():
                 audio = getattr(page, 'audio', None)
                 audio_url = ''
-                if (audio and audio.audio
+                if (audio and audio.student_audio
                         and audio.status == GraphicNovelPageAudio.Status.COMPLETED):
-                    audio_url = audio.audio.url
+                    audio_url = audio.student_audio.url
                 pages_data.append({
                     'page_number': page.page_number,
                     'image_url': page.student_image.url if page.student_image else '',

@@ -24,6 +24,29 @@ export default function GenerationReview() {
     Object.values(audioPolls.current).forEach(clearInterval);
   }, []);
 
+  // Seed audioState from loaded content so existing per-page audio shows its
+  // play button + the "Regen audio" label on first render (before any poll).
+  const seedAudioFromContent = useCallback((contentData) => {
+    const seed = {};
+    (contentData?.packs || []).forEach(pack => {
+      const novel = pack.graphic_novel;
+      if (!novel) return;
+      const pages = (novel.pages || [])
+        .filter(p => !p.is_review_page)
+        .map(p => ({
+          page_number: p.page_number,
+          status: p.audio_url ? 'COMPLETED' : 'PENDING',
+          audio_url: p.audio_url || '',
+        }));
+      if (pages.some(p => p.audio_url)) {
+        seed[novel.id] = { busy: false, error: '', pages };
+      }
+    });
+    if (Object.keys(seed).length) {
+      setAudioState(prev => ({ ...seed, ...prev }));
+    }
+  }, []);
+
   useEffect(() => {
     const fetchJob = async () => {
       try {
@@ -32,17 +55,22 @@ export default function GenerationReview() {
         if (res.data.status === 'COMPLETED' || res.data.status === 'PARTIALLY_COMPLETED') {
           const contentRes = await apiClient.get(`/generation-jobs/${jobId}/content/`);
           setContent(contentRes.data);
+          seedAudioFromContent(contentRes.data);
         }
       } catch (err) { setError('Failed to load job.'); }
     };
     fetchJob();
-  }, [jobId]);
+  }, [jobId, seedAudioFromContent]);
 
   const handleJobComplete = useCallback(async (jobData) => {
     setJob(jobData);
-    try { const res = await apiClient.get(`/generation-jobs/${jobData.id}/content/`); setContent(res.data); }
+    try {
+      const res = await apiClient.get(`/generation-jobs/${jobData.id}/content/`);
+      setContent(res.data);
+      seedAudioFromContent(res.data);
+    }
     catch (err) { setError('Failed to load generated content.'); }
-  }, []);
+  }, [seedAudioFromContent]);
   const handleJobFail = useCallback((jobData) => { setJob(jobData); }, []);
 
   const handlePageUpdated = useCallback((packId, updatedPage) => {

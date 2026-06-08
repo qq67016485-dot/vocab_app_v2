@@ -603,7 +603,11 @@ class GraphicNovelPageAudio(models.Model):
     )
     audio = models.FileField(
         upload_to='graphic_novel_audio/', blank=True,
-        help_text='Stitched WAV file for the page read-along.',
+        help_text='Stitched WAV file for the page read-along (source of truth).',
+    )
+    audio_mp3 = models.FileField(
+        upload_to='graphic_novel_audio_mp3/', blank=True,
+        help_text='Compressed MP3 companion of the WAV, served to students.',
     )
     duration_ms = models.IntegerField(default=0)
     voice_manifest = models.JSONField(
@@ -622,6 +626,17 @@ class GraphicNovelPageAudio(models.Model):
 
     def __str__(self):
         return f"Audio for {self.page}"
+
+    @property
+    def student_audio(self):
+        """The lightweight audio served to students.
+
+        Prefers the compressed MP3 companion, falling back to the source WAV
+        when no MP3 exists yet (legacy rows or pages awaiting backfill). Mirrors
+        the PNG/JPEG `student_image` pattern: WAV stays the source of truth for
+        admin/review, students get the smaller file.
+        """
+        return self.audio_mp3 or self.audio
 
 
 class ClozeItem(models.Model):
@@ -809,6 +824,7 @@ class LLMStepConfig(models.Model):
         GN_CLOZE_GEN = 'gn_cloze_gen', 'GN: Cloze Generation'
         GN_BEAT_SHEET = 'gn_beat_sheet', 'GN: Beat Sheet'
         GN_FINAL_SCRIPT = 'gn_final_script', 'GN: Final Script'
+        AUDIOBOOK_DIRECTOR = 'audiobook_director', 'Audiobook: Voice Director'
 
     config_set = models.ForeignKey(
         LLMConfigSet, on_delete=models.CASCADE, related_name='step_configs',

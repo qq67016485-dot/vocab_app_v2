@@ -13,8 +13,8 @@ A K-8 vocabulary learning platform with AI-generated instructional content, adap
 
 **Instructional Flow**
 - Primer cards with images and syllable breakdowns
-- Graphic novel reader (16:9 landscape pages with vocabulary overlay)
-- Read-along audiobook: per-page narrated audio generated on demand via Gemini TTS (admin-triggered)
+- Graphic novel reader (16:9 landscape pages with vocabulary overlay) with optional read-along audio playback (per-page Listen/Pause + Auto-read toggle)
+- Read-along audiobook: per-page narrated audio generated on demand via Gemini TTS (admin-triggered); served to students as a compressed MP3
 - Cloze quiz (fill-in-the-blank) for comprehension check
 - Pack completion tracking before words enter practice
 

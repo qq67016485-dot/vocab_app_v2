@@ -12,6 +12,60 @@ export default function GraphicNovelReader({ story, primerCards, onDone }) {
   const isFirst = pageIndex === 0;
   const isLast = pageIndex === pages.length - 1;
 
+  const audioRef = useRef(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [autoplay, setAutoplay] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return window.localStorage.getItem('gnReaderAutoplay') !== 'off';
+  });
+  const audioUrl = currentPage?.audio_url || '';
+  const hasAnyAudio = useMemo(
+    () => pages.some((page) => page?.audio_url),
+    [pages],
+  );
+
+  // Keep the latest autoplay value readable inside the page-change effect
+  // without making that effect re-run (so toggling never disrupts the
+  // currently playing page — it only affects the next page turn).
+  const autoplayRef = useRef(autoplay);
+  autoplayRef.current = autoplay;
+
+  const persistAutoplay = (next) => {
+    setAutoplay(next);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('gnReaderAutoplay', next ? 'on' : 'off');
+    }
+  };
+
+  // Reset playback whenever the page (and thus its audio source) changes,
+  // then auto-start the new page's audio if autoplay is enabled.
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    setIsPlaying(false);
+
+    if (!audio || !audioUrl || !autoplayRef.current) return undefined;
+    // Defer so the swapped <audio> src is loaded before play().
+    const timer = setTimeout(() => {
+      audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [audioUrl]);
+
+  const toggleAudio = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+    } else {
+      audio.pause();
+      setIsPlaying(false);
+    }
+  };
+
   useEffect(() => {
     if (!isLast) {
       setDoneVisible(false);
@@ -90,6 +144,36 @@ export default function GraphicNovelReader({ story, primerCards, onDone }) {
           <h3>{story.title}</h3>
         </div>
 
+        {hasAnyAudio && (
+          <div className="graphic-reader-audio-controls">
+            {audioUrl && (
+              <button
+                className={`graphic-reader-audio${isPlaying ? ' playing' : ''}`}
+                onClick={toggleAudio}
+                type="button"
+                aria-label={isPlaying ? 'Pause read-along' : 'Play read-along'}
+                title={isPlaying ? 'Pause read-along' : 'Play read-along'}
+              >
+                <span aria-hidden="true">{isPlaying ? '⏸' : '▶'}</span>
+                <span className="graphic-reader-audio-label">
+                  {isPlaying ? 'Pause' : 'Listen'}
+                </span>
+              </button>
+            )}
+            <label className="graphic-reader-autoplay" title="Automatically read each page aloud">
+              <input
+                type="checkbox"
+                checked={autoplay}
+                onChange={(event) => persistAutoplay(event.target.checked)}
+              />
+              <span className="graphic-reader-autoplay-track" aria-hidden="true">
+                <span className="graphic-reader-autoplay-thumb" />
+              </span>
+              <span className="graphic-reader-autoplay-label">Auto-read</span>
+            </label>
+          </div>
+        )}
+
         <div className="graphic-reader-dots" aria-label="Pages">
           {pages.map((page, idx) => (
             <button
@@ -162,6 +246,18 @@ export default function GraphicNovelReader({ story, primerCards, onDone }) {
           &rsaquo;
         </button>
       </div>
+
+      {audioUrl && (
+        <audio
+          key={audioUrl}
+          ref={audioRef}
+          src={audioUrl}
+          onEnded={() => setIsPlaying(false)}
+          onPause={() => setIsPlaying(false)}
+          onPlay={() => setIsPlaying(true)}
+          preload="none"
+        />
+      )}
 
       {showVocab && pageWords.length > 0 && (
         <div className="graphic-vocab-panel">
