@@ -238,6 +238,35 @@ def _validate_graphic_novel_scoring_result(result, ctx=None):
         raise ValueError("Graphic novel scorer must choose one winning premise from router premises.")
 
 
+# Role/title words that decorate a character label without identifying the person.
+# The LLM freely varies these ("Mr. Vidal" vs "groundskeeper Mr. Vidal"), so we
+# strip them before comparing names.
+_CHARACTER_NAME_STOPWORDS = frozenset({
+    'mr', 'mrs', 'ms', 'miss', 'dr', 'sir', 'madam', 'madame', 'master',
+    'captain', 'professor', 'prof', 'principal', 'teacher', 'coach', 'officer',
+    'groundskeeper', 'janitor', 'librarian', 'nurse', 'guard', 'keeper',
+    'the', 'a', 'an', 'old', 'young', 'little',
+})
+
+
+def _significant_name_tokens(name):
+    """Lowercase, punctuation-stripped tokens of a character label, minus role/title words."""
+    raw = ''.join(ch if ch.isalnum() or ch.isspace() else ' ' for ch in str(name).lower())
+    tokens = {tok for tok in raw.split() if tok}
+    significant = tokens - _CHARACTER_NAME_STOPWORDS
+    # If a label is *only* a title/role (e.g. "the groundskeeper"), keep the
+    # non-stopword-less tokens so it can still match itself.
+    return significant or tokens
+
+
+def _name_matches_allowed(name, allowed_token_sets):
+    """A featured name is allowed if its distinctive tokens overlap an allowed label's."""
+    name_tokens = _significant_name_tokens(name)
+    if not name_tokens:
+        return False
+    return any(name_tokens & allowed for allowed in allowed_token_sets)
+
+
 def _validate_beat_complexity(beat_sheet, ctx):
     """Check that the beat sheet honors the complexity_budget from the winning premise."""
     from vocabulary.services.generation.constants import GRAPHIC_NOVEL_DEFAULT_PAGE_COUNT
@@ -257,15 +286,21 @@ def _validate_beat_complexity(beat_sheet, ctx):
     allowed_characters = {name for name in away_team} | {name for name in secondary_characters}
     if not allowed_characters:
         return
+    # Match on distinctive name tokens, not exact strings: the LLM labels the same
+    # character inconsistently across substeps (role prefixes, titles, honorifics).
+    allowed_token_sets = [_significant_name_tokens(name) for name in allowed_characters]
     introduced_characters = set()
     for page in beat_sheet:
         for name in page.get('characters_featured') or []:
             introduced_characters.add(name)
-    extra = introduced_characters - allowed_characters
+    extra = sorted(
+        name for name in introduced_characters
+        if not _name_matches_allowed(name, allowed_token_sets)
+    )
     if extra:
         raise ValueError(
             f"Graphic novel beat planner introduces characters not in the away team or "
-            f"complexity_budget.secondary_characters: {sorted(extra)}. "
+            f"complexity_budget.secondary_characters: {extra}. "
             f"Allowed: {sorted(allowed_characters)}."
         )
 

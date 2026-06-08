@@ -2,6 +2,14 @@
 
 All notable changes to Vocab App V2 are documented in this file.
 
+## [Unreleased] - 2026-06-09 (graphic novel: beat validator tolerates character-name variants)
+
+### Fixed — Beat Complexity Validator No Longer Rejects Re-Labeled Secondary Characters
+- A GRAPHIC_NOVEL_SCRIPT job failed with `Graphic novel beat planner introduces characters not in the away team or complexity_budget.secondary_characters: ['Mr. Vidal']. Allowed: ['Amara', 'groundskeeper Mr. Vidal'].` The beat sheet named a character `Mr. Vidal` while the winning premise listed the same person as `groundskeeper Mr. Vidal`. `_validate_beat_complexity` (`services/generation/graphic_novel_validators.py`) compared `characters_featured` against the allowed set with **exact string set-difference**, so a role-prefix difference for one character read as an unplanned new character and aborted the step.
+- **Fix**: replaced exact matching with distinctive-name-token overlap. New helpers `_significant_name_tokens()` (lowercases, strips punctuation, drops role/title stopwords like `mr`, `groundskeeper`, `the`, `professor`, …) and `_name_matches_allowed()` (a featured name passes if its significant tokens overlap any allowed label's). `Mr. Vidal` → `{vidal}` now matches `groundskeeper Mr. Vidal` → `{vidal}`, while a genuinely new character (`Mr. Stranger` → `{stranger}`) is still rejected. This is the same LLM-surface-variation tolerance already used for cloze blanks and lexile lookups.
+- Failed jobs can be recovered without code changes via `POST /api/generation-jobs/{id}/restart-substep/` (`pack_id` + the failed substep).
+- Tests: existing beat/validator suites pass (51 graphic-novel/validator tests, 2 beat-complexity tests).
+
 ## [Unreleased] - 2026-06-08 (audiobook: student playback + MP3 companion)
 
 ### Added — Student Read-Along Playback Controls
