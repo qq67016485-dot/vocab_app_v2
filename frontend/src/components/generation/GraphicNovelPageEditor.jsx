@@ -10,7 +10,7 @@ const EDIT_POLL_INTERVAL = 10000;
  * separate `edited_image` and exposes both URLs. The admin can flip between
  * the original and edited variant; whichever is selected is what students see.
  */
-export default function GraphicNovelPageEditor({ page, audioUrl, onUpdated }) {
+export default function GraphicNovelPageEditor({ page, audioUrl, audioStatus, audioError, onRegenAudio, onUpdated }) {
   const [open, setOpen] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [busy, setBusy] = useState(false);
@@ -139,9 +139,12 @@ export default function GraphicNovelPageEditor({ page, audioUrl, onUpdated }) {
       )}
       <div style={{ fontSize: '0.78rem' }}>Page {page.page_number} · {page.panel_count} panel{page.panel_count === 1 ? '' : 's'}</div>
 
-      {audioUrl && (
-        <audio controls src={audioUrl} style={{ width: '100%', marginTop: 4, height: 28 }} />
-      )}
+      <AudioRow
+        audioUrl={audioUrl}
+        audioStatus={audioStatus}
+        audioError={audioError}
+        onRegenAudio={onRegenAudio}
+      />
       <div
         style={{ fontSize: '0.75rem', color: status === 'FAILED' ? 'var(--t-danger)' : 'var(--t-text-secondary)' }}
         title={page.generation_error || ''}
@@ -205,6 +208,49 @@ export default function GraphicNovelPageEditor({ page, audioUrl, onUpdated }) {
           onClose={() => setZoomed(false)}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Read-along audio for one page: the player (when audio exists) plus a per-page
+ * (re)generate button. Regenerating a single page fills a gap left by a failed
+ * TTS call without redoing the whole novel.
+ */
+function AudioRow({ audioUrl, audioStatus, audioError, onRegenAudio }) {
+  const running = audioStatus === 'RUNNING';
+  const failed = audioStatus === 'FAILED';
+  const label = running
+    ? '⏳ Generating…'
+    : audioUrl
+      ? '↺ Regen audio'
+      : '🔊 Generate audio';
+  return (
+    <div style={{ marginTop: 4 }}>
+      {audioUrl && (
+        <audio controls src={audioUrl} style={{ width: '100%', height: 28 }} />
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+        {onRegenAudio && (
+          <button
+            className="t-btn t-btn--secondary"
+            style={{ fontSize: '0.72rem', padding: '1px 8px' }}
+            disabled={running}
+            onClick={onRegenAudio}
+            title={audioUrl ? 'Regenerate read-along audio for this page' : 'Generate read-along audio for this page'}
+          >
+            {label}
+          </button>
+        )}
+        {failed && !running && (
+          <span style={{ fontSize: '0.7rem', color: 'var(--t-danger)' }} title={audioError || ''}>
+            Audio failed
+          </span>
+        )}
+        {audioError && !failed && (
+          <span style={{ fontSize: '0.7rem', color: 'var(--t-danger)' }}>{audioError}</span>
+        )}
+      </div>
     </div>
   );
 }

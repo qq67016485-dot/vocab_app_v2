@@ -2,6 +2,25 @@
 
 All notable changes to Vocab App V2 are documented in this file.
 
+## [Unreleased] - 2026-06-09 (audiobook: per-page regeneration in admin review)
+
+### Added — Per-Page Read-Along Audio Regeneration (Admin Review)
+- A graphic novel page can lose its audio when a single TTS API call fails mid-run — the novel finishes with a gap. The Generation Review page previously offered **only** a novel-level "Regen audio" button which, once any page had audio, forced `regenerate=true` and re-synthesized **every** page. There was no way to fill in just the one missing/failed page.
+- The backend per-page endpoint `POST /api/graphic-novel-pages/<page_id>/regenerate-audio/` (async daemon thread, **202**/**409**, reuses the novel's cached voice direction so no extra LLM call) already existed — this change wires it into the admin UI.
+- **Frontend** (`GraphicNovelPageEditor.jsx`): new `AudioRow` sub-component under each page card — the `<audio>` player (when present) plus a per-page button labelled "🔊 Generate audio" / "↺ Regen audio" / "⏳ Generating…" based on that page's audio status, with an inline "Audio failed" indicator (the error text shows in the tooltip). New props `audioStatus` / `audioError` / `onRegenAudio`.
+- **Frontend** (`GenerationReview.jsx`): new `regeneratePageAudio(novelId, pageId, pageNumber)` callback — optimistically marks just that page `RUNNING`, POSTs the per-page endpoint, then reuses the existing novel-level `audio-status/` poll (its payload is already keyed per page). The content seed now carries `page_id` so the page entry can be matched on the optimistic update.
+- The novel-level "Regen audio" button is unchanged and still available for a full re-synthesis.
+- Tests: `tests/vocabulary/test_audiobook.py` adds `TestRegeneratePageAudioView` (4 cases: 202 success, 404 missing page, 409 when already running, and a worker test proving it regenerates one page without touching its siblings). **47 audiobook tests pass.**
+
+## [Unreleased] - 2026-06-09 (primer: syllable breaks preserve spelling)
+
+### Fixed — Primer Syllable Breakdowns No Longer Misspell Words
+- Primer cards sometimes showed phonetically respelled syllable text (e.g. `sim·i·lee` for "simile", `ev·ry` for "every") instead of the word's real spelling. Root cause: `prompts/primer_generation.txt` explicitly instructed the LLM to use **phonetic (sound-based) syllable breaks rather than orthographic (spelling-based)** ones, with `ev·ry` given as a model answer — the prompt was asking for misspellings.
+- **Prompt fix**: replaced the phonetic-preference guideline with a hard spelling-preservation rule — keep the word's exact spelling, only insert middle dots (·) between syllables, never add/drop/change letters; removing the dots must reproduce the word letter-for-letter (`sim·i·le` not `sim·i·lee`; `ev·er·y` not `ev·ry`).
+- **Code safety net** (`services/generation/step_packs.py`): new pure helper `_sanitize_syllable_text(term, syllable_text)` runs on every primer save in `_step_generate_primers`. It strips separators (·, ., -) and compares the result to the actual word (case-insensitive, whitespace-insensitive); on mismatch it logs a warning and falls back to the correctly-spelled plain term, so a phonetic respelling can never reach students even if a future model ignores the prompt.
+- Scope: affects only **newly generated** primer cards. Existing `PrimerCardContent.syllable_text` rows in the DB are unchanged (no backfill command added).
+- Tests: `tests/vocabulary/test_step_packs.py` adds 2 integration cases (misspelled breakdown falls back, correct breakdown preserved) + a 7-case `TestSanitizeSyllableText` pure-unit class. **19 pack/primer tests pass.**
+
 ## [Unreleased] - 2026-06-09 (graphic novel: beat validator tolerates character-name variants)
 
 ### Fixed — Beat Complexity Validator No Longer Rejects Re-Labeled Secondary Characters

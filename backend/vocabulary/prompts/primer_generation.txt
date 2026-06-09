@@ -27,7 +27,8 @@ Guidelines:
 - Each kid_friendly_definition must be exactly 3-8 words: a complete phrase suitable for a vocabulary review card (not a truncated sentence)
 - Base the definition on the provided formal definition
 - Calibrate vocabulary choice within the phrase to the target Lexile level ({target_lexile}L)
-- Syllable text uses the middle dot character (·) as separator
+- Syllable text uses the middle dot character (·) as the separator between syllables
+- CRITICAL: Keep the word's exact spelling. Only insert dots between syllables — never add, drop, or change any letters. Removing the dots must reproduce the word letter-for-letter (e.g., "simile" → "sim·i·le", NOT "sim·i·lee"; "every" → "ev·er·y", NOT "ev·ry")
+- Break at natural spoken syllable boundaries, but always within the word's real spelling
 - If a word has only one syllable, output the word exactly as-is without any dot characters (e.g., "fume", "spray")
-- Use phonetic (sound-based) syllable breaks rather than orthographic (spelling-based) when they differ, as ESL learners benefit from hearing the natural spoken rhythm (e.g., "ev·ry" not "ev·er·y")
 - Do not generate a new example sentence — the formal example will be reused

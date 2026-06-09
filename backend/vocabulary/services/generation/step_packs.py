@@ -225,6 +225,34 @@ def _step_auto_create_packs(job, words, words_data=None, site_config=None, allow
 
 
 
+def _sanitize_syllable_text(term, syllable_text):
+    """
+    Ensure the LLM's syllable breakdown preserves the word's real spelling.
+
+    The syllable text only adds middle dots between syllables, so removing the
+    dots must reproduce the term letter-for-letter (case-insensitive). If the
+    LLM respelled the word phonetically (e.g. "sim·i·lee" for "simile"), the
+    breakdown is unsafe to show learners — fall back to the correctly-spelled
+    plain term. Returns the syllable text to store.
+    """
+    term = (term or '').strip()
+    syllable_text = (syllable_text or '').strip()
+    if not syllable_text:
+        return term
+    collapsed = (
+        syllable_text.replace('·', '').replace('.', '').replace('-', '')
+    )
+    # Compare ignoring case and surrounding whitespace; the dots are the only
+    # characters allowed to differ between the breakdown and the actual word.
+    if collapsed.replace(' ', '').lower() == term.replace(' ', '').lower():
+        return syllable_text
+    logger.warning(
+        "Primer syllable_text '%s' does not match spelling of '%s'; using plain term.",
+        syllable_text, term,
+    )
+    return term
+
+
 def _step_generate_primers(job, words, words_data, site_config=None):
     """
     Step 6: Call LLM to generate primer card content for each word.
@@ -268,10 +296,14 @@ def _step_generate_primers(job, words, words_data, site_config=None):
             wd = words_data_map.get(term, {})
             example = wd.get('example_sentence', '')
 
+            syllable_text = _sanitize_syllable_text(
+                word.text, pc.get('syllable_text', '')
+            )
+
             PrimerCardContent.objects.update_or_create(
                 word=word,
                 defaults={
-                    'syllable_text': pc.get('syllable_text', ''),
+                    'syllable_text': syllable_text,
                     'kid_friendly_definition': pc.get('kid_friendly_definition', ''),
                     'example_sentence': example,
                 },

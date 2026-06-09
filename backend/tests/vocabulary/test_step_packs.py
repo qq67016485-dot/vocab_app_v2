@@ -10,6 +10,7 @@ from vocabulary.services.generation_pipeline_service import (
     _step_auto_create_packs,
     _step_generate_primers,
 )
+from vocabulary.services.generation.step_packs import _sanitize_syllable_text
 from tests.factories import (
     WordFactory, WordDefinitionFactory, GenerationJobFactory,
 )
@@ -181,3 +182,73 @@ class TestStepGeneratePrimers:
 
         log = GenerationJobLog.objects.get(job=job, step=GenerationJobLog.Step.PRIMER_GEN)
         assert log.status == GenerationJob.Status.COMPLETED
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_misspelled_syllable_text_falls_back_to_plain_term(self, mock_load, mock_gemini):
+        """A phonetically respelled syllable breakdown must not reach the card."""
+        mock_load.return_value = "Primer template"
+        mock_gemini.return_value = {
+            'primer_cards': [
+                {
+                    'term': 'simile',
+                    'syllable_text': 'sim·i·lee',  # respelled — drops/changes letters
+                    'kid_friendly_definition': 'a comparison using like or as',
+                },
+            ],
+        }
+        word = WordFactory(text='simile')
+        WordDefinitionFactory(word=word)
+        job = GenerationJobFactory(input_words=['simile'])
+
+        _step_generate_primers(job, [word], [{'term': 'simile'}])
+
+        primer = PrimerCardContent.objects.get(word=word)
+        assert primer.syllable_text == 'simile'
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_correct_syllable_text_is_preserved(self, mock_load, mock_gemini):
+        mock_load.return_value = "Primer template"
+        mock_gemini.return_value = {
+            'primer_cards': [
+                {
+                    'term': 'simile',
+                    'syllable_text': 'sim·i·le',
+                    'kid_friendly_definition': 'a comparison using like or as',
+                },
+            ],
+        }
+        word = WordFactory(text='simile')
+        WordDefinitionFactory(word=word)
+        job = GenerationJobFactory(input_words=['simile'])
+
+        _step_generate_primers(job, [word], [{'term': 'simile'}])
+
+        primer = PrimerCardContent.objects.get(word=word)
+        assert primer.syllable_text == 'sim·i·le'
+
+
+class TestSanitizeSyllableText:
+    """Pure unit tests for _sanitize_syllable_text spelling preservation."""
+
+    def test_keeps_breakdown_when_spelling_matches(self):
+        assert _sanitize_syllable_text('simile', 'sim·i·le') == 'sim·i·le'
+
+    def test_tolerates_hyphen_separator(self):
+        assert _sanitize_syllable_text('discover', 'dis-cov-er') == 'dis-cov-er'
+
+    def test_rejects_phonetic_respelling(self):
+        assert _sanitize_syllable_text('simile', 'sim·i·lee') == 'simile'
+
+    def test_rejects_dropped_letters(self):
+        assert _sanitize_syllable_text('every', 'ev·ry') == 'every'
+
+    def test_case_insensitive_match(self):
+        assert _sanitize_syllable_text('Bright', 'bright') == 'bright'
+
+    def test_empty_breakdown_falls_back_to_term(self):
+        assert _sanitize_syllable_text('fume', '') == 'fume'
+
+    def test_single_syllable_no_dots(self):
+        assert _sanitize_syllable_text('spray', 'spray') == 'spray'

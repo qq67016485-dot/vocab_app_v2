@@ -34,6 +34,7 @@ export default function GenerationReview() {
       const pages = (novel.pages || [])
         .filter(p => !p.is_review_page)
         .map(p => ({
+          page_id: p.id,
           page_number: p.page_number,
           status: p.audio_url ? 'COMPLETED' : 'PENDING',
           audio_url: p.audio_url || '',
@@ -130,6 +131,34 @@ export default function GenerationReview() {
       setAudioState(prev => ({
         ...prev,
         [novelId]: { busy: false, error: err.response?.data?.error || 'Audio generation failed.', pages: prev[novelId]?.pages || [] },
+      }));
+    }
+  }, [startAudioPoll]);
+
+  // Regenerate audio for a single page (fills a gap left by a failed API call
+  // without redoing every page). Marks just that page RUNNING, fires the
+  // per-page endpoint, then reuses the novel-level poll to track completion.
+  const regeneratePageAudio = useCallback(async (novelId, pageId, pageNumber) => {
+    setAudioState(prev => {
+      const cur = prev[novelId] || { pages: [] };
+      const list = cur.pages || [];
+      const found = list.some(p => p.page_id === pageId);
+      const pages = found
+        ? list.map(p => (p.page_id === pageId ? { ...p, status: 'RUNNING', error: '' } : p))
+        : [...list, { page_id: pageId, page_number: pageNumber, status: 'RUNNING', audio_url: '', error: '' }];
+      return { ...prev, [novelId]: { ...cur, busy: true, error: '', pages } };
+    });
+    try {
+      await apiClient.post(`/graphic-novel-pages/${pageId}/regenerate-audio/`);
+      startAudioPoll(novelId);
+    } catch (err) {
+      setAudioState(prev => ({
+        ...prev,
+        [novelId]: {
+          ...prev[novelId],
+          busy: false,
+          error: err.response?.data?.error || 'Page audio regeneration failed.',
+        },
       }));
     }
   }, [startAudioPoll]);
@@ -234,6 +263,9 @@ export default function GenerationReview() {
                           key={page.id}
                           page={page}
                           audioUrl={audioPage?.audio_url || page.audio_url || ''}
+                          audioStatus={audioPage?.status}
+                          audioError={audioPage?.error}
+                          onRegenAudio={() => regeneratePageAudio(pack.graphic_novel.id, page.id, page.page_number)}
                           onUpdated={(updatedPage) => handlePageUpdated(pack.id, updatedPage)}
                         />
                       );
