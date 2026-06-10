@@ -80,6 +80,7 @@ urlpatterns = [
     path('graphic-novel-pages/<int:page_id>/redraw-image/', generation_views.RedrawGraphicNovelPageImageView.as_view(), name='graphic-novel-page-redraw-image'),
     path('graphic-novel-pages/<int:page_id>/image-status/', generation_views.GraphicNovelPageImageStatusView.as_view(), name='graphic-novel-page-image-status'),
     path('graphic-novel-pages/<int:page_id>/select-image/', generation_views.SelectGraphicNovelPageImageView.as_view(), name='graphic-novel-page-select-image'),
+    path('graphic-novels/<int:novel_id>/select/', generation_views.SelectGraphicNovelCandidateView.as_view(), name='graphic-novel-select-candidate'),
 
     # Graphic novel read-along audio (Admin only)
     path('graphic-novels/<int:novel_id>/generate-audio/', generation_views.GenerateGraphicNovelAudioView.as_view(), name='graphic-novel-generate-audio'),

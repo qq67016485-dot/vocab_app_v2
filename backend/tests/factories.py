@@ -208,6 +208,8 @@ class GraphicNovelFactory(factory.django.DjangoModelFactory):
 
     pack = factory.SubFactory(WordPackFactory)
     channel = GraphicNovel.Channel.FIVE_PAGE
+    candidate_index = 0
+    is_selected = True
     title = factory.Sequence(lambda n: f'Graphic Novel {n}')
     synopsis = 'A short adventure with recurring characters.'
     characters = factory.LazyFunction(lambda: [

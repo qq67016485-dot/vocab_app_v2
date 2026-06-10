@@ -42,6 +42,17 @@ from tests.vocabulary.generation_fixtures import (
 )
 
 
+# The 6-call substep sequence mocked throughout this file generates ONE candidate.
+# Force single-candidate mode for the per-candidate workflow tests; multi-candidate
+# behaviour is covered explicitly in TestGraphicNovelCandidates.
+@pytest.fixture(autouse=True)
+def _single_candidate(monkeypatch):
+    monkeypatch.setattr(
+        'vocabulary.services.generation.graphic_novel_script.GRAPHIC_NOVEL_CANDIDATE_COUNT',
+        1,
+    )
+
+
 @pytest.mark.django_db
 class TestStepGraphicNovelScript:
     @patch('vocabulary.services.llm_service.call_gemini')
@@ -123,9 +134,13 @@ class TestStepGraphicNovelScript:
             status=GenerationJob.Status.COMPLETED,
             output_data__artifact_references__isnull=False,
         ).latest('created_at')
-        assert len(final_log.output_data['artifact_references']) == 6
-        for reference in final_log.output_data['artifact_references']:
-            assert os.path.exists(reference['artifact_path'])
+        # One reference per candidate (single-candidate mode here).
+        assert len(final_log.output_data['artifact_references']) == 1
+        assert final_log.output_data['artifact_references'][0]['candidate_index'] == 0
+        # Per-substep artifacts are tracked on the substep COMPLETED logs.
+        completed_substep_logs = substep_logs.filter(status=GenerationJob.Status.COMPLETED)
+        for log in completed_substep_logs:
+            assert os.path.exists(log.output_data['artifact_path'])
 
     @patch('vocabulary.services.llm_service.call_gemini')
     @patch('vocabulary.services.llm_service.load_prompt_template')
@@ -786,3 +801,103 @@ class TestStepGraphicNovelScriptResume:
 
         assert mock_anthropic.call_count == 6
         assert GraphicNovel.objects.filter(pack=pack).exists()
+
+
+@pytest.mark.django_db
+class TestGraphicNovelCandidates:
+    """Multi-candidate generation: each pack produces GRAPHIC_NOVEL_CANDIDATE_COUNT
+    independent novels, none auto-selected, each with its own staged cloze."""
+
+    def _three_candidate_side_effect(self):
+        """LLM responses for 3 full candidate workflows (6 calls each)."""
+        single = [
+            GRAPHIC_NOVEL_TEAM_RESPONSE,
+            GRAPHIC_NOVEL_ROUTER_RESPONSE,
+            GRAPHIC_NOVEL_SCORING_RESPONSE,
+            GRAPHIC_NOVEL_CLOZE_RESPONSE,
+            GRAPHIC_NOVEL_BEAT_RESPONSE,
+            GRAPHIC_NOVEL_RESPONSE,
+        ]
+        return single * 3
+
+    @pytest.fixture(autouse=True)
+    def _three_candidates(self, monkeypatch):
+        monkeypatch.setattr(
+            'vocabulary.services.generation.graphic_novel_script.GRAPHIC_NOVEL_CANDIDATE_COUNT',
+            3,
+        )
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_generates_three_unselected_candidates(self, mock_load, mock_anthropic):
+        mock_load.return_value = "Graphic novel template {input_json}"
+        mock_anthropic.side_effect = self._three_candidate_side_effect()
+        job = GenerationJobFactory(input_words=['bright', 'discover'])
+        word1 = WordFactory(text='bright')
+        word2 = WordFactory(text='discover')
+        pack = WordPack.objects.create(word_set=job.word_set, label='Pack 1', order=0)
+        WordPackItem.objects.create(pack=pack, word=word1, order=0)
+        WordPackItem.objects.create(pack=pack, word=word2, order=1)
+
+        _step_graphic_novel_script(job, [pack], WORD_LOOKUP_RESPONSE['words'])
+
+        novels = GraphicNovel.objects.filter(pack=pack).order_by('candidate_index')
+        assert novels.count() == 3
+        assert [n.candidate_index for n in novels] == [0, 1, 2]
+        # No candidate is auto-selected — an admin must pick one.
+        assert not novels.filter(is_selected=True).exists()
+        # 6 LLM calls per candidate.
+        assert mock_anthropic.call_count == 18
+        # Cloze is staged per-candidate (novel=<id>), none promoted yet (novel=None).
+        assert ClozeItem.objects.filter(pack=pack, novel__isnull=False).count() == 6
+        assert ClozeItem.objects.filter(pack=pack, novel__isnull=True).count() == 0
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_candidate_artifacts_are_isolated(self, mock_load, mock_anthropic):
+        """Each candidate writes its own artifacts under cand_{i}/ — no clobber."""
+        mock_load.return_value = "Graphic novel template {input_json}"
+        mock_anthropic.side_effect = self._three_candidate_side_effect()
+        job = GenerationJobFactory(input_words=['bright', 'discover'])
+        word1 = WordFactory(text='bright')
+        word2 = WordFactory(text='discover')
+        pack = WordPack.objects.create(word_set=job.word_set, label='Pack 1', order=0)
+        WordPackItem.objects.create(pack=pack, word=word1, order=0)
+        WordPackItem.objects.create(pack=pack, word=word2, order=1)
+
+        _step_graphic_novel_script(job, [pack], WORD_LOOKUP_RESPONSE['words'])
+
+        from vocabulary.services.generation.graphic_novel_helpers import (
+            _graphic_novel_artifact_dir,
+        )
+        dirs = {
+            i: _graphic_novel_artifact_dir(job, pack, i) for i in range(3)
+        }
+        assert len(set(dirs.values())) == 3
+        for cand_dir in dirs.values():
+            assert os.path.isdir(cand_dir)
+            assert os.path.exists(os.path.join(cand_dir, '01_team_selection.json'))
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_complete_candidate_skipped_on_rerun(self, mock_load, mock_anthropic):
+        """A second run regenerates only candidates lacking a novel-with-pages."""
+        mock_load.return_value = "Graphic novel template {input_json}"
+        mock_anthropic.side_effect = self._three_candidate_side_effect()
+        job = GenerationJobFactory(input_words=['bright', 'discover'])
+        word1 = WordFactory(text='bright')
+        word2 = WordFactory(text='discover')
+        pack = WordPack.objects.create(word_set=job.word_set, label='Pack 1', order=0)
+        WordPackItem.objects.create(pack=pack, word=word1, order=0)
+        WordPackItem.objects.create(pack=pack, word=word2, order=1)
+
+        _step_graphic_novel_script(job, [pack], WORD_LOOKUP_RESPONSE['words'])
+        assert GraphicNovel.objects.filter(pack=pack).count() == 3
+
+        # Re-run with no further LLM responses queued; all 3 are complete and skipped.
+        mock_anthropic.reset_mock()
+        mock_anthropic.side_effect = ValueError('should not be called')
+        _step_graphic_novel_script(job, [pack], WORD_LOOKUP_RESPONSE['words'])
+        assert mock_anthropic.call_count == 0
+        assert GraphicNovel.objects.filter(pack=pack).count() == 3
+

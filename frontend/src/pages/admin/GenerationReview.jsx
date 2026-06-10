@@ -29,19 +29,19 @@ export default function GenerationReview() {
   const seedAudioFromContent = useCallback((contentData) => {
     const seed = {};
     (contentData?.packs || []).forEach(pack => {
-      const novel = pack.graphic_novel;
-      if (!novel) return;
-      const pages = (novel.pages || [])
-        .filter(p => !p.is_review_page)
-        .map(p => ({
-          page_id: p.id,
-          page_number: p.page_number,
-          status: p.audio_url ? 'COMPLETED' : 'PENDING',
-          audio_url: p.audio_url || '',
-        }));
-      if (pages.some(p => p.audio_url)) {
-        seed[novel.id] = { busy: false, error: '', pages };
-      }
+      (pack.graphic_novels || []).forEach(novel => {
+        const pages = (novel.pages || [])
+          .filter(p => !p.is_review_page)
+          .map(p => ({
+            page_id: p.id,
+            page_number: p.page_number,
+            status: p.audio_url ? 'COMPLETED' : 'PENDING',
+            audio_url: p.audio_url || '',
+          }));
+        if (pages.some(p => p.audio_url)) {
+          seed[novel.id] = { busy: false, error: '', pages };
+        }
+      });
     });
     if (Object.keys(seed).length) {
       setAudioState(prev => ({ ...seed, ...prev }));
@@ -80,17 +80,41 @@ export default function GenerationReview() {
       return {
         ...prev,
         packs: prev.packs.map(pack => {
-          if (pack.id !== packId || !pack.graphic_novel) return pack;
+          if (pack.id !== packId || !pack.graphic_novels) return pack;
           return {
             ...pack,
-            graphic_novel: {
-              ...pack.graphic_novel,
-              pages: pack.graphic_novel.pages.map(p => p.id === updatedPage.id ? updatedPage : p),
-            },
+            graphic_novels: pack.graphic_novels.map(novel => ({
+              ...novel,
+              pages: novel.pages.map(p => p.id === updatedPage.id ? updatedPage : p),
+            })),
           };
         }),
       };
     });
+  }, []);
+
+  const handleSelectCandidate = useCallback(async (packId, novelId) => {
+    try {
+      await apiClient.post(`/graphic-novels/${novelId}/select/`);
+      setContent(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          packs: prev.packs.map(pack => {
+            if (pack.id !== packId || !pack.graphic_novels) return pack;
+            return {
+              ...pack,
+              graphic_novels: pack.graphic_novels.map(novel => ({
+                ...novel,
+                is_selected: novel.id === novelId,
+              })),
+            };
+          }),
+        };
+      });
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to select candidate.');
+    }
   }, []);
 
   const stopAudioPoll = (novelId) => {
@@ -243,38 +267,204 @@ export default function GenerationReview() {
               <h4 style={{ margin: '0 0 6px' }}>{pack.label}</h4>
               <p className="t-hint" style={{ margin: '0 0 8px' }}>Words: {pack.words.map(w => w.text).join(', ')}</p>
               {pack.primer_cards.length > 0 && <div style={{ marginBottom: 6 }}><strong style={{ fontSize: '0.85rem' }}>Primer Cards:</strong>{pack.primer_cards.map(pc => (<div key={pc.id} style={{ paddingLeft: 12, fontSize: '0.85rem', margin: '3px 0' }}><span style={{ fontWeight: 600 }}>{pc.word_text}</span> ({pc.syllable_text}) — {pc.kid_friendly_definition}</div>))}</div>}
-              {pack.graphic_novel && (
-                <div style={{ marginBottom: 6 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                    <strong style={{ fontSize: '0.85rem' }}>Graphic Novel:</strong>
-                    <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{pack.graphic_novel.title}</span>
-                    <span className="t-hint" style={{ fontSize: '0.78rem' }}>(Lexile: {pack.graphic_novel.reading_level}, Pages: {pack.graphic_novel.pages.length})</span>
-                    <AudioControls
-                      novelId={pack.graphic_novel.id}
-                      audioState={audioState[pack.graphic_novel.id]}
-                      onGenerate={generateAudio}
-                    />
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 8, paddingLeft: 12, marginTop: 6 }}>
-                    {pack.graphic_novel.pages.map(page => {
-                      const audioPage = audioState[pack.graphic_novel.id]?.pages?.find(ap => ap.page_number === page.page_number);
-                      return (
-                        <GraphicNovelPageEditor
-                          key={page.id}
-                          page={page}
-                          audioUrl={audioPage?.audio_url || page.audio_url || ''}
-                          audioStatus={audioPage?.status}
-                          audioError={audioPage?.error}
-                          onRegenAudio={() => regeneratePageAudio(pack.graphic_novel.id, page.id, page.page_number)}
-                          onUpdated={(updatedPage) => handlePageUpdated(pack.id, updatedPage)}
-                        />
-                      );
-                    })}
-                  </div>
-                </div>
+              {(pack.graphic_novels && pack.graphic_novels.length > 0) && (
+                <PackGraphicNovels
+                  pack={pack}
+                  audioStateByNovel={audioState}
+                  onGenerate={generateAudio}
+                  onRegenAudio={regeneratePageAudio}
+                  onSelect={handleSelectCandidate}
+                  onPageUpdated={handlePageUpdated}
+                />
               )}
-              {!pack.graphic_novel && pack.stories.length > 0 && <div style={{ marginBottom: 6 }}><strong style={{ fontSize: '0.85rem' }}>Legacy Micro Story:</strong>{pack.stories.map(s => (<p key={s.id} style={{ fontSize: '0.85rem', margin: '3px 0', whiteSpace: 'pre-wrap' }}>{s.story_text} <span className="t-hint">(Lexile: {s.reading_level})</span></p>))}</div>}
-              {pack.cloze_items.length > 0 && <div><strong style={{ fontSize: '0.85rem' }}>Cloze Items:</strong>{pack.cloze_items.map(ci => (<div key={ci.id} style={{ paddingLeft: 12, fontSize: '0.85rem', margin: '3px 0' }}>{ci.sentence_text} — Answer: <strong>{ci.correct_answer}</strong></div>))}</div>}
+              {!(pack.graphic_novels && pack.graphic_novels.length > 0) && pack.stories.length > 0 && <div style={{ marginBottom: 6 }}><strong style={{ fontSize: '0.85rem' }}>Legacy Micro Story:</strong>{pack.stories.map(s => (<p key={s.id} style={{ fontSize: '0.85rem', margin: '3px 0', whiteSpace: 'pre-wrap' }}>{s.story_text} <span className="t-hint">(Lexile: {s.reading_level})</span></p>))}</div>}
+              {pack.cloze_items.length > 0 && <div><strong style={{ fontSize: '0.85rem' }}>Promoted Cloze Items:</strong>{pack.cloze_items.map(ci => (<div key={ci.id} style={{ paddingLeft: 12, fontSize: '0.85rem', margin: '3px 0' }}>{ci.sentence_text} — Answer: <strong>{ci.correct_answer}</strong></div>))}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The student-facing variant URL for a page (matches GraphicNovelPageEditor). */
+function pageDisplayUrl(page) {
+  if (page.use_edited_image) return page.edited_image_url || page.image_url || '';
+  return page.original_image_url || page.image_url || '';
+}
+
+/**
+ * All graphic-novel candidates for one pack, laid out as a compact compare
+ * strip (every candidate's pages as thumbnails, side by side for scanning)
+ * plus a full-width detail panel for the one candidate currently in focus.
+ * Defaults focus to the selected candidate, else the first.
+ */
+function PackGraphicNovels({ pack, audioStateByNovel, onGenerate, onRegenAudio, onSelect, onPageUpdated }) {
+  const novels = pack.graphic_novels;
+  const noneSelected = !novels.some(n => n.is_selected);
+  const defaultId = (novels.find(n => n.is_selected) || novels[0]).id;
+  const [activeId, setActiveId] = useState(defaultId);
+  // Keep focus valid if the set of candidates changes (e.g. after a refresh).
+  useEffect(() => {
+    if (!novels.some(n => n.id === activeId)) setActiveId(defaultId);
+  }, [novels, activeId, defaultId]);
+
+  const activeNovel = novels.find(n => n.id === activeId) || novels[0];
+
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <strong style={{ fontSize: '0.85rem' }}>
+        Graphic Novel Candidates ({novels.length}):
+      </strong>
+      {noneSelected && (
+        <p className="t-hint" style={{ margin: '2px 0 6px', color: 'var(--t-warning, #b8860b)' }}>
+          No candidate selected yet — students cannot see this pack until you pick one.
+        </p>
+      )}
+
+      {/* Compare strip — one row per candidate, thumbnails for quick scanning. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+        {novels.map(novel => (
+          <CandidateStripRow
+            key={novel.id}
+            packId={pack.id}
+            novel={novel}
+            isActive={novel.id === activeId}
+            onFocus={() => setActiveId(novel.id)}
+            onSelect={onSelect}
+          />
+        ))}
+      </div>
+
+      {/* Detail panel for the focused candidate — large pages + edit/audio. */}
+      {activeNovel && (
+        <CandidateDetail
+          packId={pack.id}
+          novel={activeNovel}
+          audioState={audioStateByNovel[activeNovel.id]}
+          onGenerate={onGenerate}
+          onRegenAudio={onRegenAudio}
+          onSelect={onSelect}
+          onPageUpdated={onPageUpdated}
+        />
+      )}
+    </div>
+  );
+}
+
+/** One row in the compare strip: label, select control, lexile, page thumbnails. */
+function CandidateStripRow({ packId, novel, isActive, onFocus, onSelect }) {
+  return (
+    <div
+      onClick={onFocus}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 12, padding: '6px 10px', cursor: 'pointer',
+        borderRadius: 6,
+        border: `1px solid ${isActive ? 'var(--t-primary)' : 'var(--t-border)'}`,
+        background: isActive ? 'var(--t-primary-light)' : 'transparent',
+        outline: novel.is_selected ? '2px solid var(--t-success, #2e7d32)' : 'none',
+        outlineOffset: novel.is_selected ? '-2px' : 0,
+      }}
+    >
+      <div style={{ minWidth: 200, flexShrink: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+          Candidate {novel.candidate_index + 1}
+          {novel.is_selected && <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--t-success, #2e7d32)' }}>✓ Selected</span>}
+        </div>
+        <div className="t-hint" style={{ fontSize: '0.75rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 200 }}>
+          {novel.title}
+        </div>
+        <div className="t-hint" style={{ fontSize: '0.72rem' }}>
+          Lexile {novel.reading_level} · {novel.pages.length} pages
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 4, flex: 1, overflowX: 'auto' }}>
+        {novel.pages.map(page => {
+          const url = pageDisplayUrl(page);
+          return url ? (
+            <img
+              key={page.id}
+              src={url}
+              alt={`C${novel.candidate_index + 1} p${page.page_number}`}
+              style={{ height: 64, width: 'auto', borderRadius: 3, flexShrink: 0, border: '1px solid var(--t-border-light)' }}
+            />
+          ) : (
+            <div key={page.id} className="t-hint" style={{ height: 64, width: 48, flexShrink: 0, display: 'grid', placeItems: 'center', fontSize: '0.6rem', border: '1px solid var(--t-border-light)', borderRadius: 3 }}>—</div>
+          );
+        })}
+      </div>
+      <div style={{ flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+        {novel.is_selected
+          ? <span className="t-hint" style={{ fontSize: '0.72rem' }}>Published</span>
+          : (
+            <button
+              className="t-btn t-btn--primary"
+              style={{ fontSize: '0.72rem', padding: '2px 12px' }}
+              onClick={() => onSelect(packId, novel.id)}
+              title="Publish this candidate to students and promote its cloze"
+            >
+              Select
+            </button>
+          )}
+      </div>
+    </div>
+  );
+}
+
+/** Full-width detail for the focused candidate: header, large page grid, cloze. */
+function CandidateDetail({ packId, novel, audioState, onGenerate, onRegenAudio, onSelect, onPageUpdated }) {
+  return (
+    <div
+      className="t-card"
+      style={{
+        marginTop: 10, padding: 12,
+        border: novel.is_selected ? '2px solid var(--t-success, #2e7d32)' : '1px solid var(--t-border)',
+        background: novel.is_selected ? 'var(--t-success-bg, rgba(46,125,50,0.06))' : 'transparent',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>
+          Candidate {novel.candidate_index + 1}: {novel.title}
+        </span>
+        {novel.is_selected
+          ? <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--t-success, #2e7d32)' }}>✓ Selected</span>
+          : (
+            <button
+              className="t-btn t-btn--primary"
+              style={{ fontSize: '0.75rem', padding: '2px 12px' }}
+              onClick={() => onSelect(packId, novel.id)}
+              title="Publish this candidate to students and promote its cloze"
+            >
+              Select this candidate
+            </button>
+          )}
+        <span className="t-hint" style={{ fontSize: '0.8rem' }}>
+          (Lexile: {novel.reading_level}, Pages: {novel.pages.length})
+        </span>
+        <AudioControls novelId={novel.id} audioState={audioState} onGenerate={onGenerate} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12, marginTop: 6 }}>
+        {novel.pages.map(page => {
+          const audioPage = audioState?.pages?.find(ap => ap.page_number === page.page_number);
+          return (
+            <GraphicNovelPageEditor
+              key={page.id}
+              page={page}
+              audioUrl={audioPage?.audio_url || page.audio_url || ''}
+              audioStatus={audioPage?.status}
+              audioError={audioPage?.error}
+              onRegenAudio={() => onRegenAudio(novel.id, page.id, page.page_number)}
+              onUpdated={(updatedPage) => onPageUpdated(packId, updatedPage)}
+            />
+          );
+        })}
+      </div>
+      {novel.cloze_items && novel.cloze_items.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <strong style={{ fontSize: '0.8rem' }}>Cloze for this candidate:</strong>
+          {novel.cloze_items.map(ci => (
+            <div key={ci.id} style={{ paddingLeft: 12, fontSize: '0.82rem', margin: '2px 0' }}>
+              {ci.sentence_text} — Answer: <strong>{ci.correct_answer}</strong>
             </div>
           ))}
         </div>

@@ -826,6 +826,7 @@ class TestInstructionalPackView:
             synopsis='A student follows a signal.',
             style_prompt='Readable comic art.',
             reading_level=650,
+            is_selected=True,
         )
         GraphicNovelPage.objects.create(
             novel=novel,
@@ -1322,6 +1323,7 @@ class TestGenerationViews:
                 'substep_label': 'Router + Premises',
                 'pack_id': 123,
                 'pack_label': 'Pack 1',
+                'candidate_index': 0,
             },
         )
         GenerationJobLog.objects.create(
@@ -1334,9 +1336,26 @@ class TestGenerationViews:
                 'substep_label': 'Router + Premises',
                 'pack_id': 123,
                 'pack_label': 'Pack 1',
-                'artifact_path': 'temp/generation_artifacts/job_1/pack_123_pack-1/01_router_premises.json',
+                'candidate_index': 0,
+                'artifact_path': 'temp/generation_artifacts/job_1/pack_123_pack-1/cand_0/01_router_premises.json',
                 'artifact_name': '01_router_premises.json',
                 'summary': {'premise_count': 3},
+            },
+        )
+        # A second candidate for the same pack must be grouped separately, not
+        # collapsed into candidate 0's substeps.
+        GenerationJobLog.objects.create(
+            job=job,
+            step=GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
+            status=GenerationJob.Status.COMPLETED,
+            duration_seconds=2.0,
+            output_data={
+                'substep': 'team_selection',
+                'substep_label': 'Team Selection',
+                'pack_id': 123,
+                'pack_label': 'Pack 1',
+                'candidate_index': 1,
+                'artifact_name': '01_team_selection.json',
             },
         )
 
@@ -1346,17 +1365,26 @@ class TestGenerationViews:
         assert response.status_code == 200
         pack_status = response.data['graphic_novel_script_substeps'][0]
         assert pack_status['pack_label'] == 'Pack 1'
-        assert [substep['substep'] for substep in pack_status['substeps']][:2] == [
+
+        candidates = pack_status['candidates']
+        assert [c['candidate_index'] for c in candidates] == [0, 1]
+
+        cand0 = candidates[0]['substeps']
+        assert [substep['substep'] for substep in cand0][:2] == [
             'team_selection',
             'router_premises',
         ]
-        team_status = pack_status['substeps'][0]
-        assert team_status['label'] == 'Team Selection'
-        assert team_status['status'] == GenerationJob.Status.PENDING
-        router_status = pack_status['substeps'][1]
-        assert router_status['substep'] == 'router_premises'
-        assert router_status['status'] == GenerationJob.Status.COMPLETED
-        assert router_status['artifact_name'] == '01_router_premises.json'
+        assert cand0[0]['label'] == 'Team Selection'
+        assert cand0[0]['status'] == GenerationJob.Status.PENDING
+        assert cand0[1]['substep'] == 'router_premises'
+        assert cand0[1]['status'] == GenerationJob.Status.COMPLETED
+        assert cand0[1]['artifact_name'] == '01_router_premises.json'
+
+        # Candidate 1 has its own independent substep map.
+        cand1 = candidates[1]['substeps']
+        assert cand1[0]['substep'] == 'team_selection'
+        assert cand1[0]['status'] == GenerationJob.Status.COMPLETED
+        assert cand1[1]['status'] == GenerationJob.Status.PENDING
 
     def test_job_status_includes_graphic_novel_page_statuses(self):
         admin = AdminUserFactory()
@@ -1369,6 +1397,7 @@ class TestGenerationViews:
             synopsis='A test synopsis.',
             style_prompt='Readable comic art.',
             reading_level=650,
+            is_selected=True,
         )
         page = GraphicNovelPage.objects.create(
             novel=novel,
@@ -1403,6 +1432,7 @@ class TestGenerationViews:
             synopsis='A test synopsis.',
             style_prompt='Readable comic art.',
             reading_level=650,
+            is_selected=True,
         )
         page = GraphicNovelPage.objects.create(
             novel=novel,
@@ -1575,6 +1605,7 @@ class TestGenerationViews:
             synopsis='A test synopsis.',
             style_prompt='Readable comic art.',
             reading_level=650,
+            is_selected=True,
         )
         page = GraphicNovelPage.objects.create(
             novel=novel,
@@ -1722,7 +1753,7 @@ class TestGenerationViews:
         pack = WordPack.objects.create(word_set=ws, label='Pack 1', order=0)
         novel = GraphicNovel.objects.create(
             pack=pack, title='No Image Novel', synopsis='s',
-            style_prompt='art', reading_level=650,
+            style_prompt='art', reading_level=650, is_selected=True,
         )
         page = GraphicNovelPage.objects.create(
             novel=novel, page_number=1, panel_count=1,
@@ -1883,7 +1914,7 @@ class TestGenerationViews:
         pack = WordPack.objects.create(word_set=ws, label='Pack 1', order=0)
         novel = GraphicNovel.objects.create(
             pack=pack, title='No Image Novel', synopsis='s',
-            style_prompt='art', reading_level=650,
+            style_prompt='art', reading_level=650, is_selected=True,
         )
         page = GraphicNovelPage.objects.create(
             novel=novel, page_number=1, panel_count=1,

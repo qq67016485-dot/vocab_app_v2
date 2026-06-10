@@ -8,7 +8,7 @@ A K-8 vocabulary learning platform with AI-generated instructional content, adap
 - Automated word lookup, deduplication, and translation (10+ languages)
 - Question generation (15 per word across 28 question types)
 - Thematic pack creation with primer cards
-- Graphic novel scripts (Gemini 6-call planning pipeline) and cinematic images (GPT-Image-2)
+- Graphic novel scripts (Gemini 6-call planning pipeline) and cinematic images (GPT-Image-2) — 3 candidate novels per pack, admin picks one to publish
 - Per-step resume on failure, stale job detection
 
 **Instructional Flow**
@@ -33,6 +33,7 @@ A K-8 vocabulary learning platform with AI-generated instructional content, adap
 **Admin Tools**
 - Full generation wizard (pipeline, questions-only, instructional-only)
 - Generation status polling with per-page image progress
+- Graphic novel candidate review: 3 candidates per pack, select one to publish (gates student visibility + cloze)
 - Per-page graphic novel image editing with original/edited variant selection
 - Resume failed pipelines
 

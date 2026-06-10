@@ -371,7 +371,7 @@ def _format_vocab_details_for_review(page):
     return '\n'.join(lines) if lines else 'No vocabulary words provided.'
 
 
-def _graphic_novel_artifact_dir(job, pack):
+def _graphic_novel_artifact_dir(job, pack, candidate_index=0):
     pack_slug = slugify(pack.label) or f'pack-{pack.id}'
     return os.path.abspath(os.path.join(
         settings.BASE_DIR,
@@ -380,17 +380,20 @@ def _graphic_novel_artifact_dir(job, pack):
         'generation_artifacts',
         f'job_{job.id}',
         f'pack_{pack.id}_{pack_slug}',
+        f'cand_{candidate_index}',
     ))
 
 
-def _write_graphic_novel_artifact(job, pack, substep, filename, model, input_summary, response):
-    artifact_dir = _graphic_novel_artifact_dir(job, pack)
+def _write_graphic_novel_artifact(job, pack, substep, filename, model, input_summary,
+                                  response, candidate_index=0):
+    artifact_dir = _graphic_novel_artifact_dir(job, pack, candidate_index)
     os.makedirs(artifact_dir, exist_ok=True)
     filepath = os.path.join(artifact_dir, filename)
     payload = {
         'job_id': job.id,
         'pack_id': pack.id,
         'pack_label': pack.label,
+        'candidate_index': candidate_index,
         'substep': substep,
         'model': model,
         'created_at': timezone.now().isoformat(),
@@ -402,9 +405,9 @@ def _write_graphic_novel_artifact(job, pack, substep, filename, model, input_sum
     return filepath
 
 
-def _load_substep_artifact(job, pack, substep_config):
+def _load_substep_artifact(job, pack, substep_config, candidate_index=0):
     """Load a previously saved substep artifact's response from disk."""
-    artifact_dir = _graphic_novel_artifact_dir(job, pack)
+    artifact_dir = _graphic_novel_artifact_dir(job, pack, candidate_index)
     filepath = os.path.join(artifact_dir, substep_config['filename'])
     if not os.path.isfile(filepath):
         return None
@@ -463,12 +466,13 @@ def _graphic_novel_artifact_summary(substep, response):
 
 def _log_graphic_novel_substep(job, pack, substep, label, status, duration=None,
                                artifact_path='', summary=None, error_message='', model=None,
-                               prompt_template=None, prompt_text=None):
+                               prompt_template=None, prompt_text=None, candidate_index=0):
     output_data = {
         'substep': substep,
         'substep_label': label,
         'pack_id': pack.id,
         'pack_label': pack.label,
+        'candidate_index': candidate_index,
     }
     output_data.update(_log_metadata(
         model=model,
@@ -493,7 +497,8 @@ def _log_graphic_novel_substep(job, pack, substep, label, status, duration=None,
 
 def _run_graphic_novel_substep(job, pack, substep_config, site_config, system_prompt,
                                user_prompt, input_summary, validator=None,
-                               max_retries=2, prompt_template_name=None, ctx=None):
+                               max_retries=2, prompt_template_name=None, ctx=None,
+                               candidate_index=0):
     substep = substep_config['key']
     label = substep_config['label']
     template_name = prompt_template_name or substep_config['template']
@@ -513,6 +518,7 @@ def _run_graphic_novel_substep(job, pack, substep_config, site_config, system_pr
             model=site_config['model'],
             prompt_template=template_name,
             prompt_text=system_prompt,
+            candidate_index=candidate_index,
         )
         start = time.time()
         artifact_path = ''
@@ -526,6 +532,7 @@ def _run_graphic_novel_substep(job, pack, substep_config, site_config, system_pr
                 site_config['model'],
                 input_summary,
                 response,
+                candidate_index=candidate_index,
             )
             if validator:
                 validator(response, ctx)
@@ -542,6 +549,7 @@ def _run_graphic_novel_substep(job, pack, substep_config, site_config, system_pr
                 model=site_config['model'],
                 prompt_template=template_name,
                 prompt_text=system_prompt,
+                candidate_index=candidate_index,
             )
             return response, artifact_path
         except Exception as exc:
@@ -560,11 +568,12 @@ def _run_graphic_novel_substep(job, pack, substep_config, site_config, system_pr
                 model=site_config['model'],
                 prompt_template=template_name,
                 prompt_text=system_prompt,
+                candidate_index=candidate_index,
             )
             if attempt < max_retries:
                 logger.warning(
-                    "Substep %s for pack '%s' failed on attempt %d; retrying: %s",
-                    substep, pack.label, attempt + 1, exc,
+                    "Substep %s for pack '%s' cand %d failed on attempt %d; retrying: %s",
+                    substep, pack.label, candidate_index, attempt + 1, exc,
                 )
 
     raise last_exc

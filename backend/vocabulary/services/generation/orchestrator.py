@@ -128,7 +128,7 @@ def _clear_testing_outputs_for_step(job, step, words):
 
     elif step == S.GRAPHIC_NOVEL_IMAGES:
         packs = WordPack.objects.filter(word_set=job.word_set)
-        GraphicNovelPage.objects.filter(novel__pack__in=packs, novel__channel='5page').update(
+        GraphicNovelPage.objects.filter(novel__pack__in=packs).update(
             image='', prompt_used='',
             generation_status=GraphicNovelPage.GenerationStatus.PENDING,
             generation_attempts=0,
@@ -482,16 +482,17 @@ def restart_pipeline_from_step(job_id, start_step, include_subsequent=True):
         _close_old_connections_if_safe()
 
 
-def restart_graphic_novel_substep(job_id, pack_id, substep_key):
-    """Restart graphic novel generation for a single pack from a specific substep.
+def restart_graphic_novel_substep(job_id, pack_id, substep_key, candidate_index=0):
+    """Restart one candidate of a pack's graphic novel from a specific substep.
 
-    After regenerating the targeted pack, this also generates scripts for any
-    *other* packs in the word set that still lack a complete graphic novel —
-    e.g. packs the original run never reached because an earlier pack failed
+    After regenerating the targeted candidate, this also generates scripts for any
+    *other* pack candidates in the word set that still lack a complete graphic novel
+    — e.g. candidates the original run never reached because an earlier one failed
     mid-step. Without this, a substep restart on the first pack would mark the
-    whole job COMPLETED while later packs silently had no novel at all (job #48).
-    The script step's skip-guard leaves already-complete packs untouched, so the
-    common "regenerate one pack of a finished job" case adds no extra LLM calls.
+    whole job COMPLETED while later packs/candidates silently had no novel at all
+    (job #48). The script step's skip-guard leaves already-complete candidates
+    untouched, so the common "regenerate one candidate of a finished job" case adds
+    no extra LLM calls.
     """
     _close_old_connections_if_safe()
     job = None
@@ -509,13 +510,16 @@ def restart_graphic_novel_substep(job_id, pack_id, substep_key):
             GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
             GenerationJob.Status.RUNNING,
             output_data={
-                'message': f'Substep restart: {substep_key} for pack {pack_id}',
+                'message': f'Substep restart: {substep_key} for pack {pack_id} candidate {candidate_index}',
                 'substep_restart': substep_key,
                 'pack_id': pack_id,
+                'candidate_index': candidate_index,
             },
         )
 
-        restart_graphic_novel_from_substep(job, pack_id, substep_key, words_data)
+        restart_graphic_novel_from_substep(
+            job, pack_id, substep_key, words_data, candidate_index=candidate_index,
+        )
 
         # Generate scripts for any remaining packs that never got a novel. The
         # script step skips packs that already have a novel with pages (incl. the

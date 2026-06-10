@@ -473,6 +473,17 @@ class GraphicNovel(models.Model):
     )
     channel = models.CharField(
         max_length=10, choices=Channel.choices, default=Channel.FIVE_PAGE,
+        help_text='Vestigial: always "5page". Superseded by candidate_index; kept as a dead column pending removal.',
+    )
+    candidate_index = models.IntegerField(
+        default=0,
+        help_text='Which generated candidate (0..N-1) this novel is for the pack. '
+                  'Multiple candidates are generated per pack so an admin can pick the best.',
+    )
+    is_selected = models.BooleanField(
+        default=False,
+        help_text='True for the one candidate chosen by an admin. Only selected '
+                  'novels are shown to students. No candidate selected = pack not yet published.',
     )
     title = models.CharField(max_length=200)
     synopsis = models.TextField(help_text='Story synopsis for character/scene continuity')
@@ -490,10 +501,13 @@ class GraphicNovel(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ('pack', 'channel')
+        unique_together = ('pack', 'candidate_index')
 
     def __str__(self):
-        return f"Graphic novel ({self.channel}) for {self.pack.label}: {self.title}"
+        return (
+            f"Graphic novel cand {self.candidate_index}"
+            f"{' [selected]' if self.is_selected else ''} for {self.pack.label}: {self.title}"
+        )
 
 
 class GraphicNovelPage(models.Model):
@@ -642,6 +656,13 @@ class GraphicNovelPageAudio(models.Model):
 class ClozeItem(models.Model):
     pack = models.ForeignKey(WordPack, on_delete=models.CASCADE, related_name='cloze_items')
     word = models.ForeignKey(Word, on_delete=models.CASCADE, related_name='cloze_items')
+    novel = models.ForeignKey(
+        'GraphicNovel', on_delete=models.CASCADE, related_name='cloze_items',
+        null=True, blank=True,
+        help_text='Candidate this cloze was generated for. NULL = promoted/active '
+                  'pack cloze that students practice (set when a candidate is selected). '
+                  'Non-NULL = staged candidate cloze, hidden until its novel is selected.',
+    )
     sentence_text = models.TextField(help_text='Sentence with _______ blank')
     correct_answer = models.CharField(max_length=200)
     distractors = models.JSONField(help_text='List of 2 distractor strings')

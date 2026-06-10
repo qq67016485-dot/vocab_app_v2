@@ -186,13 +186,13 @@ def _step_graphic_novel_images(job, packs):
     logger.info("Graphic novel image generation started for job %s", job.id)
 
     pages = list(
-        GraphicNovelPage.objects.filter(novel__pack__in=packs, novel__channel='5page')
+        GraphicNovelPage.objects.filter(novel__pack__in=packs)
         .select_related('novel', 'novel__pack')
         .order_by('novel_id', 'page_number')
     )
 
     if not pages:
-        novel_count = GraphicNovel.objects.filter(pack__in=packs, channel='5page').count()
+        novel_count = GraphicNovel.objects.filter(pack__in=packs).count()
         logger.warning(
             "No graphic novel pages found for job %s (%d packs, %d novels). "
             "The graphic_novel_script step may need to run first.",

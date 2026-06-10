@@ -6,6 +6,12 @@ BACKUP_MODEL = 'gemini-3-pro-preview'
 GRAPHIC_NOVEL_SCRIPT_MODEL = 'gemini-3.1-pro-preview'
 GRAPHIC_NOVEL_IMAGE_MODEL = 'gpt-image-2'
 
+# Number of independent graphic novel candidates generated per pack. An admin
+# picks one to publish; the others are kept (hidden) for reconsideration. Each
+# candidate reruns the full team-selection→script workflow, so they diverge in
+# story, art, and framing — countering per-call LLM variance.
+GRAPHIC_NOVEL_CANDIDATE_COUNT = 3
+
 PIPELINE_STEP_ORDER = [
     GenerationJobLog.Step.WORD_LOOKUP,
     GenerationJobLog.Step.DEDUP,

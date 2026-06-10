@@ -17,7 +17,7 @@ from django.utils import timezone
 from vocabulary.models import (
     WordPack, WordPackItem, PrimerCardContent, MicroStory, ClozeItem,
     StudentPackCompletion, StudentWordSetAssignment, UserWordProgress,
-    GraphicNovel, GraphicNovelPageAudio,
+    GraphicNovelPageAudio,
 )
 from vocabulary.utils import get_definition_translations
 
@@ -71,10 +71,10 @@ class InstructionalService:
                 'example_translation': example_translation,
             })
 
-        # Select the new graphic novel format first; fall back to legacy stories.
-        graphic_novel = pack.graphic_novels.filter(
-            channel=GraphicNovel.Channel.FIVE_PAGE,
-        ).first()
+        # Select the admin-chosen graphic novel candidate; fall back to legacy
+        # stories. Until an admin selects a candidate, no novel is_selected and
+        # the pack reads as not-yet-published (story_data stays None).
+        graphic_novel = pack.graphic_novels.filter(is_selected=True).first()
         stories = list(pack.stories.all())
         story = None
         if graphic_novel:
@@ -111,14 +111,15 @@ class InstructionalService:
         else:
             story_data = None
 
-        # Cloze items
+        # Cloze items — only the promoted set (novel=None) is student-facing;
+        # staged candidate cloze (novel=<id>) is excluded until promoted.
         cloze_items = [{
             'id': ci.id,
             'sentence_text': ci.sentence_text,
             'correct_answer': ci.correct_answer,
             'distractors': ci.distractors,
             'order': ci.order,
-        } for ci in pack.cloze_items.all()]
+        } for ci in pack.cloze_items.filter(novel__isnull=True)]
 
         return {
             'pack_id': pack.id,

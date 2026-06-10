@@ -20,6 +20,9 @@ from ..models import (
     GraphicNovelPage, GraphicNovel, GraphicNovelPageAudio,
 )
 from ..permissions import IsAdmin
+from ..services.graphic_novel_selection_service import (
+    select_graphic_novel_candidate,
+)
 from ..services.generation_pipeline_service import (
     PIPELINE_STEP_ORDER,
     restart_pipeline_from_step,
@@ -49,6 +52,7 @@ def _graphic_novel_image_page_statuses(word_set):
             'pack_label': page.novel.pack.label,
             'novel_id': page.novel_id,
             'novel_title': page.novel.title,
+            'candidate_index': page.novel.candidate_index,
             'page_number': page.page_number,
             'status': page.generation_status,
             'attempts': page.generation_attempts,
@@ -75,7 +79,32 @@ GRAPHIC_NOVEL_SCRIPT_SUBSTEPS = [
 ]
 
 
+def _new_substep_map():
+    return {
+        key: {
+            'substep': key,
+            'label': label,
+            'status': GenerationJob.Status.PENDING,
+            'duration_seconds': None,
+            'error_message': '',
+            'artifact_path': '',
+            'artifact_name': '',
+            'summary': None,
+            'updated_at': None,
+        }
+        for key, label in GRAPHIC_NOVEL_SCRIPT_SUBSTEPS
+    }
+
+
 def _graphic_novel_script_substep_statuses(job):
+    """Per-pack, per-candidate substep status for the planning accordion.
+
+    Each pack runs the full substep workflow once per graphic-novel candidate
+    (GRAPHIC_NOVEL_CANDIDATE_COUNT times), so logs are grouped by
+    (pack_id, candidate_index) — otherwise the three candidates' substeps
+    collapse into one bucket and the list appears to repeat with no way to tell
+    which candidate an API call belongs to.
+    """
     substep_logs = [
         log for log in job.logs.filter(step=GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT)
         if isinstance(log.output_data, dict) and log.output_data.get('substep')
@@ -84,28 +113,23 @@ def _graphic_novel_script_substep_statuses(job):
     for log in substep_logs:
         output_data = log.output_data or {}
         pack_id = output_data.get('pack_id') or 'unknown'
+        candidate_index = output_data.get('candidate_index', 0) or 0
         if pack_id not in packs:
             packs[pack_id] = {
                 'pack_id': output_data.get('pack_id'),
                 'pack_label': output_data.get('pack_label', 'Pack'),
-                'substeps': {
-                    key: {
-                        'substep': key,
-                        'label': label,
-                        'status': GenerationJob.Status.PENDING,
-                        'duration_seconds': None,
-                        'error_message': '',
-                        'artifact_path': '',
-                        'artifact_name': '',
-                        'summary': None,
-                        'updated_at': None,
-                    }
-                    for key, label in GRAPHIC_NOVEL_SCRIPT_SUBSTEPS
-                },
+                'candidates': {},
             }
+        candidates = packs[pack_id]['candidates']
+        if candidate_index not in candidates:
+            candidates[candidate_index] = {
+                'candidate_index': candidate_index,
+                'substeps': _new_substep_map(),
+            }
+        substeps = candidates[candidate_index]['substeps']
         substep = output_data.get('substep')
-        if substep not in packs[pack_id]['substeps']:
-            packs[pack_id]['substeps'][substep] = {
+        if substep not in substeps:
+            substeps[substep] = {
                 'substep': substep,
                 'label': output_data.get('substep_label', substep),
                 'status': GenerationJob.Status.PENDING,
@@ -116,7 +140,7 @@ def _graphic_novel_script_substep_statuses(job):
                 'summary': None,
                 'updated_at': None,
             }
-        packs[pack_id]['substeps'][substep].update({
+        substeps[substep].update({
             'status': log.status,
             'duration_seconds': log.duration_seconds,
             'error_message': log.error_message,
@@ -130,7 +154,16 @@ def _graphic_novel_script_substep_statuses(job):
         {
             'pack_id': pack_data['pack_id'],
             'pack_label': pack_data['pack_label'],
-            'substeps': list(pack_data['substeps'].values()),
+            'candidates': [
+                {
+                    'candidate_index': candidate['candidate_index'],
+                    'substeps': list(candidate['substeps'].values()),
+                }
+                for candidate in sorted(
+                    pack_data['candidates'].values(),
+                    key=lambda item: item['candidate_index'],
+                )
+            ],
         }
         for pack_data in sorted(packs.values(), key=lambda item: str(item['pack_label']))
     ]
@@ -168,6 +201,40 @@ def _graphic_novel_page_review_payload(page):
         'is_review_page': page.is_review_page,
         'audio_url': audio_url,
     }
+
+
+def _graphic_novel_candidate_payload(novel):
+    """Serialize one candidate graphic novel (with its staged cloze) for review."""
+    return {
+        'id': novel.id,
+        'candidate_index': novel.candidate_index,
+        'is_selected': novel.is_selected,
+        'title': novel.title,
+        'synopsis': novel.synopsis,
+        'reading_level': novel.reading_level,
+        'pages': [
+            _graphic_novel_page_review_payload(page)
+            for page in novel.pages.all()
+        ],
+        'cloze_items': [
+            {
+                'id': ci.id,
+                'word_text': ci.word.text,
+                'sentence_text': ci.sentence_text,
+                'correct_answer': ci.correct_answer,
+                'distractors': ci.distractors,
+            }
+            for ci in novel.cloze_items.all()
+        ],
+    }
+
+
+def _pack_graphic_novel_candidates(pack):
+    """All candidate novels for a pack, ordered by candidate_index, for admin review."""
+    novels = sorted(
+        pack.graphic_novels.all(), key=lambda n: n.candidate_index
+    )
+    return [_graphic_novel_candidate_payload(novel) for novel in novels]
 
 
 class GenerationQueueView(APIView):
@@ -411,7 +478,8 @@ class GenerationJobContentView(APIView):
         packs = WordPack.objects.filter(
             word_set=job.word_set,
         ).prefetch_related(
-            'items__word', 'stories', 'graphic_novels__pages__audio', 'cloze_items__word',
+            'items__word', 'stories', 'graphic_novels__pages__audio',
+            'graphic_novels__cloze_items__word', 'cloze_items__word',
         ).order_by('order')
 
         packs_data = []
@@ -442,20 +510,13 @@ class GenerationJobContentView(APIView):
                 for s in pack.stories.all()
             ]
 
-            graphic_novel = pack.graphic_novels.filter(channel='5page').first()
-            graphic_novel_data = None
-            if graphic_novel:
-                graphic_novel_data = {
-                    'id': graphic_novel.id,
-                    'title': graphic_novel.title,
-                    'synopsis': graphic_novel.synopsis,
-                    'reading_level': graphic_novel.reading_level,
-                    'pages': [
-                        _graphic_novel_page_review_payload(page)
-                        for page in graphic_novel.pages.all()
-                    ],
-                }
+            graphic_novel_candidates = _pack_graphic_novel_candidates(pack)
+            selected_novel = next(
+                (c for c in graphic_novel_candidates if c['is_selected']), None
+            )
 
+            # Promoted (student-facing) cloze only; staged candidate cloze rides
+            # on each candidate in graphic_novels.
             cloze_items = [
                 {
                     'id': ci.id,
@@ -464,7 +525,7 @@ class GenerationJobContentView(APIView):
                     'correct_answer': ci.correct_answer,
                     'distractors': ci.distractors,
                 }
-                for ci in pack.cloze_items.all()
+                for ci in pack.cloze_items.filter(novel__isnull=True)
             ]
 
             packs_data.append({
@@ -472,7 +533,8 @@ class GenerationJobContentView(APIView):
                 'label': pack.label,
                 'words': pack_words,
                 'primer_cards': primer_cards,
-                'graphic_novel': graphic_novel_data,
+                'graphic_novels': graphic_novel_candidates,
+                'graphic_novel': selected_novel,
                 'stories': stories,
                 'cloze_items': cloze_items,
             })
@@ -634,10 +696,19 @@ class RestartGraphicNovelSubstepView(APIView):
     def post(self, request, job_id):
         pack_id = request.data.get('pack_id')
         substep = request.data.get('substep')
+        candidate_index = request.data.get('candidate_index', 0)
 
         if not pack_id or not substep:
             return Response(
                 {'error': 'Both pack_id and substep are required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            candidate_index = int(candidate_index)
+        except (TypeError, ValueError):
+            return Response(
+                {'error': 'candidate_index must be an integer.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -675,7 +746,7 @@ class RestartGraphicNovelSubstepView(APIView):
 
         thread = threading.Thread(
             target=restart_graphic_novel_substep,
-            args=(job.id, int(pack_id), substep),
+            args=(job.id, int(pack_id), substep, candidate_index),
             daemon=True,
         )
         thread.start()
@@ -684,6 +755,7 @@ class RestartGraphicNovelSubstepView(APIView):
             'job_id': job.id,
             'status': GenerationJob.Status.RUNNING,
             'pack_id': pack_id,
+            'candidate_index': candidate_index,
             'substep': substep,
             'message': 'Substep restart started.',
         })
@@ -1069,6 +1141,36 @@ class SelectGraphicNovelPageImageView(APIView):
         ))
 
 
+class SelectGraphicNovelCandidateView(APIView):
+    """
+    POST /api/graphic-novels/{novel_id}/select/
+
+    Choose this candidate as the published graphic novel for its pack. Clears the
+    selection on sibling candidates and promotes this candidate's staged cloze to
+    the pack's active (student-facing) set. Until a candidate is selected, the
+    pack's graphic novel + cloze are hidden from students. Reversible — selecting
+    a different candidate re-publishes that one.
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, novel_id):
+        try:
+            novel = select_graphic_novel_candidate(novel_id)
+        except GraphicNovel.DoesNotExist:
+            return Response(
+                {'error': 'Graphic novel candidate not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response({
+            'novel_id': novel.id,
+            'pack_id': novel.pack_id,
+            'candidate_index': novel.candidate_index,
+            'is_selected': True,
+            'message': f'Candidate {novel.candidate_index} selected and published.',
+        })
+
+
 def _audio_row_payload(page):
     """Serialize a page's audio state for the status poll."""
     audio = getattr(page, 'audio', None)
@@ -1361,7 +1463,8 @@ class WordSetContentView(APIView):
         packs = WordPack.objects.filter(
             word_set=word_set,
         ).prefetch_related(
-            'items__word', 'stories', 'graphic_novels__pages__audio', 'cloze_items__word',
+            'items__word', 'stories', 'graphic_novels__pages__audio',
+            'graphic_novels__cloze_items__word', 'cloze_items__word',
         ).order_by('order')
 
         packs_data = []
@@ -1392,20 +1495,13 @@ class WordSetContentView(APIView):
                 for s in pack.stories.all()
             ]
 
-            graphic_novel = pack.graphic_novels.filter(channel='5page').first()
-            graphic_novel_data = None
-            if graphic_novel:
-                graphic_novel_data = {
-                    'id': graphic_novel.id,
-                    'title': graphic_novel.title,
-                    'synopsis': graphic_novel.synopsis,
-                    'reading_level': graphic_novel.reading_level,
-                    'pages': [
-                        _graphic_novel_page_review_payload(page)
-                        for page in graphic_novel.pages.all()
-                    ],
-                }
+            graphic_novel_candidates = _pack_graphic_novel_candidates(pack)
+            selected_novel = next(
+                (c for c in graphic_novel_candidates if c['is_selected']), None
+            )
 
+            # Promoted (student-facing) cloze only; staged candidate cloze rides
+            # on each candidate in graphic_novels.
             cloze_items = [
                 {
                     'id': ci.id,
@@ -1414,7 +1510,7 @@ class WordSetContentView(APIView):
                     'correct_answer': ci.correct_answer,
                     'distractors': ci.distractors,
                 }
-                for ci in pack.cloze_items.all()
+                for ci in pack.cloze_items.filter(novel__isnull=True)
             ]
 
             packs_data.append({
@@ -1422,7 +1518,8 @@ class WordSetContentView(APIView):
                 'label': pack.label,
                 'words': pack_words,
                 'primer_cards': primer_cards,
-                'graphic_novel': graphic_novel_data,
+                'graphic_novels': graphic_novel_candidates,
+                'graphic_novel': selected_novel,
                 'stories': stories,
                 'cloze_items': cloze_items,
             })

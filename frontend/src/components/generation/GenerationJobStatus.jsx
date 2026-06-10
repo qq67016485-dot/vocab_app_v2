@@ -91,13 +91,14 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
   const statusIcon = (s) => s === 'COMPLETED' ? '\u2713' : s === 'FAILED' ? '\u2717' : s === 'RUNNING' ? '\u25CF' : '\u25CB';
   const statusCls = (s) => s === 'COMPLETED' ? 'pipeline-icon--done' : s === 'FAILED' ? 'pipeline-icon--failed' : s === 'RUNNING' ? 'pipeline-icon--running' : 'pipeline-icon--pending';
   const stepCls = (s) => s === 'RUNNING' ? 'pipeline-step--running' : s === 'FAILED' ? 'pipeline-step--failed' : '';
-  const handleSubstepRestart = async (packId, substepKey) => {
-    setRestartingSubstep(`${packId}_${substepKey}`);
+  const handleSubstepRestart = async (packId, substepKey, candidateIndex = 0) => {
+    setRestartingSubstep(`${packId}_${candidateIndex}_${substepKey}`);
     setError('');
     try {
       const res = await apiClient.post(`/generation-jobs/${jobId}/restart-substep/`, {
         pack_id: packId,
         substep: substepKey,
+        candidate_index: candidateIndex,
       });
       setJob(prev => prev ? { ...prev, ...res.data, status: 'RUNNING', error_message: '' } : res.data);
       clearInterval(intervalRef.current);
@@ -133,41 +134,12 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
     return (
       <details open style={{ margin: '2px 0 6px 30px', padding: '8px 10px', border: '1px solid var(--t-border)', borderRadius: 6, background: 'var(--t-bg-secondary)' }}>
         <summary style={{ cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600 }}>Planning Substeps</summary>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
           {graphicNovelScriptSubsteps.map((pack) => (
             <div key={pack.pack_id || pack.pack_label}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 4 }}>{pack.pack_label}</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {pack.substeps.map((substep) => {
-                  const s = substep.status || 'PENDING';
-                  const isRestarting = restartingSubstep === `${pack.pack_id}_${substep.substep}`;
-                  const canRestart = job.status !== 'RUNNING' && job.status !== 'PENDING' && !restartingSubstep;
-                  return (
-                    <div key={substep.substep} style={{ display: 'grid', gridTemplateColumns: '22px minmax(0, 1fr) auto auto', gap: 8, alignItems: 'center', fontSize: '0.8rem' }}>
-                      <span className={`pipeline-icon ${statusCls(s)}`}>{statusIcon(s)}</span>
-                      <span style={{ minWidth: 0 }}>
-                        <span>{substep.label}</span>
-                        {substep.artifact_name && (
-                          <span style={{ marginLeft: 8, color: 'var(--t-text-secondary)' }} title={substep.artifact_path}>
-                            {substep.artifact_name}
-                          </span>
-                        )}
-                      </span>
-                      <span style={{ color: s === 'FAILED' ? 'var(--t-danger)' : 'var(--t-text-secondary)' }} title={substep.error_message || substep.artifact_path || ''}>
-                        {s}{substep.duration_seconds != null ? ` - ${substep.duration_seconds.toFixed(1)}s` : ''}
-                      </span>
-                      {canRestart && (
-                        <button
-                          style={{ padding: '2px 6px', fontSize: '0.72rem', borderRadius: 4, border: '1px solid var(--t-border)', background: 'var(--t-bg)', cursor: 'pointer' }}
-                          onClick={() => handleSubstepRestart(pack.pack_id, substep.substep)}
-                          title={`Restart from ${substep.label}`}
-                        >
-                          {isRestarting ? '...' : '↻'}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
+              <div style={{ fontSize: '0.82rem', fontWeight: 700, marginBottom: 6 }}>{pack.pack_label}</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {(pack.candidates || []).map((candidate) => renderCandidateSubsteps(pack, candidate))}
               </div>
             </div>
           ))}
@@ -176,8 +148,69 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
     );
   };
 
+  // One candidate's substep list, grouped under its own collapsible header so
+  // the three candidates per pack are visually distinct (rather than the same
+  // six rows repeating with no label). Completed candidates collapse by default.
+  const renderCandidateSubsteps = (pack, candidate) => {
+    const substeps = candidate.substeps || [];
+    const ci = candidate.candidate_index ?? 0;
+    const done = substeps.filter((s) => s.status === 'COMPLETED').length;
+    const anyFailed = substeps.some((s) => s.status === 'FAILED');
+    const allDone = done === substeps.length && substeps.length > 0;
+    return (
+      <details
+        key={ci}
+        open={!allDone}
+        style={{
+          padding: '6px 8px', borderRadius: 6,
+          border: `1px solid ${anyFailed ? 'var(--t-danger)' : 'var(--t-border)'}`,
+          background: 'var(--t-bg)',
+        }}
+      >
+        <summary style={{ cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontWeight: 600 }}>Candidate {ci + 1}</span>
+          <span style={{ fontSize: '0.75rem', color: anyFailed ? 'var(--t-danger)' : 'var(--t-text-secondary)' }}>
+            {allDone ? 'complete' : `${done}/${substeps.length}`}
+          </span>
+        </summary>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
+          {substeps.map((substep) => {
+            const s = substep.status || 'PENDING';
+            const isRestarting = restartingSubstep === `${pack.pack_id}_${ci}_${substep.substep}`;
+            const canRestart = job.status !== 'RUNNING' && job.status !== 'PENDING' && !restartingSubstep;
+            return (
+              <div key={substep.substep} style={{ display: 'grid', gridTemplateColumns: '22px minmax(0, 1fr) auto auto', gap: 8, alignItems: 'center', fontSize: '0.8rem' }}>
+                <span className={`pipeline-icon ${statusCls(s)}`}>{statusIcon(s)}</span>
+                <span style={{ minWidth: 0 }}>
+                  <span>{substep.label}</span>
+                  {substep.artifact_name && (
+                    <span style={{ marginLeft: 8, color: 'var(--t-text-secondary)' }} title={substep.artifact_path}>
+                      {substep.artifact_name}
+                    </span>
+                  )}
+                </span>
+                <span style={{ color: s === 'FAILED' ? 'var(--t-danger)' : 'var(--t-text-secondary)' }} title={substep.error_message || substep.artifact_path || ''}>
+                  {s}{substep.duration_seconds != null ? ` - ${substep.duration_seconds.toFixed(1)}s` : ''}
+                </span>
+                {canRestart && (
+                  <button
+                    style={{ padding: '2px 6px', fontSize: '0.72rem', borderRadius: 4, border: '1px solid var(--t-border)', background: 'var(--t-bg)', cursor: 'pointer' }}
+                    onClick={() => handleSubstepRestart(pack.pack_id, substep.substep, ci)}
+                    title={`Restart Candidate ${ci + 1} from ${substep.label}`}
+                  >
+                    {isRestarting ? '...' : '↻'}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </details>
+    );
+  };
+
   return (
-    <div style={{ maxWidth: 680 }}>
+    <div style={{ maxWidth: 1000 }}>
       <div style={{ marginBottom: 12 }}>
         <span className={`t-badge ${job.status === 'COMPLETED' || job.status === 'PARTIALLY_COMPLETED' ? 't-badge--generated' : job.status === 'FAILED' ? 't-badge--failed' : 't-badge--generating'}`}
           style={{ padding: '4px 10px', fontSize: '0.78rem' }}>{job.status}</span>
@@ -215,25 +248,11 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
         })}
       </div>
       {graphicNovelImagePages.length > 0 && (
-        <div style={{ marginTop: 8, padding: '8px 10px', border: '1px solid var(--t-border)', borderRadius: 6, background: 'var(--t-bg-secondary)' }}>
-          <div style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: 6 }}>Graphic Novel Pages</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {graphicNovelImagePages.map((page) => {
-              const s = page.status || (page.has_image ? 'COMPLETED' : 'PENDING');
-              return (
-                <div key={page.id} style={{ display: 'grid', gridTemplateColumns: '22px minmax(0, 1fr) auto', gap: 8, alignItems: 'center', fontSize: '0.82rem' }}>
-                  <span className={`pipeline-icon ${statusCls(s)}`}>{statusIcon(s)}</span>
-                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${page.pack_label} - ${page.novel_title}`}>
-                    {page.pack_label} · Page {page.page_number}
-                  </span>
-                  <span style={{ color: s === 'FAILED' ? 'var(--t-danger)' : 'var(--t-text-secondary)' }} title={page.error_message || ''}>
-                    {s}{page.attempts ? ` · try ${page.attempts}` : ''}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <GraphicNovelImageProgress
+          pages={graphicNovelImagePages}
+          statusIcon={statusIcon}
+          statusCls={statusCls}
+        />
       )}
       {(job.status === 'COMPLETED' || job.status === 'PARTIALLY_COMPLETED') && (
         <div className="t-message t-message--success" style={{ marginTop: 12 }}>
@@ -312,6 +331,93 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
           {isResuming ? 'Resuming...' : 'Resume Pipeline'}
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * Compact image-generation progress: pages grouped by pack, then by candidate
+ * novel. Each candidate is a single row showing an overall count plus one small
+ * status chip per page — instead of one tall list row per page. This keeps a
+ * 3-candidate × 7-page job readable at a glance rather than as a 40-row scroll.
+ */
+function GraphicNovelImageProgress({ pages, statusIcon, statusCls }) {
+  const pageStatus = (page) => page.status || (page.has_image ? 'COMPLETED' : 'PENDING');
+
+  // Group: pack_id → { pack_label, novels: novel_id → { title, candidate_index, pages[] } }
+  const packs = [];
+  const packIndex = {};
+  const novelIndex = {};
+  pages.forEach((page) => {
+    const pk = page.pack_id ?? page.pack_label;
+    if (!(pk in packIndex)) {
+      packIndex[pk] = packs.length;
+      packs.push({ pack_label: page.pack_label, novels: [] });
+    }
+    const pack = packs[packIndex[pk]];
+    const nkey = `${pk}:${page.novel_id}`;
+    if (!(nkey in novelIndex)) {
+      novelIndex[nkey] = pack.novels.length;
+      pack.novels.push({
+        novel_id: page.novel_id,
+        title: page.novel_title,
+        candidate_index: page.candidate_index,
+        pages: [],
+      });
+    }
+    pack.novels[novelIndex[nkey]].pages.push(page);
+  });
+
+  const totalDone = pages.filter((p) => pageStatus(p) === 'COMPLETED').length;
+
+  return (
+    <div style={{ marginTop: 8, padding: '10px 12px', border: '1px solid var(--t-border)', borderRadius: 6, background: 'var(--t-bg-secondary)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Graphic Novel Pages</span>
+        <span style={{ fontSize: '0.78rem', color: 'var(--t-text-secondary)' }}>{totalDone}/{pages.length} pages rendered</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {packs.map((pack, pi) => (
+          <div key={pi}>
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: 6 }}>{pack.pack_label}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {pack.novels.map((novel) => {
+                const done = novel.pages.filter((p) => pageStatus(p) === 'COMPLETED').length;
+                const anyFailed = novel.pages.some((p) => pageStatus(p) === 'FAILED');
+                return (
+                  <div
+                    key={novel.novel_id}
+                    style={{ display: 'grid', gridTemplateColumns: 'minmax(170px, 220px) auto 1fr', gap: 10, alignItems: 'center' }}
+                  >
+                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.8rem' }} title={novel.title}>
+                      <span style={{ fontWeight: 600 }}>Candidate {(novel.candidate_index ?? 0) + 1}</span>
+                      <span style={{ color: 'var(--t-text-secondary)' }}> · {novel.title}</span>
+                    </span>
+                    <span style={{ fontSize: '0.76rem', color: anyFailed ? 'var(--t-danger)' : 'var(--t-text-secondary)', whiteSpace: 'nowrap' }}>
+                      {done}/{novel.pages.length}
+                    </span>
+                    <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {novel.pages.map((page) => {
+                        const s = pageStatus(page);
+                        return (
+                          <span
+                            key={page.id}
+                            className={`pipeline-icon ${statusCls(s)}`}
+                            title={`Page ${page.page_number}: ${s}${page.attempts ? ` (try ${page.attempts})` : ''}${page.error_message ? ` — ${page.error_message}` : ''}`}
+                            style={{ fontSize: '0.78rem' }}
+                          >
+                            {statusIcon(s)}
+                          </span>
+                        );
+                      })}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
