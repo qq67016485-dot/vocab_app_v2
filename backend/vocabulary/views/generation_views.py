@@ -17,16 +17,20 @@ STALE_JOB_THRESHOLD_SECONDS = 1800
 from ..models import (
     GenerationJob, GenerationJobLog, WordSet,
     WordPack, PrimerCardContent, MicroStory, ClozeItem, Question,
-    GraphicNovelPage, GraphicNovel, GraphicNovelPageAudio,
+    GraphicNovelPage, GraphicNovel, GraphicNovelPageAudio, Infographic,
 )
 from ..permissions import IsAdmin
 from ..services.graphic_novel_selection_service import (
     select_graphic_novel_candidate,
 )
+from ..services.infographic_selection_service import (
+    select_infographic_candidate,
+)
 from ..services.generation_pipeline_service import (
     PIPELINE_STEP_ORDER,
     restart_pipeline_from_step,
     restart_graphic_novel_substep,
+    restart_infographic_substep,
     run_full_pipeline,
     resume_pipeline,
 )
@@ -78,8 +82,16 @@ GRAPHIC_NOVEL_SCRIPT_SUBSTEPS = [
     ('final_script_self_check', 'Final Script + Self-Check'),
 ]
 
+# Infographic design substeps (design → cloze) both log under the single
+# INFOGRAPHIC_DESIGN step, so without a per-substep breakdown the status row
+# only reflects whichever substep logged last (cloze), hiding the design work.
+INFOGRAPHIC_DESIGN_SUBSTEPS = [
+    ('design', 'Infographic Design'),
+    ('cloze', 'Infographic Cloze'),
+]
 
-def _new_substep_map():
+
+def _new_substep_map(substep_defs):
     return {
         key: {
             'substep': key,
@@ -92,21 +104,22 @@ def _new_substep_map():
             'summary': None,
             'updated_at': None,
         }
-        for key, label in GRAPHIC_NOVEL_SCRIPT_SUBSTEPS
+        for key, label in substep_defs
     }
 
 
-def _graphic_novel_script_substep_statuses(job):
-    """Per-pack, per-candidate substep status for the planning accordion.
+def _substep_statuses_for_step(job, step, substep_defs):
+    """Per-pack, per-candidate substep status for a step's planning accordion.
 
-    Each pack runs the full substep workflow once per graphic-novel candidate
-    (GRAPHIC_NOVEL_CANDIDATE_COUNT times), so logs are grouped by
-    (pack_id, candidate_index) — otherwise the three candidates' substeps
+    Each pack runs the full substep workflow once per candidate, so logs are
+    grouped by (pack_id, candidate_index) — otherwise the candidates' substeps
     collapse into one bucket and the list appears to repeat with no way to tell
-    which candidate an API call belongs to.
+    which candidate an API call belongs to. Shared by the graphic novel script
+    step and the infographic design step (both log multiple substeps under a
+    single GenerationJobLog step).
     """
     substep_logs = [
-        log for log in job.logs.filter(step=GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT)
+        log for log in job.logs.filter(step=step)
         if isinstance(log.output_data, dict) and log.output_data.get('substep')
     ]
     packs = {}
@@ -124,7 +137,7 @@ def _graphic_novel_script_substep_statuses(job):
         if candidate_index not in candidates:
             candidates[candidate_index] = {
                 'candidate_index': candidate_index,
-                'substeps': _new_substep_map(),
+                'substeps': _new_substep_map(substep_defs),
             }
         substeps = candidates[candidate_index]['substeps']
         substep = output_data.get('substep')
@@ -167,6 +180,18 @@ def _graphic_novel_script_substep_statuses(job):
         }
         for pack_data in sorted(packs.values(), key=lambda item: str(item['pack_label']))
     ]
+
+
+def _graphic_novel_script_substep_statuses(job):
+    return _substep_statuses_for_step(
+        job, GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT, GRAPHIC_NOVEL_SCRIPT_SUBSTEPS,
+    )
+
+
+def _infographic_design_substep_statuses(job):
+    return _substep_statuses_for_step(
+        job, GenerationJobLog.Step.INFOGRAPHIC_DESIGN, INFOGRAPHIC_DESIGN_SUBSTEPS,
+    )
 
 
 def _graphic_novel_page_review_payload(page):
@@ -235,6 +260,46 @@ def _pack_graphic_novel_candidates(pack):
         pack.graphic_novels.all(), key=lambda n: n.candidate_index
     )
     return [_graphic_novel_candidate_payload(novel) for novel in novels]
+
+
+def _infographic_candidate_payload(infographic):
+    """Serialize one candidate infographic (with its staged cloze) for review."""
+    content = infographic.content or {}
+    return {
+        'id': infographic.id,
+        'candidate_index': infographic.candidate_index,
+        'is_selected': infographic.is_selected,
+        'title': infographic.title,
+        'intro_text': infographic.intro_text,
+        'big_idea': content.get('big_idea', ''),
+        'layout_mode': content.get('layout_mode', ''),
+        'visual_structure': content.get('visual_structure', ''),
+        'scene_description': content.get('scene_description', '') or content.get('theme', ''),
+        'scene_elements': content.get('scene_elements', []),
+        'entries': content.get('entries', []),
+        'reading_level': infographic.reading_level,
+        'image_url': infographic.display_image.url if infographic.display_image else '',
+        'generation_status': infographic.generation_status,
+        'generation_error': infographic.generation_error,
+        'cloze_items': [
+            {
+                'id': ci.id,
+                'word_text': ci.word.text,
+                'sentence_text': ci.sentence_text,
+                'correct_answer': ci.correct_answer,
+                'distractors': ci.distractors,
+            }
+            for ci in infographic.cloze_items.all()
+        ],
+    }
+
+
+def _pack_infographic_candidates(pack):
+    """All candidate infographics for a pack, ordered by candidate_index."""
+    infographics = sorted(
+        pack.infographics.all(), key=lambda i: i.candidate_index
+    )
+    return [_infographic_candidate_payload(ig) for ig in infographics]
 
 
 class GenerationQueueView(APIView):
@@ -306,6 +371,19 @@ class TriggerGenerationView(APIView):
 
         words = list(dict.fromkeys(w.strip() for w in words if w.strip()))
 
+        # Content types to generate (defaults to graphic novel only). Validate
+        # against the allowed set and always keep at least one type.
+        from vocabulary.services.generation.constants import (
+            ALLOWED_CONTENT_TYPES, CONTENT_TYPE_GRAPHIC_NOVEL,
+        )
+        requested_types = request.data.get('content_types')
+        if isinstance(requested_types, list):
+            content_types = [t for t in requested_types if t in ALLOWED_CONTENT_TYPES]
+        else:
+            content_types = []
+        if not content_types:
+            content_types = [CONTENT_TYPE_GRAPHIC_NOVEL]
+
         job = GenerationJob.objects.create(
             word_set=word_set,
             created_by=request.user,
@@ -315,6 +393,7 @@ class TriggerGenerationView(APIView):
             input_source_text=request.data.get('source_text', word_set.source_text),
             target_lexile=word_set.target_lexile,
             target_language=request.data.get('target_language', 'zh-CN'),
+            content_types=content_types,
         )
 
         word_set.generation_status = WordSet.GenerationStatus.GENERATING
@@ -371,6 +450,7 @@ class GenerationJobStatusView(APIView):
 
         graphic_novel_image_pages = _graphic_novel_image_page_statuses(job.word_set)
         graphic_novel_script_substeps = _graphic_novel_script_substep_statuses(job)
+        infographic_design_substeps = _infographic_design_substep_statuses(job)
 
         return Response({
             'id': job.id,
@@ -379,17 +459,20 @@ class GenerationJobStatusView(APIView):
             'word_set_id': job.word_set_id,
             'input_words': job.input_words,
             'last_completed_step': job.last_completed_step,
+            'content_types': job.content_types or [],
             'words_created': job.words_created,
             'questions_created': job.questions_created,
             'primer_cards_created': job.primer_cards_created,
             'stories_created': job.stories_created,
             'graphic_novels_created': job.graphic_novels_created,
+            'infographics_created': job.infographics_created,
             'cloze_items_created': job.cloze_items_created,
             'error_message': job.error_message,
             'created_at': job.created_at.isoformat(),
             'completed_at': job.completed_at.isoformat() if job.completed_at else None,
             'graphic_novel_image_pages': graphic_novel_image_pages,
             'graphic_novel_script_substeps': graphic_novel_script_substeps,
+            'infographic_design_substeps': infographic_design_substeps,
         })
 
 
@@ -480,6 +563,7 @@ class GenerationJobContentView(APIView):
         ).prefetch_related(
             'items__word', 'stories', 'graphic_novels__pages__audio',
             'graphic_novels__cloze_items__word', 'cloze_items__word',
+            'infographics__cloze_items__word',
         ).order_by('order')
 
         packs_data = []
@@ -515,6 +599,11 @@ class GenerationJobContentView(APIView):
                 (c for c in graphic_novel_candidates if c['is_selected']), None
             )
 
+            infographic_candidates = _pack_infographic_candidates(pack)
+            selected_infographic = next(
+                (c for c in infographic_candidates if c['is_selected']), None
+            )
+
             # Promoted (student-facing) cloze only; staged candidate cloze rides
             # on each candidate in graphic_novels.
             cloze_items = [
@@ -525,7 +614,7 @@ class GenerationJobContentView(APIView):
                     'correct_answer': ci.correct_answer,
                     'distractors': ci.distractors,
                 }
-                for ci in pack.cloze_items.filter(novel__isnull=True)
+                for ci in pack.cloze_items.filter(novel__isnull=True, infographic__isnull=True)
             ]
 
             packs_data.append({
@@ -535,6 +624,8 @@ class GenerationJobContentView(APIView):
                 'primer_cards': primer_cards,
                 'graphic_novels': graphic_novel_candidates,
                 'graphic_novel': selected_novel,
+                'infographics': infographic_candidates,
+                'infographic': selected_infographic,
                 'stories': stories,
                 'cloze_items': cloze_items,
             })
@@ -758,6 +849,87 @@ class RestartGraphicNovelSubstepView(APIView):
             'candidate_index': candidate_index,
             'substep': substep,
             'message': 'Substep restart started.',
+        })
+
+
+VALID_INFOGRAPHIC_SUBSTEP_KEYS = {key for key, _ in INFOGRAPHIC_DESIGN_SUBSTEPS}
+
+
+class RestartInfographicSubstepView(APIView):
+    """POST /api/generation-jobs/{id}/restart-infographic-substep/ - restart from a specific infographic substep.
+
+    Mirrors ``RestartGraphicNovelSubstepView`` but targets the infographic design
+    substeps (``design``/``cloze``). Does NOT re-render the image — the design
+    restart regenerates the candidate Infographic + staged cloze; the admin runs
+    the image step separately if a fresh poster is needed.
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, job_id):
+        pack_id = request.data.get('pack_id')
+        substep = request.data.get('substep')
+        candidate_index = request.data.get('candidate_index', 0)
+
+        if not pack_id or not substep:
+            return Response(
+                {'error': 'Both pack_id and substep are required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            candidate_index = int(candidate_index)
+        except (TypeError, ValueError):
+            return Response(
+                {'error': 'candidate_index must be an integer.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if substep not in VALID_INFOGRAPHIC_SUBSTEP_KEYS:
+            return Response(
+                {'error': f'Invalid substep. Valid: {sorted(VALID_INFOGRAPHIC_SUBSTEP_KEYS)}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with transaction.atomic():
+                job = GenerationJob.objects.select_for_update().get(id=job_id)
+
+                if job.status in (GenerationJob.Status.PENDING, GenerationJob.Status.RUNNING):
+                    return Response(
+                        {'error': 'A generation job is already running.'},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                if not WordPack.objects.filter(id=pack_id, word_set=job.word_set).exists():
+                    return Response(
+                        {'error': 'Pack not found for this job.'},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+
+                job.status = GenerationJob.Status.RUNNING
+                job.error_message = ''
+                job.save(update_fields=['status', 'error_message'])
+
+        except GenerationJob.DoesNotExist:
+            return Response(
+                {'error': 'Job not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        thread = threading.Thread(
+            target=restart_infographic_substep,
+            args=(job.id, int(pack_id), substep, candidate_index),
+            daemon=True,
+        )
+        thread.start()
+
+        return Response({
+            'job_id': job.id,
+            'status': GenerationJob.Status.RUNNING,
+            'pack_id': pack_id,
+            'candidate_index': candidate_index,
+            'substep': substep,
+            'message': 'Infographic substep restart started.',
         })
 
 
@@ -1171,6 +1343,34 @@ class SelectGraphicNovelCandidateView(APIView):
         })
 
 
+class SelectInfographicCandidateView(APIView):
+    """
+    POST /api/infographics/{infographic_id}/select/
+
+    Choose this candidate as the published infographic for its pack. Clears the
+    selection on siblings and promotes this candidate's staged cloze to the
+    pack's active (student-facing) set. Reversible.
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, infographic_id):
+        try:
+            infographic = select_infographic_candidate(infographic_id)
+        except Infographic.DoesNotExist:
+            return Response(
+                {'error': 'Infographic candidate not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response({
+            'infographic_id': infographic.id,
+            'pack_id': infographic.pack_id,
+            'candidate_index': infographic.candidate_index,
+            'is_selected': True,
+            'message': f'Infographic candidate {infographic.candidate_index} selected and published.',
+        })
+
+
 def _audio_row_payload(page):
     """Serialize a page's audio state for the status poll."""
     audio = getattr(page, 'audio', None)
@@ -1465,6 +1665,7 @@ class WordSetContentView(APIView):
         ).prefetch_related(
             'items__word', 'stories', 'graphic_novels__pages__audio',
             'graphic_novels__cloze_items__word', 'cloze_items__word',
+            'infographics__cloze_items__word',
         ).order_by('order')
 
         packs_data = []
@@ -1500,6 +1701,11 @@ class WordSetContentView(APIView):
                 (c for c in graphic_novel_candidates if c['is_selected']), None
             )
 
+            infographic_candidates = _pack_infographic_candidates(pack)
+            selected_infographic = next(
+                (c for c in infographic_candidates if c['is_selected']), None
+            )
+
             # Promoted (student-facing) cloze only; staged candidate cloze rides
             # on each candidate in graphic_novels.
             cloze_items = [
@@ -1510,7 +1716,7 @@ class WordSetContentView(APIView):
                     'correct_answer': ci.correct_answer,
                     'distractors': ci.distractors,
                 }
-                for ci in pack.cloze_items.filter(novel__isnull=True)
+                for ci in pack.cloze_items.filter(novel__isnull=True, infographic__isnull=True)
             ]
 
             packs_data.append({
@@ -1520,6 +1726,8 @@ class WordSetContentView(APIView):
                 'primer_cards': primer_cards,
                 'graphic_novels': graphic_novel_candidates,
                 'graphic_novel': selected_novel,
+                'infographics': infographic_candidates,
+                'infographic': selected_infographic,
                 'stories': stories,
                 'cloze_items': cloze_items,
             })

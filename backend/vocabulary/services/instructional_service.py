@@ -38,15 +38,20 @@ class InstructionalService:
                 'stories',
                 'graphic_novels__pages',
                 'graphic_novels__pages__audio',
+                'infographics',
             ).get(id=pack_id)
         except WordPack.DoesNotExist:
             raise ValueError("Pack not found.")
 
-        # Validate access: student must be assigned this word set
-        if not StudentWordSetAssignment.objects.filter(
+        # Validate access: student must be assigned this word set. The assignment
+        # also carries which content type (graphic novel vs infographic) the
+        # teacher chose for this student.
+        assignment = StudentWordSetAssignment.objects.filter(
             user=user, word_set=pack.word_set,
-        ).exists():
+        ).first()
+        if assignment is None:
             raise PermissionError("You are not assigned to this word set.")
+        content_type = assignment.content_type
 
         # Build primer cards
         primer_cards = []
@@ -71,36 +76,33 @@ class InstructionalService:
                 'example_translation': example_translation,
             })
 
-        # Select the admin-chosen graphic novel candidate; fall back to legacy
-        # stories. Until an admin selects a candidate, no novel is_selected and
-        # the pack reads as not-yet-published (story_data stays None).
+        # Pick the published content for the student's chosen content type. Until
+        # an admin selects a candidate, none is_selected and story_data stays None
+        # (pack reads as not-yet-published). If the chosen type wasn't generated /
+        # selected, fall back to whatever else is published, then legacy stories.
         graphic_novel = pack.graphic_novels.filter(is_selected=True).first()
+        infographic = pack.infographics.filter(is_selected=True).first()
         stories = list(pack.stories.all())
-        story = None
-        if graphic_novel:
-            pages_data = []
-            for page in graphic_novel.pages.all():
-                audio = getattr(page, 'audio', None)
-                audio_url = ''
-                if (audio and audio.student_audio
-                        and audio.status == GraphicNovelPageAudio.Status.COMPLETED):
-                    audio_url = audio.student_audio.url
-                pages_data.append({
-                    'page_number': page.page_number,
-                    'image_url': page.student_image.url if page.student_image else '',
-                    'audio_url': audio_url,
-                    'panel_count': page.panel_count,
-                    'layout_description': page.layout_description,
-                    'panel_descriptions': page.panel_descriptions,
-                    'vocab_words': page.vocab_words_used,
-                })
-            story_data = {
-                'type': 'graphic_novel',
-                'title': graphic_novel.title,
-                'reading_level': graphic_novel.reading_level,
-                'pages': pages_data,
-            }
-        elif stories:
+
+        wants_infographic = (
+            content_type == StudentWordSetAssignment.ContentType.INFOGRAPHIC
+        )
+        if wants_infographic:
+            preference = [infographic, graphic_novel]
+        else:
+            preference = [graphic_novel, infographic]
+
+        story_data = None
+        for choice in preference:
+            if choice is None:
+                continue
+            if choice is infographic:
+                story_data = InstructionalService._infographic_story_data(infographic)
+            else:
+                story_data = InstructionalService._graphic_novel_story_data(graphic_novel)
+            break
+
+        if story_data is None and stories:
             user_mid = (user.lexile_min + user.lexile_max) / 2
             story = min(stories, key=lambda s: abs(s.reading_level - user_mid))
             story_data = {
@@ -108,18 +110,17 @@ class InstructionalService:
                 'story_text': story.story_text,
                 'reading_level': story.reading_level,
             }
-        else:
-            story_data = None
 
-        # Cloze items — only the promoted set (novel=None) is student-facing;
-        # staged candidate cloze (novel=<id>) is excluded until promoted.
+        # Cloze items — only the promoted set (both novel and infographic NULL) is
+        # student-facing; staged candidate cloze (novel=<id> or infographic=<id>) is
+        # excluded until promoted.
         cloze_items = [{
             'id': ci.id,
             'sentence_text': ci.sentence_text,
             'correct_answer': ci.correct_answer,
             'distractors': ci.distractors,
             'order': ci.order,
-        } for ci in pack.cloze_items.filter(novel__isnull=True)]
+        } for ci in pack.cloze_items.filter(novel__isnull=True, infographic__isnull=True)]
 
         return {
             'pack_id': pack.id,
@@ -127,6 +128,47 @@ class InstructionalService:
             'primer_cards': primer_cards,
             'story': story_data,
             'cloze_items': cloze_items,
+        }
+
+    @staticmethod
+    def _graphic_novel_story_data(graphic_novel):
+        pages_data = []
+        for page in graphic_novel.pages.all():
+            audio = getattr(page, 'audio', None)
+            audio_url = ''
+            if (audio and audio.student_audio
+                    and audio.status == GraphicNovelPageAudio.Status.COMPLETED):
+                audio_url = audio.student_audio.url
+            pages_data.append({
+                'page_number': page.page_number,
+                'image_url': page.student_image.url if page.student_image else '',
+                'audio_url': audio_url,
+                'panel_count': page.panel_count,
+                'layout_description': page.layout_description,
+                'panel_descriptions': page.panel_descriptions,
+                'vocab_words': page.vocab_words_used,
+            })
+        return {
+            'type': 'graphic_novel',
+            'title': graphic_novel.title,
+            'reading_level': graphic_novel.reading_level,
+            'pages': pages_data,
+        }
+
+    @staticmethod
+    def _infographic_story_data(infographic):
+        content = infographic.content or {}
+        return {
+            'type': 'infographic',
+            'title': infographic.title,
+            'reading_level': infographic.reading_level,
+            'intro_text': infographic.intro_text,
+            'image_url': infographic.student_image.url if infographic.student_image else '',
+            'big_idea': content.get('big_idea', ''),
+            'layout_mode': content.get('layout_mode', ''),
+            'scene_description': content.get('scene_description', '') or content.get('theme', ''),
+            'scene_elements': content.get('scene_elements', []),
+            'entries': content.get('entries', []),
         }
 
     @staticmethod

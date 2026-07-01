@@ -24,7 +24,7 @@ from tests.factories import (
     QuestionFactory, MasteryLevelFactory, WordPackFactory,
     WordPackItemFactory, PrimerCardContentFactory, MicroStoryFactory,
     ClozeItemFactory, StudentGroupFactory, CurriculumFactory, LevelFactory,
-    GenerationJobFactory,
+    GenerationJobFactory, GraphicNovelFactory,
 )
 
 
@@ -1009,6 +1009,10 @@ class TestWordSetAssignAction:
         ws = WordSetFactory(creator=teacher)
         word = WordFactory()
         ws.words.add(word)
+        # A word set can only be assigned when it has a published (is_selected)
+        # graphic novel or infographic in at least one of its packs.
+        pack = WordPackFactory(word_set=ws)
+        GraphicNovelFactory(pack=pack, is_selected=True)
         client = _make_client(teacher)
         response = client.post(f'/api/word-sets/{ws.id}/assign/', {
             'student_ids': [student.id],
@@ -1385,6 +1389,93 @@ class TestGenerationViews:
         assert cand1[0]['substep'] == 'team_selection'
         assert cand1[0]['status'] == GenerationJob.Status.COMPLETED
         assert cand1[1]['status'] == GenerationJob.Status.PENDING
+
+    def test_job_status_includes_infographic_design_substeps(self):
+        """Infographic design + cloze both log under INFOGRAPHIC_DESIGN, so the
+        status payload must split them into a per-candidate substep map (else the
+        step row only reflects the last-logged substep)."""
+        admin = AdminUserFactory()
+        ws = WordSetFactory(creator=admin)
+        job = GenerationJobFactory(word_set=ws, created_by=admin)
+        for substep, label, st in [
+            ('design', 'Infographic Design', GenerationJob.Status.COMPLETED),
+            ('cloze', 'Infographic Cloze', GenerationJob.Status.RUNNING),
+        ]:
+            GenerationJobLog.objects.create(
+                job=job,
+                step=GenerationJobLog.Step.INFOGRAPHIC_DESIGN,
+                status=st,
+                output_data={
+                    'substep': substep,
+                    'substep_label': label,
+                    'pack_id': 77,
+                    'pack_label': 'IG Pack',
+                    'candidate_index': 0,
+                },
+            )
+
+        client = _make_client(admin)
+        response = client.get(f'/api/generation-jobs/{job.id}/')
+
+        assert response.status_code == 200
+        pack_status = response.data['infographic_design_substeps'][0]
+        assert pack_status['pack_label'] == 'IG Pack'
+        cand0 = pack_status['candidates'][0]['substeps']
+        assert [s['substep'] for s in cand0] == ['design', 'cloze']
+        assert cand0[0]['status'] == GenerationJob.Status.COMPLETED
+        assert cand0[1]['status'] == GenerationJob.Status.RUNNING
+
+    def test_restart_infographic_substep_rejects_invalid_substep(self):
+        admin = AdminUserFactory()
+        ws = WordSetFactory(creator=admin)
+        job = GenerationJobFactory(
+            word_set=ws, created_by=admin, status=GenerationJob.Status.FAILED,
+        )
+        pack = WordPack.objects.create(word_set=ws, label='Pack 1', order=0)
+        client = _make_client(admin)
+        response = client.post(
+            f'/api/generation-jobs/{job.id}/restart-infographic-substep/',
+            {'pack_id': pack.id, 'substep': 'team_selection'},
+            format='json',
+        )
+        assert response.status_code == 400
+        assert 'Invalid substep' in response.data['error']
+
+    def test_restart_infographic_substep_starts_thread(self):
+        admin = AdminUserFactory()
+        ws = WordSetFactory(creator=admin)
+        job = GenerationJobFactory(
+            word_set=ws, created_by=admin, status=GenerationJob.Status.FAILED,
+        )
+        pack = WordPack.objects.create(word_set=ws, label='Pack 1', order=0)
+        client = _make_client(admin)
+        with patch('vocabulary.views.generation_views.threading.Thread') as mock_thread:
+            response = client.post(
+                f'/api/generation-jobs/{job.id}/restart-infographic-substep/',
+                {'pack_id': pack.id, 'substep': 'design', 'candidate_index': 1},
+                format='json',
+            )
+        assert response.status_code == 200
+        assert response.data['substep'] == 'design'
+        assert response.data['candidate_index'] == 1
+        mock_thread.assert_called_once()
+        job.refresh_from_db()
+        assert job.status == GenerationJob.Status.RUNNING
+
+    def test_restart_infographic_substep_conflict_when_running(self):
+        admin = AdminUserFactory()
+        ws = WordSetFactory(creator=admin)
+        job = GenerationJobFactory(
+            word_set=ws, created_by=admin, status=GenerationJob.Status.RUNNING,
+        )
+        pack = WordPack.objects.create(word_set=ws, label='Pack 1', order=0)
+        client = _make_client(admin)
+        response = client.post(
+            f'/api/generation-jobs/{job.id}/restart-infographic-substep/',
+            {'pack_id': pack.id, 'substep': 'design'},
+            format='json',
+        )
+        assert response.status_code == 409
 
     def test_job_status_includes_graphic_novel_page_statuses(self):
         admin = AdminUserFactory()

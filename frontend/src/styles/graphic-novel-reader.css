@@ -320,3 +320,84 @@
     justify-content: center;
   }
 }
+
+/* ── Infographic reader ─────────────────────────────────────────────── */
+/* Match the graphic novel reader: widen the whole student shell so the
+   poster renders large instead of being capped narrow. */
+[data-app="student"].app-shell:has(.infographic-reader) {
+  max-width: min(1792px, 90vw);
+}
+
+.infographic-reader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  width: 100%;
+  margin: 0 auto;
+}
+.infographic-reader-header { text-align: center; }
+.infographic-reader-header h3 { margin: 0 0 0.4rem; }
+.infographic-reader-intro {
+  margin: 0 auto;
+  max-width: 60ch;
+  font-size: 1.05rem;
+  line-height: 1.5;
+  color: var(--t-text, #1f2937);
+}
+.infographic-reader-image-button {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: zoom-in;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+.infographic-reader-image {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+.infographic-reader-noimage { color: var(--t-muted, #6b7280); }
+.infographic-reader-words {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.6rem;
+}
+.infographic-reader-word {
+  background: var(--t-surface, #f9fafb);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.95rem;
+}
+.infographic-reader-term { font-weight: 800; }
+.infographic-reader-example {
+  display: block;
+  margin-top: 0.25rem;
+  font-style: italic;
+  color: var(--t-muted, #6b7280);
+}
+.infographic-reader-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  cursor: zoom-out;
+  padding: 2rem;
+}
+.infographic-reader-lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+}

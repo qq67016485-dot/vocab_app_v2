@@ -387,12 +387,21 @@ class WordSetBookmark(models.Model):
 
 
 class StudentWordSetAssignment(models.Model):
+    class ContentType(models.TextChoices):
+        GRAPHIC_NOVEL = 'graphic_novel', 'Graphic Novel'
+        INFOGRAPHIC = 'infographic', 'Infographic'
+
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='word_set_assignments',
     )
     word_set = models.ForeignKey(WordSet, on_delete=models.CASCADE, related_name='assignments')
     assigned_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='assigned_word_sets',
+    )
+    content_type = models.CharField(
+        max_length=20, choices=ContentType.choices, default=ContentType.GRAPHIC_NOVEL,
+        help_text='Which instructional content format this student sees for the word set: '
+                  'the graphic novel or the infographic.',
     )
     assigned_at = models.DateTimeField(auto_now_add=True)
 
@@ -653,15 +662,121 @@ class GraphicNovelPageAudio(models.Model):
         return self.audio_mp3 or self.audio
 
 
+class Infographic(models.Model):
+    """A single-page educational infographic — an alternative to the graphic novel.
+
+    Neutral instructional style (no Lexi Legends canon): one rendered image plus a
+    short explanatory text and structured per-word entries. Like GraphicNovel, each
+    pack generates ``GRAPHIC_NOVEL_CANDIDATE_COUNT`` candidates and an admin selects
+    one to publish; only the selected candidate is shown to students. The single
+    image variant/JPEG-companion fields mirror GraphicNovelPage (an infographic is
+    always one page, so there is no separate page table).
+    """
+
+    class GenerationStatus(models.TextChoices):
+        PENDING = 'PENDING', 'Pending'
+        RUNNING = 'RUNNING', 'Running'
+        COMPLETED = 'COMPLETED', 'Completed'
+        FAILED = 'FAILED', 'Failed'
+
+    pack = models.ForeignKey(
+        WordPack, on_delete=models.CASCADE, related_name='infographics',
+    )
+    candidate_index = models.IntegerField(
+        default=0,
+        help_text='Which generated candidate (0..N-1) this infographic is for the '
+                  'pack. Multiple candidates are generated so an admin can pick the best.',
+    )
+    is_selected = models.BooleanField(
+        default=False,
+        help_text='True for the one candidate chosen by an admin. Only selected '
+                  'infographics are shown to students. No candidate selected = not yet published.',
+    )
+    title = models.CharField(max_length=200)
+    intro_text = models.TextField(
+        blank=True, default='',
+        help_text='Short text explaining the infographic, shown to students alongside the image.',
+    )
+    content = models.JSONField(
+        default=dict, blank=True,
+        help_text='Structured infographic layout: per-word entries (term, definition, '
+                  'example, visual idea) plus theme/layout notes.',
+    )
+    style_prompt = models.TextField(
+        blank=True, default='',
+        help_text='Art/design directive used to render the infographic image.',
+    )
+    reading_level = models.IntegerField(default=650, help_text='Lexile score')
+    metadata = models.JSONField(default=dict, blank=True)
+
+    # Image (mirrors GraphicNovelPage: original + edited variant + JPEG companions).
+    image = models.ImageField(upload_to='infographics/', blank=True)
+    edited_image = models.ImageField(
+        upload_to='infographics/', blank=True,
+        help_text='Admin-edited variant; the original is preserved in `image`.',
+    )
+    use_edited_image = models.BooleanField(default=False)
+    image_jpeg = models.ImageField(
+        upload_to='infographics/', blank=True,
+        help_text='Lightweight JPEG companion of `image`, served to students.',
+    )
+    edited_image_jpeg = models.ImageField(
+        upload_to='infographics/', blank=True,
+        help_text='Lightweight JPEG companion of `edited_image`, served to students.',
+    )
+    prompt_used = models.TextField(blank=True, default='')
+    generation_status = models.CharField(
+        max_length=20, choices=GenerationStatus.choices,
+        default=GenerationStatus.PENDING,
+    )
+    generation_attempts = models.IntegerField(default=0)
+    generation_error = models.TextField(blank=True, default='')
+    generation_started_at = models.DateTimeField(null=True, blank=True)
+    generation_completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('pack', 'candidate_index')
+
+    def __str__(self):
+        return (
+            f"Infographic cand {self.candidate_index}"
+            f"{' [selected]' if self.is_selected else ''} for {self.pack.label}: {self.title}"
+        )
+
+    @property
+    def display_image(self):
+        """The image variant currently selected for display (edited or original)."""
+        if self.use_edited_image and self.edited_image:
+            return self.edited_image
+        return self.image
+
+    @property
+    def has_edited_image(self):
+        return bool(self.edited_image)
+
+    @property
+    def student_image(self):
+        """The lightweight JPEG variant shown to students (falls back to PNG)."""
+        if self.use_edited_image and self.edited_image:
+            return self.edited_image_jpeg or self.edited_image
+        return self.image_jpeg or self.image
+
+
 class ClozeItem(models.Model):
     pack = models.ForeignKey(WordPack, on_delete=models.CASCADE, related_name='cloze_items')
     word = models.ForeignKey(Word, on_delete=models.CASCADE, related_name='cloze_items')
     novel = models.ForeignKey(
         'GraphicNovel', on_delete=models.CASCADE, related_name='cloze_items',
         null=True, blank=True,
-        help_text='Candidate this cloze was generated for. NULL = promoted/active '
-                  'pack cloze that students practice (set when a candidate is selected). '
-                  'Non-NULL = staged candidate cloze, hidden until its novel is selected.',
+        help_text='Graphic novel candidate this cloze was staged for. See the active-set '
+                  'note below.',
+    )
+    infographic = models.ForeignKey(
+        'Infographic', on_delete=models.CASCADE, related_name='cloze_items',
+        null=True, blank=True,
+        help_text='Infographic candidate this cloze was staged for. See the active-set '
+                  'note below.',
     )
     sentence_text = models.TextField(help_text='Sentence with _______ blank')
     correct_answer = models.CharField(max_length=200)
@@ -673,6 +788,14 @@ class ClozeItem(models.Model):
 
     def __str__(self):
         return f"Cloze for '{self.word.text}' in {self.pack.label}"
+
+    # Active/promoted cloze (the set students practice) has BOTH `novel` and
+    # `infographic` NULL. A non-NULL `novel` OR `infographic` marks a staged
+    # candidate row, hidden until that candidate is selected. Selecting either a
+    # graphic novel or an infographic candidate promotes its staged rows by
+    # re-creating them with both FKs NULL (prior active rows deleted first), so
+    # whichever content type is published last owns the shared active set — fine,
+    # since cloze is medium-agnostic vocabulary practice.
 
 
 class StudentPackCompletion(models.Model):
@@ -723,12 +846,19 @@ class GenerationJob(models.Model):
     target_language = models.CharField(
         max_length=10, choices=settings.SUPPORTED_LANGUAGES, default='zh-CN',
     )
+    content_types = models.JSONField(
+        default=list, blank=True,
+        help_text="Instructional content types to generate, e.g. "
+                  "['graphic_novel', 'infographic']. Empty/legacy = graphic novel only. "
+                  "A content type's pipeline steps are skipped when it is not listed.",
+    )
 
     words_created = models.IntegerField(default=0)
     questions_created = models.IntegerField(default=0)
     primer_cards_created = models.IntegerField(default=0)
     stories_created = models.IntegerField(default=0)
     graphic_novels_created = models.IntegerField(default=0)
+    infographics_created = models.IntegerField(default=0)
     cloze_items_created = models.IntegerField(default=0)
 
     error_message = models.TextField(blank=True, default='')
@@ -754,6 +884,8 @@ class GenerationJobLog(models.Model):
         STORY_CLOZE_GEN = 'STORY_CLOZE_GEN', 'Story & Cloze Generation'
         GRAPHIC_NOVEL_SCRIPT = 'GRAPHIC_NOVEL_SCRIPT', 'Graphic Novel Script'
         GRAPHIC_NOVEL_IMAGES = 'GRAPHIC_NOVEL_IMAGES', 'Graphic Novel Images'
+        INFOGRAPHIC_DESIGN = 'INFOGRAPHIC_DESIGN', 'Infographic Design'
+        INFOGRAPHIC_IMAGE = 'INFOGRAPHIC_IMAGE', 'Infographic Image'
         GRAPHIC_NOVEL_6PAGE_SCRIPT = 'GN_6PAGE_SCRIPT', 'Graphic Novel 6-Page Script'
         GRAPHIC_NOVEL_6PAGE_IMAGES = 'GN_6PAGE_IMAGES', 'Graphic Novel 6-Page Images'
 
@@ -845,6 +977,8 @@ class LLMStepConfig(models.Model):
         GN_CLOZE_GEN = 'gn_cloze_gen', 'GN: Cloze Generation'
         GN_BEAT_SHEET = 'gn_beat_sheet', 'GN: Beat Sheet'
         GN_FINAL_SCRIPT = 'gn_final_script', 'GN: Final Script'
+        IG_DESIGN = 'ig_design', 'Infographic: Design'
+        IG_CLOZE_GEN = 'ig_cloze', 'Infographic: Cloze Generation'
         AUDIOBOOK_DIRECTOR = 'audiobook_director', 'Audiobook: Voice Director'
 
     config_set = models.ForeignKey(

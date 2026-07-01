@@ -22,7 +22,12 @@ logger = logging.getLogger(__name__)
 
 class AssignmentService:
     @staticmethod
-    def assign_word_set(teacher, word_set, student_ids, group_ids):
+    def assign_word_set(teacher, word_set, student_ids, group_ids, content_type=None):
+        # Validate the requested content type; default to graphic novel.
+        valid_types = set(StudentWordSetAssignment.ContentType.values)
+        if content_type not in valid_types:
+            content_type = StudentWordSetAssignment.ContentType.GRAPHIC_NOVEL
+
         final_student_ids = set(student_ids)
 
         if group_ids:
@@ -56,12 +61,16 @@ class AssignmentService:
         )
 
         for student in students:
-            # Create assignment record
-            StudentWordSetAssignment.objects.get_or_create(
+            # Create or update the assignment record, persisting the chosen
+            # content type (graphic novel vs infographic) on every (re)assign.
+            assignment, created = StudentWordSetAssignment.objects.get_or_create(
                 user=student,
                 word_set=word_set,
-                defaults={'assigned_by': teacher},
+                defaults={'assigned_by': teacher, 'content_type': content_type},
             )
+            if not created and assignment.content_type != content_type:
+                assignment.content_type = content_type
+                assignment.save(update_fields=['content_type'])
 
             # Find packs this student has already completed — don't reset those words
             completed_pack_ids = set(

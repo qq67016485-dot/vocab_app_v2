@@ -24,7 +24,7 @@ from ..models import (
     Curriculum, Level, WordSet, Word, WordDefinition,
     UserWordProgress, MasteryLevel, WordPack, WordPackItem,
     PrimerCardContent, StudentWordSetAssignment,
-    WordSetBookmark,
+    WordSetBookmark, GraphicNovel, Infographic,
 )
 from ..serializers import (
     CurriculumSerializer, LevelSerializer, WordSetSerializer,
@@ -52,6 +52,22 @@ def _is_word_set_locked(word_set):
         WordSet.GenerationStatus.GENERATING,
         WordSet.GenerationStatus.GENERATED,
     }
+
+
+def _available_content_types_for_word_set(word_set):
+    """Return a list of content type keys that have a published (admin-selected)
+    candidate in at least one pack of *word_set*.
+
+    A content type is considered publishable only when a candidate with
+    ``is_selected=True`` exists — no auto-select ever fires, so an unselected
+    pack stays hidden from students.
+    """
+    available = []
+    if GraphicNovel.objects.filter(pack__word_set=word_set, is_selected=True).exists():
+        available.append(StudentWordSetAssignment.ContentType.GRAPHIC_NOVEL)
+    if Infographic.objects.filter(pack__word_set=word_set, is_selected=True).exists():
+        available.append(StudentWordSetAssignment.ContentType.INFOGRAPHIC)
+    return available
 
 
 def _locked_response():
@@ -187,10 +203,32 @@ class WordSetViewSet(viewsets.ModelViewSet):
         word_set = self.get_object()
         student_ids = request.data.get('student_ids', [])
         group_ids = request.data.get('group_ids', [])
+        content_type = request.data.get('content_type')
+
+        # Guard: reject the assignment if the requested content type has no
+        # published (admin-selected) candidate for this word set.  We also
+        # reject when *neither* type is available so a teacher cannot sneak an
+        # assignment in via a direct API call when the word set is unpublished.
+        available = _available_content_types_for_word_set(word_set)
+        if not available:
+            return Response(
+                {'error': 'This word set has no published content yet. '
+                          'Ask an admin to generate and select a graphic novel '
+                          'or infographic before assigning it.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if content_type and content_type not in available:
+            label = 'graphic novel' if content_type == 'graphic_novel' else 'infographic'
+            return Response(
+                {'error': f'No published {label} is available for this word set. '
+                          f'Choose one of: {", ".join(available)}.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             count, students = AssignmentService.assign_word_set(
                 request.user, word_set, student_ids, group_ids,
+                content_type=content_type,
             )
             if count == 0 and not students.exists():
                 return Response({
@@ -216,9 +254,22 @@ class WordSetViewSet(viewsets.ModelViewSet):
                 students__id__in=student_ids,
             ).distinct().values_list('id', flat=True)
         )
+        # Surface the most-common content type among existing assignments so the
+        # teacher UI can prefill its selector (defaults to graphic novel).
+        content_types = list(assigned.values_list('content_type', flat=True))
+        content_type = (
+            max(set(content_types), key=content_types.count)
+            if content_types
+            else StudentWordSetAssignment.ContentType.GRAPHIC_NOVEL
+        )
+        # Determine which content types actually have a published (selected)
+        # candidate across any pack in this word set.
+        available_content_types = _available_content_types_for_word_set(word_set)
         return Response({
             'student_ids': student_ids,
             'group_ids': group_ids,
+            'content_type': content_type,
+            'available_content_types': available_content_types,
         })
 
     @action(detail=True, methods=['post'], url_path='bookmark')

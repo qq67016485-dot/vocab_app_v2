@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 480" width="720" height="480" role="img" aria-label="Lexi Legends logo">
+  <title>Lexi Legends</title>
+
+  <defs>
+    <!-- Deep magical night sky for the badge core -->
+    <radialGradient id="ll-core" cx="50%" cy="38%" r="75%">
+      <stop offset="0%"  stop-color="#3a2b73"/>
+      <stop offset="55%" stop-color="#241a4d"/>
+      <stop offset="100%" stop-color="#160f33"/>
+    </radialGradient>
+
+    <!-- Gold ring -->
+    <linearGradient id="ll-gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#ffe28a"/>
+      <stop offset="45%"  stop-color="#ffb53d"/>
+      <stop offset="100%" stop-color="#e07a1b"/>
+    </linearGradient>
+
+    <!-- Ink swirl: orange (Hugo's ink) into bright spark -->
+    <linearGradient id="ll-ink" x1="0" y1="1" x2="0.3" y2="0">
+      <stop offset="0%"   stop-color="#ff7a18"/>
+      <stop offset="55%"  stop-color="#ffb347"/>
+      <stop offset="100%" stop-color="#fff4cf"/>
+    </linearGradient>
+
+    <!-- Book pages -->
+    <linearGradient id="ll-page" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#fdfaf2"/>
+      <stop offset="100%" stop-color="#d9cfb8"/>
+    </linearGradient>
+    <linearGradient id="ll-cover" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#2bb6c4"/>
+      <stop offset="100%" stop-color="#1c7f8c"/>
+    </linearGradient>
+
+    <!-- Wordmark fill -->
+    <linearGradient id="ll-word" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#cfe6ff"/>
+    </linearGradient>
+
+    <radialGradient id="ll-glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"  stop-color="#ffd87a" stop-opacity="0.95"/>
+      <stop offset="60%" stop-color="#ff9b2f" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#ff9b2f" stop-opacity="0"/>
+    </radialGradient>
+
+    <filter id="ll-soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0a0720" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <!-- ===================== EMBLEM ===================== -->
+  <g transform="translate(360 168)" filter="url(#ll-soft)">
+
+    <!-- Starburst spikes behind the badge -->
+    <g fill="url(#ll-gold)" opacity="0.95">
+      <polygon points="0,-150 18,-96 -18,-96"/>
+      <polygon points="0,150 18,96 -18,96"/>
+      <polygon points="-150,0 -96,18 -96,-18"/>
+      <polygon points="150,0 96,18 96,-18"/>
+      <polygon points="-106,-106 -64,-78 -78,-64" />
+      <polygon points="106,-106 64,-78 78,-64"/>
+      <polygon points="-106,106 -64,78 -78,64"/>
+      <polygon points="106,106 64,78 78,64"/>
+    </g>
+
+    <!-- Gold ring -->
+    <circle r="118" fill="url(#ll-gold)"/>
+    <circle r="118" fill="none" stroke="#7a3f08" stroke-width="3" opacity="0.4"/>
+    <!-- Core -->
+    <circle r="100" fill="url(#ll-core)"/>
+    <circle r="100" fill="none" stroke="#5b4aa0" stroke-width="2" opacity="0.6"/>
+
+    <!-- Tiny stars in the sky -->
+    <g fill="#cdbcff" opacity="0.9">
+      <circle cx="-58" cy="-50" r="2.4"/>
+      <circle cx="52"  cy="-58" r="3"/>
+      <circle cx="64"  cy="-12" r="2"/>
+      <circle cx="-66" cy="2"   r="2"/>
+      <circle cx="40"  cy="34"  r="1.8"/>
+    </g>
+
+    <!-- Glow rising from the book -->
+    <ellipse cx="0" cy="6" rx="70" ry="78" fill="url(#ll-glow)"/>
+
+    <!-- Ink swirl rising from the open book up to a spark -->
+    <path d="M2,40
+             C -16,18 22,8 6,-14
+             C -8,-32 24,-40 10,-60
+             C 2,-72 18,-82 22,-92"
+          fill="none" stroke="url(#ll-ink)" stroke-width="9"
+          stroke-linecap="round"/>
+
+    <!-- The summoned spark / 4-point star at the top of the swirl -->
+    <g transform="translate(24 -98)">
+      <path d="M0,-22 L6,-6 L22,0 L6,6 L0,22 L-6,6 L-22,0 L-6,-6 Z"
+            fill="#fff4cf"/>
+      <path d="M0,-12 L3,-3 L12,0 L3,3 L0,12 L-3,3 L-12,0 L-3,-3 Z"
+            fill="#ff9b2f"/>
+    </g>
+
+    <!-- Open book at the base -->
+    <g transform="translate(0 44)">
+      <!-- spine shadow -->
+      <ellipse cx="0" cy="30" rx="74" ry="12" fill="#0a0720" opacity="0.35"/>
+      <!-- left page -->
+      <path d="M0,-6 C -22,-22 -56,-22 -72,-12 L-72,24 C -56,16 -22,16 0,30 Z"
+            fill="url(#ll-page)" stroke="#b8ab8f" stroke-width="1.5"/>
+      <!-- right page -->
+      <path d="M0,-6 C 22,-22 56,-22 72,-12 L72,24 C 56,16 22,16 0,30 Z"
+            fill="url(#ll-page)" stroke="#b8ab8f" stroke-width="1.5"/>
+      <!-- page lines -->
+      <g stroke="#c9b48a" stroke-width="1.4" opacity="0.7" stroke-linecap="round">
+        <line x1="-58" y1="-6" x2="-14" y2="1"/>
+        <line x1="-58" y1="3"  x2="-14" y2="10"/>
+        <line x1="14"  y1="1"  x2="58"  y2="-6"/>
+        <line x1="14"  y1="10" x2="58"  y2="3"/>
+      </g>
+      <!-- spine / cover edge -->
+      <path d="M0,-6 L0,30" stroke="#1c7f8c" stroke-width="4" stroke-linecap="round"/>
+      <path d="M-72,-12 L-72,24 M72,-12 L72,24"
+            fill="none" stroke="url(#ll-cover)" stroke-width="6" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <!-- ===================== WORDMARK ===================== -->
+  <g transform="translate(360 360)" text-anchor="middle"
+     font-family="'Baloo 2','Nunito','Comic Sans MS','Trebuchet MS',sans-serif">
+
+    <!-- LEXI -->
+    <text x="0" y="0" font-size="92" font-weight="800" letter-spacing="2"
+          fill="none" stroke="#160f33" stroke-width="12"
+          stroke-linejoin="round" paint-order="stroke">LEXI</text>
+    <text x="0" y="0" font-size="92" font-weight="800" letter-spacing="2"
+          fill="url(#ll-word)">LEXI</text>
+
+    <!-- LEGENDS banner -->
+    <g transform="translate(0 46)">
+      <rect x="-170" y="-2" width="340" height="44" rx="22"
+            fill="url(#ll-gold)" stroke="#7a3f08" stroke-width="2"/>
+      <text x="0" y="30" font-size="34" font-weight="800" letter-spacing="10"
+            fill="#241a4d">LEGENDS</text>
+    </g>
+
+    <!-- tagline -->
+    <text x="0" y="112" font-size="17" font-weight="700" letter-spacing="6"
+          fill="#3a2b73">VOCABULARY&#160;&#160;HEROES</text>
+  </g>
+</svg>

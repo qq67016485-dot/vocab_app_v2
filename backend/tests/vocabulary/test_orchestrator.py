@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 
 from vocabulary.models import (
     Question, WordPackItem,
-    GraphicNovel,
+    GraphicNovel, Infographic,
     GenerationJob, GenerationJobLog,
 )
 from vocabulary.services.generation_pipeline_service import (
@@ -17,6 +17,7 @@ from vocabulary.services.generation_pipeline_service import (
 from vocabulary.services.generation.orchestrator import (
     _build_retry_payload,
     restart_graphic_novel_substep,
+    restart_infographic_substep,
 )
 from tests.factories import (
     AdminUserFactory, WordFactory, WordDefinitionFactory,
@@ -29,6 +30,30 @@ from tests.vocabulary.generation_fixtures import WORD_LOOKUP_RESPONSE
 @pytest.mark.django_db
 class TestRunFullPipeline:
     """Tests for run_full_pipeline — the main orchestrator."""
+
+    @patch('vocabulary.services.generation.orchestrator._execute_step')
+    def test_skips_infographic_steps_when_not_requested(self, mock_execute):
+        """A graphic-novel-only job must not run the infographic steps."""
+        job = GenerationJobFactory(input_words=['bright'], content_types=['graphic_novel'])
+        result = _run_step(job, GenerationJobLog.Step.INFOGRAPHIC_DESIGN, [], [{'term': 'bright'}], [])
+        assert result == ([], [{'term': 'bright'}], [])
+        mock_execute.assert_not_called()
+
+    @patch('vocabulary.services.generation.orchestrator._execute_step')
+    def test_skips_graphic_novel_steps_when_infographic_only(self, mock_execute):
+        job = GenerationJobFactory(input_words=['bright'], content_types=['infographic'])
+        result = _run_step(job, GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT, [], [], [])
+        assert result == ([], [], [])
+        mock_execute.assert_not_called()
+
+    @patch('vocabulary.services.generation.orchestrator._execute_step')
+    def test_runs_infographic_steps_when_requested(self, mock_execute):
+        job = GenerationJobFactory(
+            input_words=['bright'], content_types=['graphic_novel', 'infographic'],
+        )
+        mock_execute.return_value = ([], [], [])
+        _run_step(job, GenerationJobLog.Step.INFOGRAPHIC_DESIGN, [], [], [])
+        mock_execute.assert_called_once()
 
     @patch('vocabulary.services.generation.orchestrator._log_step')
     @patch('vocabulary.services.generation.orchestrator._execute_step')
@@ -292,12 +317,14 @@ class TestRestartPipelineFromStep:
         assert attempted_steps == [
             GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
             GenerationJobLog.Step.GRAPHIC_NOVEL_IMAGES,
+            GenerationJobLog.Step.INFOGRAPHIC_DESIGN,
+            GenerationJobLog.Step.INFOGRAPHIC_IMAGE,
         ]
         assert not GraphicNovel.objects.filter(pack=pack).exists()
 
         job.refresh_from_db()
         assert job.status == GenerationJob.Status.COMPLETED
-        assert job.last_completed_step == GenerationJobLog.Step.GRAPHIC_NOVEL_IMAGES
+        assert job.last_completed_step == GenerationJobLog.Step.INFOGRAPHIC_IMAGE
 
 
 @pytest.mark.django_db
@@ -379,3 +406,83 @@ class TestRestartGraphicNovelSubstep:
         job.refresh_from_db()
         assert job.status == GenerationJob.Status.FAILED
         assert 'remaining pack failed' in job.error_message
+
+
+@pytest.mark.django_db
+class TestRestartInfographicSubstep:
+    """Infographic substep restart mirrors the GN one: regenerate one candidate,
+    then fill any remaining pack candidates that never got an infographic, and
+    mark the job FAILED if a remaining candidate fails.
+    """
+
+    @patch('vocabulary.services.generation.orchestrator.restart_infographic_from_substep')
+    @patch('vocabulary.services.generation.orchestrator._step_infographic_design')
+    def test_generates_designs_for_remaining_packs(self, mock_design, mock_restart):
+        admin = AdminUserFactory()
+        word_set = WordSetFactory(creator=admin)
+        word1 = WordFactory(text='bright')
+        word2 = WordFactory(text='discover')
+        WordDefinitionFactory(word=word1)
+        WordDefinitionFactory(word=word2)
+        word_set.words.add(word1, word2)
+
+        pack1 = WordPackFactory(word_set=word_set, label='Pack 1', order=0)
+        WordPackItem.objects.create(pack=pack1, word=word1, order=0)
+        pack2 = WordPackFactory(word_set=word_set, label='Pack 2', order=1)
+        WordPackItem.objects.create(pack=pack2, word=word2, order=1)
+
+        job = GenerationJobFactory(
+            word_set=word_set,
+            created_by=admin,
+            input_words=['bright', 'discover'],
+            content_types=['infographic'],
+            status=GenerationJob.Status.FAILED,
+        )
+
+        def _make_pack1_infographic(*args, **kwargs):
+            return Infographic.objects.create(
+                pack=pack1, candidate_index=0, title='Pack 1 IG',
+                style_prompt='x', reading_level=600, content={},
+            )
+        mock_restart.side_effect = _make_pack1_infographic
+
+        with patch('vocabulary.services.generation.helpers.close_old_connections'):
+            restart_infographic_substep(job.id, pack1.id, 'design')
+
+        # The single-candidate restart ran for the requested pack...
+        mock_restart.assert_called_once()
+        assert mock_restart.call_args.args[1] == pack1.id
+        # ...and the full design step ran afterward over ALL packs so pack 2
+        # (which never got an infographic) is filled in rather than orphaned.
+        mock_design.assert_called_once()
+        passed_packs = mock_design.call_args.args[1]
+        assert {p.id for p in passed_packs} == {pack1.id, pack2.id}
+
+        job.refresh_from_db()
+        assert job.status == GenerationJob.Status.COMPLETED
+
+    @patch('vocabulary.services.generation.orchestrator.restart_infographic_from_substep')
+    @patch('vocabulary.services.generation.orchestrator._step_infographic_design')
+    def test_marks_job_failed_if_remaining_pack_design_fails(self, mock_design, mock_restart):
+        admin = AdminUserFactory()
+        word_set = WordSetFactory(creator=admin)
+        word = WordFactory(text='bright')
+        WordDefinitionFactory(word=word)
+        word_set.words.add(word)
+        pack = WordPackFactory(word_set=word_set, label='Pack 1', order=0)
+        WordPackItem.objects.create(pack=pack, word=word, order=0)
+        job = GenerationJobFactory(
+            word_set=word_set,
+            created_by=admin,
+            input_words=['bright'],
+            content_types=['infographic'],
+            status=GenerationJob.Status.FAILED,
+        )
+        mock_design.side_effect = RuntimeError('remaining candidate failed')
+
+        with patch('vocabulary.services.generation.helpers.close_old_connections'):
+            restart_infographic_substep(job.id, pack.id, 'cloze')
+
+        job.refresh_from_db()
+        assert job.status == GenerationJob.Status.FAILED
+        assert 'remaining candidate failed' in job.error_message

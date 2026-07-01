@@ -10,6 +10,8 @@ const PIPELINE_STEPS = [
   { key: 'PACK_CREATION', label: 'Pack Creation' },
   { key: 'GRAPHIC_NOVEL_SCRIPT', label: 'Graphic Novel Script' },
   { key: 'GRAPHIC_NOVEL_IMAGES', label: 'Graphic Novel Images' },
+  { key: 'INFOGRAPHIC_DESIGN', label: 'Infographic Design' },
+  { key: 'INFOGRAPHIC_IMAGE', label: 'Infographic Image' },
 ];
 
 // Canonical substep order for the Graphic Novel Script step (mirrors
@@ -22,6 +24,15 @@ const GRAPHIC_NOVEL_SUBSTEPS = [
   { key: 'cloze_generation', label: 'Cloze Generation' },
   { key: 'beat_sheet_vocab_roles', label: 'Beat Sheet + Vocab Roles' },
   { key: 'final_script_self_check', label: 'Final Script + Self-Check' },
+];
+
+// Canonical substep order for the Infographic Design step (mirrors backend
+// INFOGRAPHIC_DESIGN_SUBSTEPS). Both substeps log under the single
+// INFOGRAPHIC_DESIGN step, so without this breakdown the step row only reflects
+// whichever substep logged last (cloze) — hiding the design substep entirely.
+const INFOGRAPHIC_SUBSTEPS = [
+  { key: 'design', label: 'Infographic Design' },
+  { key: 'cloze', label: 'Infographic Cloze' },
 ];
 
 const POLL_INTERVAL = 30000;
@@ -67,10 +78,24 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
   // retrying on the fallback) — those are not terminal, so we show the step as
   // RUNNING with the retry detail rather than a false FAILED.
   const jobActive = job.status === 'RUNNING' || job.status === 'PENDING';
+  // Hide a content type's steps when the job didn't generate it (empty/legacy
+  // content_types = graphic novel only), so skipped steps don't show as stuck.
+  const contentTypes = (job.content_types && job.content_types.length > 0)
+    ? job.content_types
+    : ['graphic_novel'];
+  const visibleSteps = PIPELINE_STEPS.filter((s) => {
+    if (s.key === 'GRAPHIC_NOVEL_SCRIPT' || s.key === 'GRAPHIC_NOVEL_IMAGES') {
+      return contentTypes.includes('graphic_novel');
+    }
+    if (s.key === 'INFOGRAPHIC_DESIGN' || s.key === 'INFOGRAPHIC_IMAGE') {
+      return contentTypes.includes('infographic');
+    }
+    return true;
+  });
   const lastCompletedIdx = job.last_completed_step
-    ? PIPELINE_STEPS.findIndex(s => s.key === job.last_completed_step)
+    ? visibleSteps.findIndex(s => s.key === job.last_completed_step)
     : -1;
-  const currentStepKey = jobActive ? PIPELINE_STEPS[lastCompletedIdx + 1]?.key : null;
+  const currentStepKey = jobActive ? visibleSteps[lastCompletedIdx + 1]?.key : null;
 
   const getStepStatus = (stepKey) => {
     if (stepKey === currentStepKey) return 'RUNNING';
@@ -87,15 +112,16 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
 
   const graphicNovelImagePages = job.graphic_novel_image_pages || [];
   const graphicNovelScriptSubsteps = job.graphic_novel_script_substeps || [];
+  const infographicDesignSubsteps = job.infographic_design_substeps || [];
 
   const statusIcon = (s) => s === 'COMPLETED' ? '\u2713' : s === 'FAILED' ? '\u2717' : s === 'RUNNING' ? '\u25CF' : '\u25CB';
   const statusCls = (s) => s === 'COMPLETED' ? 'pipeline-icon--done' : s === 'FAILED' ? 'pipeline-icon--failed' : s === 'RUNNING' ? 'pipeline-icon--running' : 'pipeline-icon--pending';
   const stepCls = (s) => s === 'RUNNING' ? 'pipeline-step--running' : s === 'FAILED' ? 'pipeline-step--failed' : '';
-  const handleSubstepRestart = async (packId, substepKey, candidateIndex = 0) => {
+  const handleSubstepRestart = async (packId, substepKey, candidateIndex = 0, endpoint = 'restart-substep') => {
     setRestartingSubstep(`${packId}_${candidateIndex}_${substepKey}`);
     setError('');
     try {
-      const res = await apiClient.post(`/generation-jobs/${jobId}/restart-substep/`, {
+      const res = await apiClient.post(`/generation-jobs/${jobId}/${endpoint}/`, {
         pack_id: packId,
         substep: substepKey,
         candidate_index: candidateIndex,
@@ -112,16 +138,22 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
     } catch (err) { setError(err.response?.data?.error || 'Failed to restart substep.'); setRestartingSubstep(null); }
   };
 
-  const renderGraphicNovelScriptSubsteps = () => {
+  // Renders the per-pack, per-candidate substep accordion for a step that runs
+  // multiple substeps under one pipeline step (graphic novel script + infographic
+  // design). `substepData` is the backend per-pack payload; `previewSubsteps` is
+  // the canonical order shown before the pipeline reaches the step; `restartEndpoint`
+  // is the job-relative restart route for the per-substep ↻ button (null = no
+  // restart button, e.g. a step whose restart API doesn't exist).
+  const renderSubstepAccordion = (substepData, previewSubsteps, restartEndpoint) => {
     // Before the pipeline reaches this step there is no per-pack substep data
     // yet. Show a collapsible preview of the canonical substep order so the
     // workflow is visible ahead of time.
-    if (graphicNovelScriptSubsteps.length === 0) {
+    if (substepData.length === 0) {
       return (
         <details style={{ margin: '2px 0 6px 30px', padding: '8px 10px', border: '1px solid var(--t-border)', borderRadius: 6, background: 'var(--t-bg-secondary)' }}>
           <summary style={{ cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600 }}>Planning Substeps (preview)</summary>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
-            {GRAPHIC_NOVEL_SUBSTEPS.map((substep) => (
+            {previewSubsteps.map((substep) => (
               <div key={substep.key} style={{ display: 'grid', gridTemplateColumns: '22px minmax(0, 1fr)', gap: 8, alignItems: 'center', fontSize: '0.8rem' }}>
                 <span className={`pipeline-icon ${statusCls('PENDING')}`}>{statusIcon('PENDING')}</span>
                 <span style={{ color: 'var(--t-text-tertiary)' }}>{substep.label}</span>
@@ -135,11 +167,11 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
       <details open style={{ margin: '2px 0 6px 30px', padding: '8px 10px', border: '1px solid var(--t-border)', borderRadius: 6, background: 'var(--t-bg-secondary)' }}>
         <summary style={{ cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600 }}>Planning Substeps</summary>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
-          {graphicNovelScriptSubsteps.map((pack) => (
+          {substepData.map((pack) => (
             <div key={pack.pack_id || pack.pack_label}>
               <div style={{ fontSize: '0.82rem', fontWeight: 700, marginBottom: 6 }}>{pack.pack_label}</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {(pack.candidates || []).map((candidate) => renderCandidateSubsteps(pack, candidate))}
+                {(pack.candidates || []).map((candidate) => renderCandidateSubsteps(pack, candidate, restartEndpoint))}
               </div>
             </div>
           ))}
@@ -149,9 +181,11 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
   };
 
   // One candidate's substep list, grouped under its own collapsible header so
-  // the three candidates per pack are visually distinct (rather than the same
-  // six rows repeating with no label). Completed candidates collapse by default.
-  const renderCandidateSubsteps = (pack, candidate) => {
+  // the candidates per pack are visually distinct (rather than the same rows
+  // repeating with no label). Completed candidates collapse by default. The
+  // per-substep restart button only shows when `restartEndpoint` is set; it
+  // posts to that job-relative route (GN and infographic have separate ones).
+  const renderCandidateSubsteps = (pack, candidate, restartEndpoint = null) => {
     const substeps = candidate.substeps || [];
     const ci = candidate.candidate_index ?? 0;
     const done = substeps.filter((s) => s.status === 'COMPLETED').length;
@@ -177,7 +211,7 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
           {substeps.map((substep) => {
             const s = substep.status || 'PENDING';
             const isRestarting = restartingSubstep === `${pack.pack_id}_${ci}_${substep.substep}`;
-            const canRestart = job.status !== 'RUNNING' && job.status !== 'PENDING' && !restartingSubstep;
+            const canRestart = restartEndpoint && job.status !== 'RUNNING' && job.status !== 'PENDING' && !restartingSubstep;
             return (
               <div key={substep.substep} style={{ display: 'grid', gridTemplateColumns: '22px minmax(0, 1fr) auto auto', gap: 8, alignItems: 'center', fontSize: '0.8rem' }}>
                 <span className={`pipeline-icon ${statusCls(s)}`}>{statusIcon(s)}</span>
@@ -195,7 +229,7 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
                 {canRestart && (
                   <button
                     style={{ padding: '2px 6px', fontSize: '0.72rem', borderRadius: 4, border: '1px solid var(--t-border)', background: 'var(--t-bg)', cursor: 'pointer' }}
-                    onClick={() => handleSubstepRestart(pack.pack_id, substep.substep, ci)}
+                    onClick={() => handleSubstepRestart(pack.pack_id, substep.substep, ci, restartEndpoint)}
                     title={`Restart Candidate ${ci + 1} from ${substep.label}`}
                   >
                     {isRestarting ? '...' : '↻'}
@@ -216,7 +250,7 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
           style={{ padding: '4px 10px', fontSize: '0.78rem' }}>{job.status}</span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {PIPELINE_STEPS.map((step) => {
+        {visibleSteps.map((step) => {
           const s = getStepStatus(step.key);
           const log = logMap[step.key];
           const retryMsg = getRetryMessage(step.key);
@@ -242,7 +276,8 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
                   {retryMsg}
                 </div>
               )}
-              {step.key === 'GRAPHIC_NOVEL_SCRIPT' && renderGraphicNovelScriptSubsteps()}
+              {step.key === 'GRAPHIC_NOVEL_SCRIPT' && renderSubstepAccordion(graphicNovelScriptSubsteps, GRAPHIC_NOVEL_SUBSTEPS, 'restart-substep')}
+              {step.key === 'INFOGRAPHIC_DESIGN' && renderSubstepAccordion(infographicDesignSubsteps, INFOGRAPHIC_SUBSTEPS, 'restart-infographic-substep')}
             </React.Fragment>
           );
         })}

@@ -1,0 +1,28 @@
+Create one complete 1792x1024 landscape EXPLANATORY INFOGRAPHIC poster for students ages 8–14 — a single-page, modern editorial explainer infographic in the style of a professional magazine/museum/data-visualization graphic (render its art in the "Design style" specified below). This is ONE cohesive designed piece — NOT a grid of flashcards, NOT a glossary, NOT word-and-definition pairs, and NOT a children's storybook or picture-book illustration.
+
+Topic / big idea: {big_idea}
+Title (render as a bold heading on the poster): {title}
+Visual structure: {visual_structure}
+Color palette: {color_palette}
+Design style (lead with this — it is the art-directed look for THIS specific poster): {style_prompt}
+STYLE_LOCK (shared floor only — do NOT override the art-directed style above; these are the non-negotiables every poster keeps): a single cohesive, modern flat-vector editorial infographic, clean geometric sans-serif lettering, legible high-contrast text, one unified designed piece. No photorealism, no photorealistic 3D render, no clutter, no muddy or washed-out colors. NOT a children's storybook, picture-book, fairy-tale, or whimsical cartoon illustration — keep the look crisp, contemporary, and informational, like a designer's explainer graphic rather than a kids' book page.
+
+The whole page:
+{scene_description}
+
+{layout_guidance}
+{scene_elements}
+
+CRITICAL text rules — the captions are sentences, not definitions:
+- Write each caption as a normal sentence exactly as given. Do NOT add a meaning, gloss, or definition for any word.
+- VOCABULARY EMPHASIS (very important): inside every caption, the target vocabulary words ({vocab_words}) — shown wrapped in **double asterisks** in the captions below — MUST visually STAND OUT from the rest of the caption. Render each marked word in a HEAVIER/BOLDER weight AND a distinct strong accent color (drawn from the palette), while the rest of the caption stays the normal lighter text color. Do NOT print the asterisks themselves — they only mark which word to emphasize. Every target word must be the most eye-catching word in its caption so a child instantly sees which word is being taught.
+- NEVER render text in a "word: definition" or "word — meaning" format anywhere on the poster. There is no glossary, no key, no legend, no definition boxes.
+- The element label names the place/stage/item (e.g. "The Mountain Farm", "Step 2: Roasting"); it is not a single vocabulary word on its own line.
+- Each caption floats in open space and is joined to its illustrated detail by a thin CALLOUT LINE — do not trap the artwork inside caption boxes.
+- Spell every word correctly; keep all text large and legible.
+
+Other constraints:
+- Render the title once as a clear heading.
+- Go easy on people: keep the number of human figures across the whole poster low and don't crowd scenes with them. People are fine where they're natural, but favor objects, tools, plants, animals, machines, maps, and landscapes to carry the meaning. When you do draw a person, keep them small and simple and avoid large close-up faces (image models distort them and they pull focus from the vocabulary).
+- Do NOT add watermarks, signatures, logos, page numbers, speech bubbles, comic panels, a separate legend, or a flashcard/word-definition grid.
+

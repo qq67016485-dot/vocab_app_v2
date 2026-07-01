@@ -4,6 +4,7 @@ import apiClient from '../../api/axiosConfig.js';
 import PrimerCard from '../../components/PrimerCard.jsx';
 import MicroStoryView from '../../components/MicroStoryView.jsx';
 import GraphicNovelReader from '../../components/GraphicNovelReader.jsx';
+import InfographicReader from '../../components/InfographicReader.jsx';
 import ClozeQuiz from '../../components/ClozeQuiz.jsx';
 import InstructionalSummary from '../../components/InstructionalSummary.jsx';
 
@@ -84,6 +85,12 @@ export default function InstructionalFlow() {
       {step === 'story' && (
         packData.story?.type === 'graphic_novel' ? (
           <GraphicNovelReader
+            story={packData.story}
+            primerCards={packData.primer_cards}
+            onDone={handleStoryDone}
+          />
+        ) : packData.story?.type === 'infographic' ? (
+          <InfographicReader
             story={packData.story}
             primerCards={packData.primer_cards}
             onDone={handleStoryDone}

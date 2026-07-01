@@ -21,7 +21,53 @@ PIPELINE_STEP_ORDER = [
     GenerationJobLog.Step.PACK_CREATION,
     GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
     GenerationJobLog.Step.GRAPHIC_NOVEL_IMAGES,
+    GenerationJobLog.Step.INFOGRAPHIC_DESIGN,
+    GenerationJobLog.Step.INFOGRAPHIC_IMAGE,
 ]
+
+# Content-type keys used by GenerationJob.content_types to gate which
+# instructional formats a job generates. An empty/legacy list means graphic
+# novel only (the historical behaviour before infographics existed).
+CONTENT_TYPE_GRAPHIC_NOVEL = 'graphic_novel'
+CONTENT_TYPE_INFOGRAPHIC = 'infographic'
+ALLOWED_CONTENT_TYPES = (CONTENT_TYPE_GRAPHIC_NOVEL, CONTENT_TYPE_INFOGRAPHIC)
+
+
+def job_generates_content_type(job, content_type):
+    """Whether ``job`` should generate ``content_type``.
+
+    An empty ``content_types`` (legacy jobs created before the field existed)
+    means graphic novel only.
+    """
+    types = job.content_types or []
+    if not types:
+        return content_type == CONTENT_TYPE_GRAPHIC_NOVEL
+    return content_type in types
+
+
+# Number of independent infographic candidates generated per pack — mirrors the
+# graphic novel candidate model so an admin picks the best of several rolls.
+INFOGRAPHIC_CANDIDATE_COUNT = 3
+
+# Infographic generation substeps (design → cloze). Far lighter than the graphic
+# novel workflow: neutral educational style, no canon/team selection.
+INFOGRAPHIC_SUBSTEPS = [
+    {
+        'key': 'design',
+        'label': 'Infographic Design',
+        'template': 'infographic_design',
+        'filename': '01_infographic_design.json',
+        'config_key': 'ig_design',
+    },
+    {
+        'key': 'cloze',
+        'label': 'Infographic Cloze',
+        'template': 'infographic_cloze',
+        'filename': '02_infographic_cloze.json',
+        'config_key': 'ig_cloze',
+    },
+]
+INFOGRAPHIC_IMAGE_MODEL = 'gpt-image-2'
 
 GRAPHIC_NOVEL_SUBSTEPS = [
     {

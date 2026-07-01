@@ -9,11 +9,13 @@ A K-8 vocabulary learning platform with AI-generated instructional content, adap
 - Question generation (15 per word across 28 question types)
 - Thematic pack creation with primer cards
 - Graphic novel scripts (Gemini 6-call planning pipeline) and cinematic images (GPT-Image-2) — 3 candidate novels per pack, admin picks one to publish
+- Infographic content type — single-page explanatory poster (NotebookLM-style), an alternative to graphic novels; 3 candidates per pack, admin picks one. Per-job toggle for which formats to generate
 - Per-step resume on failure, stale job detection
 
 **Instructional Flow**
 - Primer cards with images and syllable breakdowns
 - Graphic novel reader (16:9 landscape pages with vocabulary overlay) with optional read-along audio playback (per-page Listen/Pause + Auto-read toggle)
+- Infographic reader (single-page poster with intro text + per-word study list); the teacher chooses graphic novel vs infographic per assignment
 - Read-along audiobook: per-page narrated audio generated on demand via Gemini TTS (admin-triggered); served to students as a compressed MP3
 - Cloze quiz (fill-in-the-blank) for comprehension check
 - Pack completion tracking before words enter practice
@@ -34,6 +36,7 @@ A K-8 vocabulary learning platform with AI-generated instructional content, adap
 - Full generation wizard (pipeline, questions-only, instructional-only)
 - Generation status polling with per-page image progress
 - Graphic novel candidate review: 3 candidates per pack, select one to publish (gates student visibility + cloze)
+- Infographic candidate review + select-to-publish (mirrors graphic novels); per-job choice of which content formats to generate
 - Per-page graphic novel image editing with original/edited variant selection
 - Resume failed pipelines
 

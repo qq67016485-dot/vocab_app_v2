@@ -48,13 +48,22 @@ def select_graphic_novel_candidate(novel_id):
 
 
 def _promote_cloze(pack, novel):
-    """Replace the pack's promoted cloze (novel=None) with the selected novel's."""
-    ClozeItem.objects.filter(pack=pack, novel__isnull=True).delete()
+    """Replace the pack's active cloze (both FKs NULL) with the selected novel's.
+
+    The active set is shared across content types, so this clears whatever was
+    promoted last (a graphic novel or an infographic) and re-creates it from this
+    novel's staged rows — last published wins, which is fine since cloze is
+    medium-agnostic vocabulary practice.
+    """
+    ClozeItem.objects.filter(
+        pack=pack, novel__isnull=True, infographic__isnull=True,
+    ).delete()
     staged = ClozeItem.objects.filter(pack=pack, novel=novel).order_by('order')
     promoted = [
         ClozeItem(
             pack=pack,
             novel=None,
+            infographic=None,
             word=ci.word,
             sentence_text=ci.sentence_text,
             correct_answer=ci.correct_answer,

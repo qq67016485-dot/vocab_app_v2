@@ -2,6 +2,95 @@
 
 All notable changes to Vocab App V2 are documented in this file.
 
+## [Unreleased] - 2026-07-01 (assignment gated on published content type)
+
+### Changed — Teachers Can Only Assign a Word Set That Has Published Content
+- Previously the assign dialog always offered both "Graphic novel" and "Infographic" radios regardless of whether either format had actually been generated and admin-selected, so a teacher could assign a set whose chosen format was never published (the student then silently fell back to the other format, or saw nothing).
+- The assign flow is now gated on **published (admin-selected) content**. A content type is offered only when at least one pack in the word set has a candidate of that type with `is_selected=True`. If the set has neither, it cannot be assigned at all.
+- `teacher_views.py`: new helper `_available_content_types_for_word_set(word_set)` returns which of `graphic_novel`/`infographic` have a selected candidate. The `assignments/` GET action now returns `available_content_types`; the `assign/` POST action rejects (HTTP 400) when nothing is published, or when the submitted `content_type` isn't in the available list — this also guards direct API calls, not just the UI.
+- `AssignSetForm.jsx`: reads `available_content_types`. Neither published → the whole form is replaced with a blocking notice (Close only). Exactly one published → that format is shown as a read-only label (no radio). Both published → the two radios render as before. The default respects the prefilled type from existing assignments but falls back to the first available type if that type was unpublished since.
+- Tests: `test_assigns_word_set` updated to set up a selected graphic novel (the new gate requires it); full backend suite passes (127).
+
+## [Unreleased] - 2026-06-26 (infographic style: tone down storybook feel → modern editorial infographic)
+
+### Changed — Pushed the Infographic Look From Storybook Illustration Toward Modern Editorial Infographic
+- Follow-up to the art-directed per-candidate style change (below, same day). The generated posters still read as children's-storybook illustrations; the user wanted them to look more like modern infographics. The fix is prompt-only — it retunes the art-direction language so the LLM composes editorial-infographic style phrases instead of warm storybook ones (no code-flow change).
+- `infographic_image.txt`: line 1 reframed from "poster for children" to "for students … a modern editorial explainer infographic in the style of a professional magazine/museum/data-visualization graphic", with an explicit "NOT a children's storybook or picture-book illustration". `STYLE_LOCK` floor reworded: "kid-friendly educational vector/illustration" → "modern flat-vector editorial infographic", "rounded sans-serif" → "geometric sans-serif", plus a new negative clause ruling out storybook / fairy-tale / whimsical-cartoon looks (kept crisp, contemporary, informational).
+- `infographic_design.txt`: role line now frames the deliverable as "a modern editorial explainer graphic … NOT a children's storybook"; the art-director style menus (step 7) dropped `TED-Ed animation style`, `stylized characters`, and `cohesive visual storytelling`, and added `clean diagrammatic design`, `data-visualization explainer look`, `simplified iconographic figures`, and `labeled callouts and connector lines`; "warm and inviting tones" → "confident editorial color blocking"; the family constraint now also bars a "children's storybook / picture-book / cartoon look". `color_palette` guidance dropped "kid-friendly … warm, inviting tones" for "a confident editorial feel".
+- `step_infographic.py`: `DEFAULT_INFOGRAPHIC_STYLE` fallback reworded to the editorial-infographic vocabulary (Dribbble / Behance / NotebookLM / data-viz, geometric lettering, "Not a children's storybook or cartoon look").
+- Audience guidance unchanged: still ESL ages 8–14, legible, uncluttered, go-easy-on-people. Asterisk vocab-emphasis and no-glossary rules untouched. No tests assert on the changed strings; existing `test_infographic.py` (21) unaffected. New candidates pick up the change on next generation; existing posters keep their stored `style_prompt` until regenerated.
+
+## [Unreleased] - 2026-06-26 (infographic art-directed per-candidate style, NotebookLM aesthetic)
+
+### Changed — Per-Candidate Art Direction So Infographic Candidates Don't All Look Alike
+- A user-supplied analysis of NotebookLM infographics gave a curated art-style vocabulary. The goal was to adopt that aesthetic **without** making the 3 per-pack candidates look identical — the user emphasized "mix and match".
+- Root cause of prior sameness: the design prompt's JSON schema emitted **no `style_prompt`**, so every candidate fell back to the single `DEFAULT_INFOGRAPHIC_STYLE` constant and shared one look. A heavier *fixed* style would have made this worse.
+- `infographic_design.txt`: added an art-director step that has the LLM mix-and-match a **distinct** combination per candidate from three menus — CORE STYLE (modern vector illustration / TED-Ed / Dribbble-Behance / flat design with soft 3D shading), COLORS & LIGHTING (vibrant cohesive palette / soft gradients / warm inviting tones), DETAILS (clean outlines / smooth curves / banners-ribbons / floating text boxes / stylized chars) — emitting it as a new `style_prompt` field. `color_palette` guidance tightened to 3–5 specific vibrant colors, varied per poster. Each of the 3 candidates runs a separate design call, so they now diverge.
+- `infographic_image.txt`: `{style_prompt}` now leads as the art direction; `STYLE_LOCK` slimmed from a heavy fixed style to a thin shared *floor* (kid-friendly vector, legible lettering, one unified piece, no photorealism / *photorealistic* 3D render / muddy colors — soft dimensional shading is allowed) that must not override the per-poster style. Line 1's hardcoded "National Geographic / museum poster" framing was neutralized so it no longer pulls every candidate toward one look.
+- `step_infographic.py`: `DEFAULT_INFOGRAPHIC_STYLE` reworded to the new vocabulary (fallback for candidates lacking `style_prompt`, e.g. older ones). No code-flow change — `style_prompt` already flowed `design_result → Infographic.style_prompt → {style_prompt}`, it was just never populated. `style_prompt` is optional in the validator.
+- Deliberate clarification vs the raw feedback: it said "flat design with soft 3D shading" while the old prompt banned "3D render" — kept the ban on *photorealistic* 3D render only, so soft dimensional shading/gradients are now allowed.
+- Tests: no new tests; existing `test_infographic.py` (21) pass (`build_infographic_image_prompt` already covered).
+
+## [Unreleased] - 2026-06-25 (infographic intro text teaches every target word)
+
+### Changed — Infographic Intro Hook Now Uses Every Target Word
+- The infographic's `intro_text` (the short paragraph students read above the poster) used the vocab words only optionally, so generated hooks often mentioned none of them. Students should be able to learn the words from reading that text too.
+- `infographic_design.txt`: the `intro_text` instruction (and its JSON-schema description) now require the hook to **naturally use every target word in context** — one flowing mini-scenario in the same sequential-beats style as the captions, never defining them, kept at/below the target Lexile (allowed to grow to ~2–4 sentences so all words fit smoothly).
+- `step_infographic.py`: `_validate_infographic_design_result` now rejects a design whose `intro_text` omits any target word (stem-tolerant match for plurals/`-ed`/`-ing`, shared with the caption check via the new `_term_in_text` helper). The design substep retries up to 3× internally, so a first-pass miss is re-rolled rather than published.
+- Tests: fixture intro updated to use both words; new `test_rejects_intro_text_missing_a_target_word` in `test_infographic.py` (21 pass).
+
+## [Unreleased] - 2026-06-25 (infographic student reader: full size + word pronunciation)
+
+### Changed — Infographic Reader Matches Graphic Novel Size
+- The student infographic poster rendered small (capped at 1000px) while the graphic novel reader widened the whole student shell to ~1792px. Since infographic posters are landscape 16:9, the reader can use the same size.
+- `graphic-novel-reader.css`: added `[data-app="student"].app-shell:has(.infographic-reader)` → `max-width: min(1792px, 90vw)` (mirrors the GN reader's shell-widening rule) and dropped the `.infographic-reader` width cap; the poster image fills 100% width with `object-fit: contain` and no height cap (a full-width 16:9 image stays within the viewport).
+
+### Added — Tap-to-Hear on Infographic Vocab Words
+- Each vocab word in the list below the infographic now has a 🔊 button that pronounces it via the browser's built-in speech synthesis — the same `TextToSpeechButton` (Web Speech `speechSynthesis`, en-US, rate 0.8) already used in the graphic novel reader, practice, and primer views. No backend/TTS audio involved (distinct from the graphic novel audiobook pipeline).
+- `InfographicReader.jsx` only; frontend lint not runnable (repo has no ESLint v9 config, pre-existing).
+
+## [Unreleased] - 2026-06-25 (infographic content polish: drop filler subtitles, fewer people)
+
+### Changed — Infographic Title Has No Subtitle
+- The infographic title used a "Main Idea: Subtitle" format, but recent generations produced filler subtitles ("A Vocabulary Guide", "Vocabulary Words") that add no learning value.
+- `infographic_design.txt` now asks for a single-line big-idea title (no colon, no subtitle, and bans generic vocab tags); `infographic_image.txt` no longer instructs the subtitle style and just renders the title as a bold heading.
+- Safety net for prompt drift: `_clean_infographic_title()` in `step_infographic.py` strips a trailing generic subtitle (`: A Vocabulary Guide`, `— Vocabulary Words`, `: Vocabulary`, etc.) on persist, but only when meaningful text remains before the separator — a genuine subtitle like "The Solar System: A Tour of the Planets" is kept. Applies to new generations only (existing rows unchanged).
+
+### Changed — Infographics De-emphasize People
+- Learners fixate on faces and the image model often distorts human figures, pulling focus from the vocabulary. Both infographic prompts now lean away from people — **soft guidance, not a ban** (people are fine where natural).
+- `infographic_design.txt`: each scene element favors objects/tools/places/animals/landscapes; the narrative thread can still be a person but "an object or animal often works better"; caption examples reworked to keep focus on the subject (e.g. the bean) rather than farmers/workers.
+- `infographic_image.txt`: keep human figures few, small, and simple, with no large close-up faces.
+- Tests: 7 new `_clean_infographic_title` cases + a persist-cleaning case in `test_infographic.py` (20 pass).
+
+## [Unreleased] - 2026-06-25 (admin status: infographic design substep accordion)
+
+### Fixed — "Infographic Design" Step Hid the Design Substep
+- On the generation-job status page, the **Infographic Design** step row showed cloze-generation state, not design. Root cause: infographic generation runs two LLM substeps per candidate (`design` → `cloze`) that **both log under the single `INFOGRAPHIC_DESIGN` step** (`step_infographic.py`); the frontend keys logs by step (`logMap[log.step]`), so the row reflected whichever substep logged *last* (a cloze log), and the design substep was invisible. The graphic novel script step had had a per-candidate substep accordion all along; infographics had none.
+- **Fix mirrors the GN substep treatment**:
+  - Backend (`generation_views.py`): extracted the GN-specific substep serializer into a generic `_substep_statuses_for_step(job, step, substep_defs)` (and `_new_substep_map(substep_defs)`); added `INFOGRAPHIC_DESIGN_SUBSTEPS` (`design`/`cloze`) and a new `infographic_design_substeps` field on the job-status payload. `_graphic_novel_script_substep_statuses` is now a thin wrapper, so GN behavior is unchanged.
+  - Frontend (`GenerationJobStatus.jsx`): generalized the substep accordion into `renderSubstepAccordion(substepData, previewSubsteps, allowRestart)` and rendered it under the `INFOGRAPHIC_DESIGN` step too, with `INFOGRAPHIC_SUBSTEPS` as the preview order. Infographic substeps render **read-only** (`allowRestart=false`) because the `restart-substep` API is graphic-novel-only — no infographic substep-restart endpoint exists yet.
+- The Infographic Design step now expands into per-pack, per-candidate rows showing **Infographic Design** and **Infographic Cloze** separately, each with its own status.
+- Verified against job 52 (infographic-only): serializer returns both substeps per candidate; full status view builds with the new field; 27 infographic + orchestrator tests pass. (Frontend lint not runnable — repo has no ESLint v9 config, pre-existing.)
+
+### Added — Infographic Substep Restart (closes the gap left above)
+- The substep accordion above was initially read-only because no infographic substep-restart API existed (only the GN one). Added the endpoint so an admin can regenerate a single infographic candidate from a chosen substep — matching the graphic novel ↻ button.
+- **Endpoint**: `POST /api/generation-jobs/{id}/restart-infographic-substep/` (`pack_id` + `substep` ∈ {`design`,`cloze`} + optional `candidate_index`). `RestartInfographicSubstepView` mirrors `RestartGraphicNovelSubstepView`: validates against `VALID_INFOGRAPHIC_SUBSTEP_KEYS`, sets the job RUNNING, runs `orchestrator.restart_infographic_substep` in a daemon thread (202; **409** if already running; **404** for unknown pack/job).
+- **Orchestrator** (`restart_infographic_substep`, re-exported via the `generation_pipeline_service` shim): regenerates the targeted candidate via `restart_infographic_from_substep`, then runs `_step_infographic_design` over **all** packs to fill any candidate the original run never reached (same orphan-fill guard as the GN substep restart). Does **not** re-render the poster image — the admin re-runs `INFOGRAPHIC_IMAGE` separately if needed.
+- **Frontend** (`GenerationJobStatus.jsx`): `renderSubstepAccordion` now takes a `restartEndpoint` arg (GN → `restart-substep`, infographic → `restart-infographic-substep`; null disables the button); `handleSubstepRestart` posts to the given endpoint. The infographic accordion is now interactive.
+- Tests: `TestRestartInfographicSubstep` (orphan-fill + failure→FAILED) in `test_orchestrator.py`; view tests for the payload split + endpoint validation/202/409 in `test_views.py`. 65 backend tests pass; frontend builds clean.
+
+## [Unreleased] - 2026-06-24 (new content type: single-page infographic alongside graphic novels)
+
+### Added — Infographic Content Type (NotebookLM-style explanatory poster)
+- Some teachers who demoed the app disliked the multi-page graphic novels and wanted a single-page infographic with a short explanatory text. Added **infographic** as a second instructional content type, chosen per-assignment.
+- **Model** (`migration 0036`): `Infographic` FK→WordPack mirrors `GraphicNovel` single-page — same 3-candidate + admin-select model (`unique_together=('pack','candidate_index')`, `is_selected`, no auto-select), `content` JSON (`layout_mode`/`big_idea`/`visual_structure`/`scene_description`/`scene_elements[]`/`entries[]`), single image with PNG+JPEG `display_image`/`student_image` variants. `StudentWordSetAssignment.content_type` (`graphic_novel`/`infographic`); `GenerationJob.content_types` (JSON, default `['graphic_novel']`) + `infographics_created` counter.
+- **Shared cloze (CRITICAL)**: `ClozeItem` gains a nullable `infographic` FK alongside `novel`. Active/promoted cloze = **both FKs NULL**; staged = one set. All active-cloze reads updated to filter `novel__isnull=True, infographic__isnull=True` (instructional_service, both review endpoints, both selection services) — filtering only `novel__isnull=True` would leak staged infographic cloze to students. Active set is shared across content types (last published wins).
+- **Pipeline** (`step_infographic.py`): two new steps appended to `PIPELINE_STEP_ORDER` — `INFOGRAPHIC_DESIGN` (per pack, 3 candidates × 2 substeps `ig_design`→`ig_cloze`) and `INFOGRAPHIC_IMAGE` (one poster per candidate). `orchestrator._run_step` skips a content type's steps when not in `job.content_types` (gates GN steps too). New `LLMStepConfig` keys `ig_design`/`ig_cloze` seeded across all 3 sets (`migration 0037`). Engine `restart_infographic_from_substep(...)`; artifacts under `…/pack_{id}_{slug}/infographic_cand_{i}/`.
+- **Style — NotebookLM-class, not flashcards** (3 prompt iterations): the design LLM acts as art director and picks a `layout_mode` — `panorama` (one continuous landscape/map with a visual spine, for sequential packs) or `gallery` (vignettes in a creative framing device — never a plain grid — for disjointed packs). Captions USE each vocab word in a sequential narrative sentence (never `word: definition`; validator rejects the glossary format and requires the word in its caption); definitions live only in `entries` (study panel + cloze). `build_infographic_image_prompt` branches the image template's layout guidance on `layout_mode`. Title in "Main Idea: Subtitle" form; callout-line captions (not boxed). Prompts: `infographic_{design,cloze,image}.txt`.
+- **Selection + serving**: `POST /api/infographics/{id}/select/` (`SelectInfographicCandidateView` → `infographic_selection_service.select_infographic_candidate`) mirrors GN select + promotes cloze. `instructional_service.get_pack_data` serves the student's assignment `content_type`, falling back to the other published type then legacy stories. Review endpoints return `infographics` (array) + `infographic` (selected/null).
+- **Frontend**: `InfographicReader.jsx` (routed in `InstructionalFlow` on `story.type === 'infographic'`); content-type radio in `AssignSetForm.jsx`; content-types checkboxes in `GenerationWizard.jsx`; `PackInfographics` review section in `GenerationReview.jsx`; infographic steps in `GenerationJobStatus.jsx` (filtered by `job.content_types`).
+- Tests: `tests/vocabulary/test_infographic.py` (selection/promotion, shared read-filter isolation, content-type serving + fallback, generation engine, glossary-caption rejection, layout-mode branch) + orchestrator content-type gating. Full backend suite passes; frontend builds clean.
+
 ## [Unreleased] - 2026-06-10 (admin review UI: redesigned for 3 graphic novel candidates)
 
 ### Changed — Teacher Portal Widened + Candidate-Aware Generation Views

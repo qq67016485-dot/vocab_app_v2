@@ -34,6 +34,7 @@ from vocabulary.services.generation.orchestrator import (
     resume_pipeline,
     restart_pipeline_from_step,
     restart_graphic_novel_substep,
+    restart_infographic_substep,
     _validate_pipeline_step,
     _reconstruct_context,
     _run_step,

@@ -7,11 +7,13 @@ from django.utils import timezone
 from vocabulary.models import (
     Word, WordDefinition, Translation,
     Question, WordPack, WordPackItem, PrimerCardContent,
-    GraphicNovel, GraphicNovelPage, ClozeItem,
+    GraphicNovel, GraphicNovelPage, ClozeItem, Infographic,
     WordSet, GenerationJob, GenerationJobLog,
 )
 from vocabulary.services.generation.constants import (
-    GRAPHIC_NOVEL_IMAGE_MODEL, PIPELINE_STEP_ORDER,
+    GRAPHIC_NOVEL_IMAGE_MODEL, INFOGRAPHIC_IMAGE_MODEL, PIPELINE_STEP_ORDER,
+    CONTENT_TYPE_GRAPHIC_NOVEL, CONTENT_TYPE_INFOGRAPHIC,
+    job_generates_content_type,
 )
 from vocabulary.services.generation.helpers import (
     _log_step, _close_old_connections_if_safe,
@@ -30,6 +32,10 @@ from vocabulary.services.generation.step_packs import (
 from vocabulary.services.generation.step_graphic_novel import (
     _step_graphic_novel_script, _step_graphic_novel_images,
     restart_graphic_novel_from_substep,
+)
+from vocabulary.services.generation.step_infographic import (
+    _step_infographic_design, _step_infographic_image,
+    restart_infographic_from_substep,
 )
 
 logger = logging.getLogger(__name__)
@@ -137,6 +143,25 @@ def _clear_testing_outputs_for_step(job, step, words):
             generation_completed_at=None,
         )
 
+    elif step == S.INFOGRAPHIC_DESIGN:
+        packs = WordPack.objects.filter(word_set=job.word_set)
+        # Drop staged infographic cloze + the infographics themselves; the pack's
+        # promoted cloze (both FKs NULL) is left untouched.
+        Infographic.objects.filter(pack__in=packs).delete()
+        job.infographics_created = 0
+        job.save(update_fields=['infographics_created'])
+
+    elif step == S.INFOGRAPHIC_IMAGE:
+        packs = WordPack.objects.filter(word_set=job.word_set)
+        Infographic.objects.filter(pack__in=packs).update(
+            image='', prompt_used='',
+            generation_status=Infographic.GenerationStatus.PENDING,
+            generation_attempts=0,
+            generation_error='',
+            generation_started_at=None,
+            generation_completed_at=None,
+        )
+
 
 def _clear_testing_outputs(job, steps, words):
     for step in steps:
@@ -151,6 +176,7 @@ def _step_uses_generation_model(step):
         GenerationJobLog.Step.PACK_CREATION,
         GenerationJobLog.Step.PRIMER_GEN,
         GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
+        GenerationJobLog.Step.INFOGRAPHIC_DESIGN,
     }
 
 
@@ -205,12 +231,32 @@ def _build_retry_payload(plan, failed_idx):
     }
 
 
+def _step_content_type(step):
+    """The content type a step belongs to, or None if it always runs."""
+    S = GenerationJobLog.Step
+    if step in (S.GRAPHIC_NOVEL_SCRIPT, S.GRAPHIC_NOVEL_IMAGES):
+        return CONTENT_TYPE_GRAPHIC_NOVEL
+    if step in (S.INFOGRAPHIC_DESIGN, S.INFOGRAPHIC_IMAGE):
+        return CONTENT_TYPE_INFOGRAPHIC
+    return None
+
+
 def _run_step(job, step, words, words_data, packs):
     """Dispatch a single pipeline step with one retry, then fallback model."""
     S = GenerationJobLog.Step
 
-    if step == S.GRAPHIC_NOVEL_IMAGES:
-        attempts = [GRAPHIC_NOVEL_IMAGE_MODEL, GRAPHIC_NOVEL_IMAGE_MODEL]
+    # Skip a content-type's steps when the job didn't request that type.
+    content_type = _step_content_type(step)
+    if content_type is not None and not job_generates_content_type(job, content_type):
+        logger.info("Skipping step %s — job %s does not generate %s.", step, job.id, content_type)
+        return words, words_data, packs
+
+    if step in (S.GRAPHIC_NOVEL_IMAGES, S.INFOGRAPHIC_IMAGE):
+        image_model = (
+            GRAPHIC_NOVEL_IMAGE_MODEL if step == S.GRAPHIC_NOVEL_IMAGES
+            else INFOGRAPHIC_IMAGE_MODEL
+        )
+        attempts = [image_model, image_model]
         plan = [(None, model) for model in attempts]
         for attempt_number, model in enumerate(attempts, 1):
             try:
@@ -226,8 +272,8 @@ def _run_step(job, step, words, words_data, packs):
                     output_data=payload,
                     error_message=str(exc),
                 )
-    elif step == S.GRAPHIC_NOVEL_SCRIPT:
-        # GN script substeps each have their own config — pass None and let the
+    elif step in (S.GRAPHIC_NOVEL_SCRIPT, S.INFOGRAPHIC_DESIGN):
+        # These steps' substeps each have their own config — pass None and let the
         # step function look up per-substep configs internally.
         return _execute_step(job, step, words, words_data, packs, S, site_config=None)
     elif step in _STEP_TO_CONFIG_KEY:
@@ -285,6 +331,10 @@ def _execute_step(job, step, words, words_data, packs, S, site_config=None, mode
         _step_graphic_novel_script(job, packs, words_data)
     elif step == S.GRAPHIC_NOVEL_IMAGES:
         _step_graphic_novel_images(job, packs)
+    elif step == S.INFOGRAPHIC_DESIGN:
+        _step_infographic_design(job, packs, words_data)
+    elif step == S.INFOGRAPHIC_IMAGE:
+        _step_infographic_image(job, packs)
     return words, words_data, packs
 
 
@@ -550,6 +600,92 @@ def restart_graphic_novel_substep(job_id, pack_id, substep_key, candidate_index=
     except Exception as exc:
         logger.exception(
             "Substep restart failed for job %s pack %s substep %s: %s",
+            job_id, pack_id, substep_key, exc,
+        )
+        try:
+            if job is None:
+                job = GenerationJob.objects.get(id=job_id)
+            job.status = GenerationJob.Status.FAILED
+            job.error_message = str(exc)
+            job.save(update_fields=['status', 'error_message'])
+        except Exception:
+            logger.exception("Failed to mark job %s as FAILED in database", job_id)
+    finally:
+        _close_old_connections_if_safe()
+
+
+def restart_infographic_substep(job_id, pack_id, substep_key, candidate_index=0):
+    """Restart one candidate of a pack's infographic from a specific substep.
+
+    Mirrors ``restart_graphic_novel_substep``: after regenerating the targeted
+    candidate, it also generates any *other* pack infographic candidates in the
+    word set that still lack one — candidates the original run never reached
+    because an earlier one failed mid-step. ``_step_infographic_design``'s
+    skip-guard leaves already-complete candidates (an ``Infographic`` row exists)
+    untouched, so regenerating one candidate of a finished job adds no extra LLM
+    calls for the others.
+
+    Image rendering is NOT re-run here (mirrors the GN substep restart, which
+    leaves image generation to the pipeline / a separate redraw): the design
+    restart regenerates the candidate ``Infographic`` + its staged cloze, and the
+    admin re-runs the image step if needed.
+    """
+    _close_old_connections_if_safe()
+    job = None
+
+    try:
+        job = GenerationJob.objects.select_related('word_set').get(id=job_id)
+        job.status = GenerationJob.Status.RUNNING
+        job.error_message = ''
+        job.save(update_fields=['status', 'error_message'])
+
+        _, words_data, _ = _reconstruct_context(job)
+
+        _log_step(
+            job,
+            GenerationJobLog.Step.INFOGRAPHIC_DESIGN,
+            GenerationJob.Status.RUNNING,
+            output_data={
+                'message': f'Substep restart: {substep_key} for pack {pack_id} candidate {candidate_index}',
+                'substep_restart': substep_key,
+                'pack_id': pack_id,
+                'candidate_index': candidate_index,
+            },
+        )
+
+        restart_infographic_from_substep(
+            job, pack_id, substep_key, words_data, candidate_index=candidate_index,
+        )
+
+        # Fill any remaining pack candidates that never got an infographic. The
+        # design step skips candidates that already have an Infographic row (incl.
+        # the one just restarted), so this only fills genuine gaps. If a remaining
+        # candidate fails, the step raises and the job is correctly marked FAILED.
+        remaining_packs = list(
+            WordPack.objects.filter(word_set=job.word_set)
+            .prefetch_related('items__word')
+            .order_by('order')
+        )
+        _step_infographic_design(job, remaining_packs, words_data)
+
+        job.infographics_created = Infographic.objects.filter(
+            pack__word_set=job.word_set
+        ).count()
+        job.cloze_items_created = ClozeItem.objects.filter(
+            pack__word_set=job.word_set
+        ).count()
+        job.status = GenerationJob.Status.COMPLETED
+        job.completed_at = timezone.now()
+        job.save(update_fields=[
+            'status', 'completed_at', 'infographics_created', 'cloze_items_created',
+        ])
+
+        job.word_set.generation_status = WordSet.GenerationStatus.GENERATED
+        job.word_set.save(update_fields=['generation_status'])
+
+    except Exception as exc:
+        logger.exception(
+            "Infographic substep restart failed for job %s pack %s substep %s: %s",
             job_id, pack_id, substep_key, exc,
         )
         try:

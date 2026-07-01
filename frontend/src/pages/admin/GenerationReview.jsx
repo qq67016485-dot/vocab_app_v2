@@ -117,6 +117,30 @@ export default function GenerationReview() {
     }
   }, []);
 
+  const handleSelectInfographic = useCallback(async (packId, infographicId) => {
+    try {
+      await apiClient.post(`/infographics/${infographicId}/select/`);
+      setContent(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          packs: prev.packs.map(pack => {
+            if (pack.id !== packId || !pack.infographics) return pack;
+            return {
+              ...pack,
+              infographics: pack.infographics.map(ig => ({
+                ...ig,
+                is_selected: ig.id === infographicId,
+              })),
+            };
+          }),
+        };
+      });
+    } catch (err) {
+      setError(err.response?.data?.error || 'Failed to select infographic.');
+    }
+  }, []);
+
   const stopAudioPoll = (novelId) => {
     if (audioPolls.current[novelId]) {
       clearInterval(audioPolls.current[novelId]);
@@ -278,6 +302,9 @@ export default function GenerationReview() {
                 />
               )}
               {!(pack.graphic_novels && pack.graphic_novels.length > 0) && pack.stories.length > 0 && <div style={{ marginBottom: 6 }}><strong style={{ fontSize: '0.85rem' }}>Legacy Micro Story:</strong>{pack.stories.map(s => (<p key={s.id} style={{ fontSize: '0.85rem', margin: '3px 0', whiteSpace: 'pre-wrap' }}>{s.story_text} <span className="t-hint">(Lexile: {s.reading_level})</span></p>))}</div>}
+              {(pack.infographics && pack.infographics.length > 0) && (
+                <PackInfographics pack={pack} onSelect={handleSelectInfographic} />
+              )}
               {pack.cloze_items.length > 0 && <div><strong style={{ fontSize: '0.85rem' }}>Promoted Cloze Items:</strong>{pack.cloze_items.map(ci => (<div key={ci.id} style={{ paddingLeft: 12, fontSize: '0.85rem', margin: '3px 0' }}>{ci.sentence_text} — Answer: <strong>{ci.correct_answer}</strong></div>))}</div>}
             </div>
           ))}
@@ -291,6 +318,97 @@ export default function GenerationReview() {
 function pageDisplayUrl(page) {
   if (page.use_edited_image) return page.edited_image_url || page.image_url || '';
   return page.original_image_url || page.image_url || '';
+}
+
+/**
+ * All infographic candidates for one pack: a compare strip of poster thumbnails
+ * plus a detail panel for the focused candidate, with a Select button to publish.
+ */
+function PackInfographics({ pack, onSelect }) {
+  const infographics = pack.infographics;
+  const noneSelected = !infographics.some(i => i.is_selected);
+  const defaultId = (infographics.find(i => i.is_selected) || infographics[0]).id;
+  const [activeId, setActiveId] = useState(defaultId);
+  useEffect(() => {
+    if (!infographics.some(i => i.id === activeId)) setActiveId(defaultId);
+  }, [infographics, activeId, defaultId]);
+
+  const active = infographics.find(i => i.id === activeId) || infographics[0];
+
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <strong style={{ fontSize: '0.85rem' }}>
+        Infographic Candidates ({infographics.length}):
+      </strong>
+      {noneSelected && (
+        <p className="t-hint" style={{ margin: '2px 0 6px', color: 'var(--t-warning, #b8860b)' }}>
+          No infographic selected yet — students assigned the infographic format
+          won't see one until you pick a candidate.
+        </p>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+        {infographics.map(ig => (
+          <button
+            key={ig.id}
+            type="button"
+            onClick={() => setActiveId(ig.id)}
+            className="t-card"
+            style={{
+              padding: 6, cursor: 'pointer', width: 140,
+              border: ig.id === activeId ? '2px solid var(--t-primary)' : '1px solid var(--t-border)',
+            }}
+          >
+            {ig.image_url
+              ? <img src={ig.image_url} alt={ig.title} style={{ width: '100%', borderRadius: 4 }} />
+              : <div className="t-hint" style={{ fontSize: '0.75rem', padding: 8 }}>
+                  {ig.generation_status === 'FAILED' ? 'Image failed' : 'No image yet'}
+                </div>}
+            <div style={{ fontSize: '0.75rem', marginTop: 4 }}>
+              #{ig.candidate_index}{ig.is_selected ? ' ✓ Selected' : ''}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {active && (
+        <div className="t-card" style={{ marginTop: 8, padding: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+            <h5 style={{ margin: 0 }}>{active.title}</h5>
+            <button
+              type="button"
+              className={`t-btn ${active.is_selected ? 't-btn--secondary' : 't-btn--primary'}`}
+              disabled={active.is_selected}
+              onClick={() => onSelect(pack.id, active.id)}
+            >
+              {active.is_selected ? 'Selected' : 'Select this infographic'}
+            </button>
+          </div>
+          {active.intro_text && <p style={{ fontSize: '0.85rem' }}>{active.intro_text}</p>}
+          {active.image_url && (
+            <img src={active.image_url} alt={active.title} style={{ maxWidth: '100%', borderRadius: 6, marginTop: 6 }} />
+          )}
+          {(active.entries || []).length > 0 && (
+            <ul style={{ fontSize: '0.85rem', marginTop: 8, paddingLeft: 18 }}>
+              {active.entries.map((e, i) => (
+                <li key={i}><strong>{e.term}</strong> — {e.kid_friendly_definition}</li>
+              ))}
+            </ul>
+          )}
+          {(active.cloze_items || []).length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <strong style={{ fontSize: '0.8rem' }}>Staged Cloze:</strong>
+              {active.cloze_items.map(ci => (
+                <div key={ci.id} style={{ paddingLeft: 12, fontSize: '0.8rem', margin: '2px 0' }}>
+                  {ci.sentence_text} — <strong>{ci.correct_answer}</strong>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /**

@@ -10,6 +10,7 @@ from vocabulary.models import (
     Curriculum, Level, WordSet, StudentWordSetAssignment,
     WordPack, WordPackItem, PrimerCardContent, MicroStory,
     GraphicNovel, GraphicNovelPage, ClozeItem, StudentPackCompletion,
+    Infographic,
     GenerationJob, GenerationJobLog,
 )
 
@@ -249,6 +250,43 @@ class GraphicNovelPageFactory(factory.django.DjangoModelFactory):
     vault_zone = ''
     is_vault_page = False
     vocab_words_used = ['bright']
+
+
+class InfographicFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = Infographic
+
+    pack = factory.SubFactory(WordPackFactory)
+    candidate_index = 0
+    is_selected = False
+    title = factory.Sequence(lambda n: f'Infographic {n}')
+    intro_text = 'These words all describe how light works.'
+    content = factory.LazyFunction(lambda: {
+        'big_idea': 'How light travels from a lamp to your eyes.',
+        'layout_mode': 'panorama',
+        'visual_structure': 'journey_path',
+        'scene_description': 'A cozy room with a glowing lamp and a path to an eye.',
+        'color_palette': 'Bright blues and warm yellows.',
+        'scene_elements': [
+            {
+                'label': 'The Lamp',
+                'caption': 'The lamp is very bright at night.',
+                'vocab_terms': ['bright'],
+                'illustration': 'A glowing lightbulb on a desk.',
+            },
+        ],
+        'entries': [
+            {
+                'term': 'bright',
+                'part_of_speech': 'adjective',
+                'kid_friendly_definition': 'giving off a lot of light',
+                'example_sentence': 'The lamp was very bright.',
+                'visual_idea': 'A glowing lightbulb.',
+            },
+        ],
+    })
+    style_prompt = 'Modern flat-design educational infographic poster.'
+    reading_level = 650
 
 
 class ClozeItemFactory(factory.django.DjangoModelFactory):

@@ -27,6 +27,13 @@ export default function GenerationWizard() {
   const [reviewData, setReviewData] = useState(null);
   const [activeTab, setActiveTab] = useState('words');
   const [formData, setFormData] = useState({ words: '', source_title: '', source_chapter: '', source_text: '', target_language: 'zh-CN' });
+  const [contentTypes, setContentTypes] = useState(['graphic_novel']);
+
+  const toggleContentType = (type) => {
+    setContentTypes(prev => (
+      prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]
+    ));
+  };
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -62,9 +69,10 @@ export default function GenerationWizard() {
   const handleStartGeneration = async () => {
     const wordList = formData.words.split(/[\n,]+/).map(w => w.trim()).filter(Boolean);
     if (wordList.length === 0) { setError('Please enter at least one word.'); return; }
+    if (contentTypes.length === 0) { setError('Select at least one content type to generate.'); return; }
     setIsSubmitting(true); setError('');
     try {
-      const res = await apiClient.post(`/word-sets/${setId}/generate/`, { words: wordList, source_title: formData.source_title, source_chapter: formData.source_chapter, source_text: formData.source_text, target_lexile: wordSet?.target_lexile || 650, target_language: formData.target_language });
+      const res = await apiClient.post(`/word-sets/${setId}/generate/`, { words: wordList, source_title: formData.source_title, source_chapter: formData.source_chapter, source_text: formData.source_text, target_lexile: wordSet?.target_lexile || 650, target_language: formData.target_language, content_types: contentTypes });
       setJobId(res.data.job_id); setStep(2);
     } catch (err) { setError(err.response?.data?.error || 'Failed to start generation.'); }
     finally { setIsSubmitting(false); }
@@ -103,6 +111,24 @@ export default function GenerationWizard() {
         </div>
       </div>
       <div className="t-form-group"><label className="t-form-label">Source Text / Passage (optional)</label><textarea className="t-form-textarea" name="source_text" value={formData.source_text} onChange={handleChange} rows="4" placeholder="Paste a passage for additional context..." /></div>
+      <div className="t-form-group">
+        <label className="t-form-label">Content types to generate</label>
+        <div style={{ display: 'flex', gap: 20, marginTop: 4 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input type="checkbox" checked={contentTypes.includes('graphic_novel')}
+              onChange={() => toggleContentType('graphic_novel')} />
+            Graphic novel
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+            <input type="checkbox" checked={contentTypes.includes('infographic')}
+              onChange={() => toggleContentType('infographic')} />
+            Infographic
+          </label>
+        </div>
+        <p className="t-hint" style={{ marginTop: 4 }}>
+          Each selected type generates 3 candidates per pack for you to review and publish.
+        </p>
+      </div>
       {error && <p style={{ color: 'var(--t-danger)', marginBottom: 12, fontSize: '0.85rem' }}>{error}</p>}
       <button className="t-btn t-btn--primary" onClick={handleStartGeneration} disabled={isSubmitting}>
         {isSubmitting ? 'Starting...' : 'Start Generation'}
