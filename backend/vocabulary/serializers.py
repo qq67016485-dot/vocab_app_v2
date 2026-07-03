@@ -130,14 +130,27 @@ class QuestionSerializer(serializers.ModelSerializer):
     """Serializes Question for practice — excludes correct_answers."""
     term_text = serializers.CharField(source='word.text', read_only=True)
     correct_answer_is_term = serializers.SerializerMethodField()
+    sentence_write = serializers.SerializerMethodField()
 
     class Meta:
         model = Question
         fields = [
             'id', 'term_text', 'question_type', 'question_text',
             'options', 'explanation', 'example_sentence', 'lexile_score',
-            'correct_answer_is_term',
+            'correct_answer_is_term', 'sentence_write',
         ]
+
+    _SENTENCE_WRITE_TYPES = (
+        Question.QuestionType.SENTENCE_WRITE_GUIDED,
+        Question.QuestionType.SENTENCE_WRITE_OPEN,
+    )
+
+    # Max revisions offered per variant (initial attempt + this many retries).
+    # Guided (L4) gets more scaffolding room than Open (L5).
+    _MAX_REVISIONS = {
+        Question.QuestionType.SENTENCE_WRITE_GUIDED: 3,
+        Question.QuestionType.SENTENCE_WRITE_OPEN: 2,
+    }
 
     def get_correct_answer_is_term(self, obj):
         term = obj.word.text.lower()
@@ -145,6 +158,37 @@ class QuestionSerializer(serializers.ModelSerializer):
         if not isinstance(answers, list):
             answers = [answers]
         return any(str(a).lower() == term for a in answers)
+
+    def get_sentence_write(self, obj):
+        """Student-safe metadata for a sentence-writing question.
+
+        Deliberately omits the judge anchors (intended_sense / acceptable_use_notes)
+        and the model sentence — revealing either would give away the answer.
+        """
+        if obj.question_type not in self._SENTENCE_WRITE_TYPES:
+            return None
+        options = obj.options if isinstance(obj.options, dict) else {}
+        primer = getattr(obj.word, 'primer_content', None)
+        return {
+            'variant': (
+                'guided'
+                if obj.question_type == Question.QuestionType.SENTENCE_WRITE_GUIDED
+                else 'open'
+            ),
+            'sentence_starter': options.get('sentence_starter', ''),
+            'definition': primer.kid_friendly_definition if primer else '',
+            'max_revisions': self._MAX_REVISIONS.get(obj.question_type, 2),
+        }
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Never leak the judge anchors or the model sentence to the student for
+        # productive questions — the student-safe subset lives in sentence_write.
+        if instance.question_type in self._SENTENCE_WRITE_TYPES:
+            data['options'] = None
+            data['example_sentence'] = ''
+        return data
+
 
 
 # =============================================================================

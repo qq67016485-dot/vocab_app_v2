@@ -17,6 +17,7 @@ PIPELINE_STEP_ORDER = [
     GenerationJobLog.Step.DEDUP,
     GenerationJobLog.Step.TRANSLATION,
     GenerationJobLog.Step.QUESTION_GEN,
+    GenerationJobLog.Step.SENTENCE_WRITE_GEN,
     GenerationJobLog.Step.PRIMER_GEN,
     GenerationJobLog.Step.PACK_CREATION,
     GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
@@ -44,6 +45,17 @@ def job_generates_content_type(job, content_type):
         return content_type == CONTENT_TYPE_GRAPHIC_NOVEL
     return content_type in types
 
+
+# Number of words per LLM call in the sentence-writing generation step. Larger
+# than QUESTION_BATCH_SIZE (2) because each item is lighter (one scenario per
+# word, no 15-question quota) — see step_sentence_write.py.
+SENTENCE_WRITE_BATCH_SIZE = 10
+
+# At or below this content Lexile, the open (unscaffolded, L5) sentence-writing
+# variant is not generated — younger / lower-proficiency readers only get the
+# guided variant, which is then served at BOTH mastery Level 4 and Level 5. Above
+# it, guided serves L4 and open serves L5 as usual. See step_sentence_write.py.
+SENTENCE_WRITE_GUIDED_ONLY_MAX_LEXILE = 600
 
 # Number of independent infographic candidates generated per pack — mirrors the
 # graphic novel candidate model so an admin picks the best of several rolls.

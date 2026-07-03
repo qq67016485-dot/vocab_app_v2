@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import apiClient from '../../api/axiosConfig.js';
 import { useUser } from '../../context/UserContext.jsx';
@@ -93,7 +93,7 @@ export default function StudentDashboard() {
       sessionStorage.setItem('daily_goal_override', JSON.stringify({ value: newGoal, date: today }));
     }
     if (welcomeHasGoalAdjust) {
-      try { await apiClient.post('/student/goal-prompt-shown/'); } catch (e) { /* best-effort */ }
+      try { await apiClient.post('/student/goal-prompt-shown/'); } catch { /* best-effort */ }
     }
   };
 

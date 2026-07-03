@@ -30,7 +30,7 @@ export default function PrimerCard({ card, index, total, onNext }) {
         const audio = new Audio(card.audio_url);
         audio.play().catch(() => {});
         audioRef.current = audio;
-      } catch (e) { /* ignore */ }
+      } catch { /* ignore */ }
     }
   }, [card, index]);
 
@@ -39,7 +39,7 @@ export default function PrimerCard({ card, index, total, onNext }) {
       const audio = new Audio(correctSfx);
       audio.volume = 0.4;
       audio.play().catch(() => {});
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
     setGotIt(true);
   };
 

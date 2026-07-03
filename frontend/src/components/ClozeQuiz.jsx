@@ -27,7 +27,7 @@ export default function ClozeQuiz({ items, primerCards, onComplete }) {
       const audio = new Audio(isCorrect ? correctSfx : incorrectSfx);
       audio.volume = 0.4;
       audio.play().catch(() => {});
-    } catch (e) { /* ignore */ }
+    } catch { /* ignore */ }
   }, []);
 
   const advance = useCallback(() => {

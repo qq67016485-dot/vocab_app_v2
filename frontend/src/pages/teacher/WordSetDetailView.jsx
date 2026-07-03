@@ -25,7 +25,7 @@ export default function WordSetDetailView() {
 
   const [packs, setPacks] = useState([]);
 
-  const [generateMessage, setGenerateMessage] = useState({});
+  const [generateMessage] = useState({});
   const [latestJobId, setLatestJobId] = useState(null);
   const [latestJobStatus, setLatestJobStatus] = useState(null);
   const [requestToast, setRequestToast] = useState(null);
@@ -34,15 +34,6 @@ export default function WordSetDetailView() {
   const fetchWordSet = async () => {
     const response = await apiClient.get(`/word-sets/${setId}/`);
     setWordSet(response.data);
-  };
-
-  const fetchPacks = async () => {
-    try {
-      const response = await apiClient.get(`/word-sets/${setId}/packs/`);
-      setPacks(response.data);
-    } catch (err) {
-      console.error('Error fetching packs:', err);
-    }
   };
 
   useEffect(() => {
@@ -61,12 +52,12 @@ export default function WordSetDetailView() {
         try {
           const packsRes = await apiClient.get(`/word-sets/${setId}/packs/`);
           setPacks(packsRes.data);
-        } catch (e) { /* packs may not exist yet */ }
+        } catch { /* packs may not exist yet */ }
         try {
           const jobRes = await apiClient.get(`/word-sets/${setId}/latest-job/`);
           setLatestJobId(jobRes.data.id);
           setLatestJobStatus(jobRes.data.status);
-        } catch (e) { /* no job yet */ }
+        } catch { /* no job yet */ }
       } catch (err) {
         console.error("Error fetching data:", err);
         setError("Could not load data for this word set.");

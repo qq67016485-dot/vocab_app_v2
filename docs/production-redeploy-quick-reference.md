@@ -104,6 +104,7 @@ sudo systemctl restart vocab
 ## Server-specific gotchas
 
 - The gunicorn socket **must** live at `/run/vocab/vocab.sock` (not `/run/vocab.sock`).
+- gunicorn **must run threaded workers** — `--worker-class gthread --threads 8` in the unit's ExecStart (`sudo systemctl edit --full vocab`, then restart). The sentence-write judge holds a worker for a synchronous 2–10s LLM call; with the default sync workers, 3 concurrent judged submits stall every request on the box.
 - nginx needs `chmod o+x /home/ubuntu` to traverse the home dir.
 - The box has **no ffmpeg** — audiobook encoding relies on `lameenc`; don't introduce ffmpeg/pydub deps.
 - Never delete `backend/media/` — generated images and audio are persistent there.

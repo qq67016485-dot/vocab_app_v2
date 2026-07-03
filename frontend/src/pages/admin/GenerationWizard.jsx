@@ -57,12 +57,10 @@ export default function GenerationWizard() {
             }
           } catch { /* no job */ }
         }
-      } catch (err) { setError('Could not load word set.'); }
+      } catch { setError('Could not load word set.'); }
     };
     fetchWordSet();
   }, [setId]);
-
-  if (user?.role !== 'ADMIN') return <p style={{ padding: '2rem' }}>Only admins can access the generation wizard.</p>;
 
   const handleChange = (e) => { const { name, value } = e.target; setFormData(prev => ({ ...prev, [name]: value })); };
 
@@ -83,6 +81,8 @@ export default function GenerationWizard() {
     catch (err) { console.error('Error fetching content for review:', err); setError('Failed to load generated content for review.'); setStep(3); }
   }, []);
   const handleJobFail = useCallback(() => {}, []);
+
+  if (user?.role !== 'ADMIN') return <p style={{ padding: '2rem' }}>Only admins can access the generation wizard.</p>;
 
   const renderStepIndicator = () => (
     <div className="gen-steps">

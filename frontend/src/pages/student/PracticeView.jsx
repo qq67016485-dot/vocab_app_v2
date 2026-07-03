@@ -108,6 +108,17 @@ export default function PracticeView() {
   const [showKeepGoingPrompt, setShowKeepGoingPrompt] = useState(false);
   const [dailyGoalMax, setDailyGoalMax] = useState(50);
 
+  // Sentence-writing (productive, LLM-judged) state. The backend holds the
+  // authoritative attempt history in the session (revision cap + fragility);
+  // the frontend only tracks the attempt count for display. swBusy drives the
+  // disabled/checking UI; swSubmittingRef guards re-entry (state updates are
+  // async, so a ref is the reliable double-click gate).
+  const [swSentence, setSwSentence] = useState('');
+  const [swHint, setSwHint] = useState('');
+  const [swAttempts, setSwAttempts] = useState(0);
+  const [swBusy, setSwBusy] = useState(false);
+  const swSubmittingRef = useRef(false);
+
   const { visibleTranslationTerm, handleShowTranslation } = useTranslationVisibility();
 
   const answerSwitchCount = useRef(0);
@@ -186,6 +197,9 @@ export default function PracticeView() {
     setCorrectMessage('');
     setIncorrectMessage('');
     setFeedbackReady(false);
+    setSwSentence('');
+    setSwHint('');
+    setSwAttempts(0);
     answerSwitchCount.current = 0;
 
     try {
@@ -369,6 +383,86 @@ export default function PracticeView() {
     }
   };
 
+  // Apply session stats for a terminal answer (used by MC + sentence-write).
+  const applyTerminalStats = (data, { selfCorrected = false } = {}) => {
+    setQuestionsAnsweredThisSession((prev) => prev + 1);
+    playFeedbackSound(data.is_correct);
+
+    const stats = sessionStats.current;
+    stats.totalCount++;
+    if (data.is_correct) {
+      stats.correctCount++;
+      stats.baseXp += 5;
+      for (const [key, value] of Object.entries(data.bonus_info ?? {})) {
+        const bonusName = key.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
+        stats.bonuses[bonusName] = (stats.bonuses[bonusName] || 0) + value;
+      }
+      stats.currentFocusStreak++;
+      stats.maxFocusStreak = Math.max(stats.maxFocusStreak, stats.currentFocusStreak);
+      if (data.did_level_up_user) {
+        stats.leveledUp = true;
+        stats.finalLevel++;
+      }
+      setCorrectMessage(getCorrectMessage(selfCorrected));
+      setTimeout(() => setFeedbackReady(true), 50);
+    } else {
+      stats.currentFocusStreak = 0;
+    }
+  };
+
+  const submitSentenceWrite = async (sentenceText, { gaveUp = false } = {}) => {
+    if (swSubmittingRef.current) return;
+    if (!gaveUp && !sentenceText.trim()) return;
+    swSubmittingRef.current = true;
+    setSwBusy(true);
+    setSwHint('');
+
+    try {
+      // Attempt history lives server-side in the session; the backend caps
+      // revisions and decides fragility, so only the sentence is posted.
+      const response = await apiClient.post('/practice/submit/', {
+        question_id: question.id,
+        user_answer: gaveUp ? (sentenceText || '') : sentenceText,
+        gave_up: gaveUp,
+      });
+      const data = response.data;
+
+      if (data.sentence_write_unavailable) {
+        // Judge is down — discard silently and move to a different question.
+        fetchNextQuestion();
+        return;
+      }
+
+      if (data.sentence_write_pending) {
+        // Non-terminal miss: show the hint, let them revise.
+        setSwAttempts(data.attempts_used ?? swAttempts + 1);
+        setSwHint(data.hint || '');
+        setIncorrectMessage(
+          incorrectMessages[Math.floor(Math.random() * incorrectMessages.length)],
+        );
+        setSwSentence('');
+        return;
+      }
+
+      // Terminal — scored.
+      if (data.is_correct) document.activeElement?.blur();
+      const selfCorrected = swAttempts > 0;
+      applyTerminalStats(data, { selfCorrected });
+      if (!data.is_correct) {
+        setIncorrectMessage(
+          incorrectMessages[Math.floor(Math.random() * incorrectMessages.length)],
+        );
+      }
+      setFeedback(data);
+    } catch (error) {
+      console.error('Error submitting sentence:', error);
+      setFeedback({ error: 'Could not submit answer.' });
+    } finally {
+      swSubmittingRef.current = false;
+      setSwBusy(false);
+    }
+  };
+
   useEffect(() => {
     const startSession = async () => {
       try {
@@ -528,6 +622,114 @@ export default function PracticeView() {
         )}
       </>
     ) : null;
+
+    if (
+      question.question_type === 'SENTENCE_WRITE_GUIDED' ||
+      question.question_type === 'SENTENCE_WRITE_OPEN'
+    ) {
+      const sw = question.sentence_write || {};
+      const feedbackDone = feedback && !feedback.error;
+      const maxRevisions = sw.max_revisions ?? 2;
+      const revisionsLeft = Math.max(0, maxRevisions - swAttempts);
+      const canRevise = revisionsLeft > 0 && !feedbackDone;
+
+      if (feedbackDone) {
+        return (
+          <div className="sentence-write">
+            <div className={`sw-verdict ${feedback.is_correct ? 'correct' : 'missed'}`}>
+              <p className="correct-encouragement">
+                {feedback.is_correct ? (correctMessage || 'Nicely done!') : "Good effort — here's a strong example:"}
+              </p>
+              {feedback.hint && <p className="sw-hint-final"><em>{feedback.hint}</em></p>}
+              {feedback.model_sentence && (
+                <div className="feedback-block example">
+                  <div className="block-title">
+                    Example sentence
+                    <TextToSpeechButton textToSpeak={feedback.model_sentence} />
+                  </div>
+                  <p className="block-body">{feedback.model_sentence}</p>
+                </div>
+              )}
+            </div>
+            <button
+              className="correct-action-btn filled"
+              onClick={fetchNextQuestion}
+              type="button"
+              style={{ width: '100%', marginTop: '16px' }}
+            >
+              {isLastQuestion ? 'Finish Session' : 'Next Question'}
+            </button>
+          </div>
+        );
+      }
+
+      return (
+        <div className="sentence-write">
+          {sw.definition && (
+            <div className="sw-definition">
+              <span className="sw-def-label">{question.term_text}</span>
+              <span className="sw-def-text">{sw.definition}</span>
+              <TextToSpeechButton textToSpeak={`${question.term_text}. ${sw.definition}`} />
+            </div>
+          )}
+          {swHint ? (
+            <div className="retry-encouragement-banner">
+              <span className="retry-encouragement-text">
+                {incorrectMessage || 'Almost — try again!'}
+              </span>
+            </div>
+          ) : null}
+          {swHint && (
+            <div className="retry-hint-block">
+              <div className="block-title">
+                Hint
+                <TextToSpeechButton textToSpeak={swHint} />
+              </div>
+              <p className="block-body"><em>{swHint}</em></p>
+            </div>
+          )}
+          {sw.sentence_starter && !swHint && (
+            <p className="sw-starter">Try starting with: <em>{sw.sentence_starter}</em></p>
+          )}
+          <form
+            onSubmit={(e) => { e.preventDefault(); submitSentenceWrite(swSentence); }}
+          >
+            <textarea
+              className="sw-textarea"
+              value={swSentence}
+              onChange={(e) => setSwSentence(e.target.value)}
+              placeholder={swAttempts > 0
+                ? 'Rewrite your sentence...'
+                : `Write a sentence using "${question.term_text}"...`}
+              rows={3}
+              autoFocus
+            />
+            <div className="sw-actions">
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={!swSentence.trim() || swBusy}
+              >
+                {swBusy ? 'Checking…' : (swAttempts > 0 ? 'Try Again' : 'Submit')}
+              </button>
+              {swAttempts > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => submitSentenceWrite(swSentence, { gaveUp: true })}
+                  disabled={swBusy}
+                >
+                  Show me an example
+                </button>
+              )}
+            </div>
+            {!canRevise && swAttempts > 0 && (
+              <p className="sw-note">Last try — this one counts.</p>
+            )}
+          </form>
+        </div>
+      );
+    }
 
     if (
       question.question_type === 'DEFINITION_TRUE_FALSE' ||

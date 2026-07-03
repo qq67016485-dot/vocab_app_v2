@@ -41,7 +41,7 @@ export default function LLMConfig() {
       const active = setsRes.data.find(s => s.is_active) || setsRes.data[0];
       const targetId = selectedSetId || (active && active.id);
       await loadStepConfigs(targetId);
-    } catch (err) {
+    } catch {
       setError('Failed to load LLM configuration.');
     } finally {
       setIsLoading(false);
@@ -63,7 +63,7 @@ export default function LLMConfig() {
     clearMessages();
     try {
       await loadStepConfigs(setId);
-    } catch (err) {
+    } catch {
       setError('Failed to load config set.');
     }
   };

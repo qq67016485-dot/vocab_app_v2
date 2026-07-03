@@ -1,13 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useUser } from '../../context/UserContext.jsx';
 import apiClient from '../../api/axiosConfig.js';
 import StudentFormModal from '../../components/StudentFormModal.jsx';
 import BulkStudentFormModal from '../../components/BulkStudentFormModal.jsx';
 
 export default function CommandCenter() {
   const navigate = useNavigate();
-  const { user } = useUser();
   const [dashboardData, setDashboardData] = useState({ groups: [], roster: [] });
   const [selectedGroupId, setSelectedGroupId] = useState('all');
   const [selectedStudentId, setSelectedStudentId] = useState(null);

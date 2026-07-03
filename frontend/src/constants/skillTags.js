@@ -8,6 +8,7 @@ export const SKILL_TAG_DISPLAY_NAMES_STUDENT = {
   spelling: 'spelling',
   collocation_usage: 'word partners',
   conceptual_association: 'concept association',
+  sentence_production: 'writing sentences',
   other: 'other',
 };
 
@@ -21,5 +22,6 @@ export const SKILL_TAG_DISPLAY_NAMES_TEACHER = {
   spelling: 'spelling',
   collocation_usage: 'usage',
   conceptual_association: 'concept association',
+  sentence_production: 'sentence writing',
   other: 'other',
 };

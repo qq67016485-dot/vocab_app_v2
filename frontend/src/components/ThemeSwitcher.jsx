@@ -18,7 +18,7 @@ export default function ThemeSwitcher({ value, onChange, compact = false, asButt
         <button
           type="button"
           className="theme-trigger"
-          onClick={() => { try { ref.current?.showPicker?.(); } catch {} ref.current?.focus(); }}
+          onClick={() => { try { ref.current?.showPicker?.(); } catch { /* ignore */ } ref.current?.focus(); }}
           aria-label="Change color theme"
         >
           change color

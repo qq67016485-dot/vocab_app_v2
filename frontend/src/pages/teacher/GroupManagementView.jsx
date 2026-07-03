@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import apiClient from '../../api/axiosConfig.js';
 import GroupFormModal from '../../components/GroupFormModal.jsx';
 
 export default function GroupManagementView() {
-  const navigate = useNavigate();
   const [groups, setGroups] = useState([]);
   const [allStudents, setAllStudents] = useState([]);
   const [isLoading, setIsLoading] = useState(true);

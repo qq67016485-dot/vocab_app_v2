@@ -62,7 +62,7 @@ Response-quality table (`RESPONSE_QUALITY_RULES`, `practice_service.py:38`) — 
 | `incorrect` | 0.50 | 0.50 | yes |
 | `unclassified_correct` | 1.20 | 1.00 | no |
 
-Timing baseline: per-learner, per-`question_type`, latest 50 valid first-attempt durations; needs ≥15 samples or the answer falls back to `unclassified_correct`. Fast/slow = 25th/80th percentile (`_get_timing_baseline`, `_percentile`, `practice_service.py:156`). When multiple correct signals apply, the **most conservative** (lowest quality, then lowest factor) wins. `practice_service.py:240`
+Timing baseline: per-learner, per-`question_type`, latest 50 valid first-attempt durations; needs ≥15 samples or the answer falls back to `unclassified_correct`. Fast/slow = 25th/80th percentile (`_get_timing_baseline`, `_percentile`, `practice_service.py:156`). Since 2026-07-03 the computed baseline is cached per (user, question_type) for 10 min (`TIMING_BASELINE_CACHE_TTL`) — a perf change only, but note for analytics that a submit may be classified against a baseline up to 10 min stale. When multiple correct signals apply, the **most conservative** (lowest quality, then lowest factor) wins. `practice_service.py:240`
 
 Retries (`is_retry=True`) only bump `retry_count` and never touch mastery, XP, `learning_speed`, or the schedule. `practice_service.py:400`
 
@@ -84,8 +84,8 @@ Points accumulate (not reset on promotion). Levels 6–7 roll into the student-f
 
 ### 1.4 Relevant persisted signals
 
-- `UserWordProgress`: `level`, `mastery_points`, `next_review_at` (DateTime), `last_reviewed_at`, `learning_speed`, `instructional_status`. Indexed `(user, next_review_at)` and `(user, instructional_status)`. `models.py:121`
-- `UserAnswer`: `is_correct`, `duration_seconds`, `answer_switches`, `retry_count`, `answered_at`. Indexed `(user, answered_at)`, `(user, is_correct)`, `(question, answered_at)`.
+- `UserWordProgress`: `level`, `mastery_points`, `next_review_at` (DateTime), `last_reviewed_at`, `learning_speed`, `instructional_status`. Indexed `(user, next_review_at)` and `(user, instructional_status, next_review_at)` (migration `0040`, 2026-07-03; replaced the old `(user, instructional_status)`). `models.py:121`
+- `UserAnswer`: `is_correct`, `duration_seconds`, `answer_switches`, `retry_count`, `answered_at`, `judge_result` (JSON, sentence-writing judge verdicts — an item-quality signal for productive tasks). Indexed `(user, answered_at)`, `(user, is_correct)`, `(question, answered_at)`. Note: before 2026-07-03 a retry incremented `retry_count` on *every* historical answer for that user+question (Django `.update()` ignores `order_by`), so pre-fix `retry_count` values are inflated — treat them as unreliable in offline analysis.
 - `MasteryLevelLog`: full promote/demote trajectory per user-word.
 - `Question.difficulty_index` / `discrimination_index`: fields **exist** (`models.py:219`) but are **never written anywhere** in the backend — confirmed by grep (no assignment outside migrations).
 

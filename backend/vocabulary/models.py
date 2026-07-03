@@ -146,8 +146,12 @@ class UserWordProgress(models.Model):
         indexes = [
             # Dashboard/practice "due for review" queries filter by user + next_review_at.
             models.Index(fields=['user', 'next_review_at']),
-            # Instructional-status filtering (READY vs PENDING) scoped per user.
-            models.Index(fields=['user', 'instructional_status']),
+            # The hottest query in the app (due-words pick) filters user +
+            # instructional_status and orders by next_review_at; the composite
+            # serves it index-ordered with no filesort. Its (user,
+            # instructional_status) prefix also covers the status-only filters,
+            # so no separate two-column index is needed.
+            models.Index(fields=['user', 'instructional_status', 'next_review_at']),
         ]
 
     def __str__(self):
@@ -201,6 +205,11 @@ class Question(models.Model):
         REVERSE_ASSOCIATION_MC = 'REVERSE_ASSOCIATION_MC', 'Reverse Association MC'
         REVERSE_COLLOCATION_MC = 'REVERSE_COLLOCATION_MC', 'Reverse Collocation MC'
         NUANCE_CONTRAST_MC = 'NUANCE_CONTRAST_MC', 'Nuance Contrast MC'
+        # Productive, LLM-judged. Student writes an original sentence using the
+        # word; no closed correct_answers. Guided (L4) carries a scenario +
+        # sentence starter; Open (L5) a lighter scenario, no starter.
+        SENTENCE_WRITE_GUIDED = 'SENTENCE_WRITE_GUIDED', 'Sentence Writing (Guided)'
+        SENTENCE_WRITE_OPEN = 'SENTENCE_WRITE_OPEN', 'Sentence Writing (Open)'
 
     word = models.ForeignKey(Word, on_delete=models.CASCADE, related_name='questions')
     question_type = models.CharField(max_length=50, choices=QuestionType.choices)
@@ -231,6 +240,14 @@ class Question(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            # The practice picker probes per word with a lexile range (EXISTS
+            # subquery in NextPracticeWordView + _pick_question); the composite
+            # makes that probe index-only instead of FK-index + row post-filter.
+            models.Index(fields=['word', 'lexile_score']),
+        ]
 
     def __str__(self):
         return f"{self.get_question_type_display()} for '{self.word.text}'"
@@ -268,6 +285,14 @@ class UserAnswer(models.Model):
     retry_count = models.IntegerField(
         default=0,
         help_text='Number of scaffolded retry attempts after the initial wrong answer.',
+    )
+    judge_result = models.JSONField(
+        null=True, blank=True,
+        help_text=(
+            'For LLM-judged productive questions (sentence writing): the judge '
+            'verdict, error_type, hint, model_sentence, and attempt count. Null '
+            'for auto-graded question types.'
+        ),
     )
     answered_at = models.DateTimeField(auto_now_add=True)
 
@@ -879,6 +904,7 @@ class GenerationJobLog(models.Model):
         DEDUP = 'DEDUP', 'Deduplication'
         TRANSLATION = 'TRANSLATION', 'Translation'
         QUESTION_GEN = 'QUESTION_GEN', 'Question Generation'
+        SENTENCE_WRITE_GEN = 'SENTENCE_WRITE_GEN', 'Sentence-Writing Question Generation'
         PACK_CREATION = 'PACK_CREATION', 'Pack Creation'
         PRIMER_GEN = 'PRIMER_GEN', 'Primer Generation'
         STORY_CLOZE_GEN = 'STORY_CLOZE_GEN', 'Story & Cloze Generation'
@@ -969,6 +995,8 @@ class LLMStepConfig(models.Model):
         WORD_LOOKUP = 'word_lookup', 'Word Lookup'
         TRANSLATION = 'translation', 'Translation'
         QUESTION_GEN = 'question_gen', 'Question Generation'
+        SENTENCE_WRITE_GEN = 'sentence_write_gen', 'Sentence-Writing Generation'
+        SENTENCE_JUDGE = 'sentence_judge', 'Sentence Writing: Judge'
         PRIMER_GEN = 'primer_gen', 'Primer Generation'
         PACK_CREATION = 'pack_creation', 'Pack Grouping'
         GN_TEAM_SELECTION = 'gn_team_selection', 'GN: Team Selection'

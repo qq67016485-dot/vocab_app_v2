@@ -6,6 +6,7 @@ import threading
 
 from django.core.files.base import ContentFile
 from django.db import transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -16,7 +17,7 @@ STALE_JOB_THRESHOLD_SECONDS = 1800
 
 from ..models import (
     GenerationJob, GenerationJobLog, WordSet,
-    WordPack, PrimerCardContent, MicroStory, ClozeItem, Question,
+    WordPack, WordPackItem, PrimerCardContent, MicroStory, ClozeItem, Question,
     GraphicNovelPage, GraphicNovel, GraphicNovelPageAudio, Infographic,
 )
 from ..permissions import IsAdmin
@@ -302,6 +303,92 @@ def _pack_infographic_candidates(pack):
     return [_infographic_candidate_payload(ig) for ig in infographics]
 
 
+def _review_packs_data(word_set):
+    """Serialize every pack of a word set for the two admin review endpoints.
+
+    Shared by GenerationJobContentView and WordSetContentView (previously two
+    verbatim copies). All relations are consumed from the prefetch cache —
+    re-filtering a prefetched manager would issue a fresh query per pack.
+    """
+    packs = WordPack.objects.filter(
+        word_set=word_set,
+    ).prefetch_related(
+        Prefetch('items', queryset=WordPackItem.objects.select_related(
+            'word', 'word__primer_content',
+        )),
+        'stories', 'graphic_novels__pages__audio',
+        'graphic_novels__cloze_items__word', 'cloze_items__word',
+        'infographics__cloze_items__word',
+    ).order_by('order')
+
+    packs_data = []
+    for pack in packs:
+        items = list(pack.items.all())
+        pack_words = [
+            {'id': item.word.id, 'text': item.word.text}
+            for item in items
+        ]
+
+        primer_cards = []
+        for item in items:
+            pc = getattr(item.word, 'primer_content', None)
+            if pc:
+                primer_cards.append({
+                    'id': pc.id,
+                    'word_text': item.word.text,
+                    'syllable_text': pc.syllable_text,
+                    'kid_friendly_definition': pc.kid_friendly_definition,
+                    'example_sentence': pc.example_sentence,
+                })
+
+        stories = [
+            {
+                'id': s.id,
+                'story_text': s.story_text,
+                'reading_level': s.reading_level,
+            }
+            for s in pack.stories.all()
+        ]
+
+        graphic_novel_candidates = _pack_graphic_novel_candidates(pack)
+        selected_novel = next(
+            (c for c in graphic_novel_candidates if c['is_selected']), None
+        )
+
+        infographic_candidates = _pack_infographic_candidates(pack)
+        selected_infographic = next(
+            (c for c in infographic_candidates if c['is_selected']), None
+        )
+
+        # Promoted (student-facing) cloze only; staged candidate cloze rides
+        # on each candidate. Filtered in Python from the prefetched rows.
+        cloze_items = [
+            {
+                'id': ci.id,
+                'word_text': ci.word.text,
+                'sentence_text': ci.sentence_text,
+                'correct_answer': ci.correct_answer,
+                'distractors': ci.distractors,
+            }
+            for ci in pack.cloze_items.all()
+            if ci.novel_id is None and ci.infographic_id is None
+        ]
+
+        packs_data.append({
+            'id': pack.id,
+            'label': pack.label,
+            'words': pack_words,
+            'primer_cards': primer_cards,
+            'graphic_novels': graphic_novel_candidates,
+            'graphic_novel': selected_novel,
+            'infographics': infographic_candidates,
+            'infographic': selected_infographic,
+            'stories': stories,
+            'cloze_items': cloze_items,
+        })
+    return packs_data
+
+
 class GenerationQueueView(APIView):
     """GET /api/admin/generation-queue/ — List word sets awaiting generation."""
     permission_classes = [IsAuthenticated, IsAdmin]
@@ -519,7 +606,6 @@ class GenerationJobContentView(APIView):
             )
 
         # Words created by this job (match input_words against word_set.words)
-        input_words_lower = [w.lower() for w in job.input_words]
         words = job.word_set.words.filter(
             text__in=job.input_words,
         ).prefetch_related('definitions').distinct()
@@ -558,77 +644,7 @@ class GenerationJobContentView(APIView):
         ]
 
         # Packs for this word set
-        packs = WordPack.objects.filter(
-            word_set=job.word_set,
-        ).prefetch_related(
-            'items__word', 'stories', 'graphic_novels__pages__audio',
-            'graphic_novels__cloze_items__word', 'cloze_items__word',
-            'infographics__cloze_items__word',
-        ).order_by('order')
-
-        packs_data = []
-        for pack in packs:
-            pack_words = [
-                {'id': item.word.id, 'text': item.word.text}
-                for item in pack.items.all()
-            ]
-
-            primer_cards = []
-            for item in pack.items.select_related('word__primer_content').all():
-                pc = getattr(item.word, 'primer_content', None)
-                if pc:
-                    primer_cards.append({
-                        'id': pc.id,
-                        'word_text': item.word.text,
-                        'syllable_text': pc.syllable_text,
-                        'kid_friendly_definition': pc.kid_friendly_definition,
-                        'example_sentence': pc.example_sentence,
-                    })
-
-            stories = [
-                {
-                    'id': s.id,
-                    'story_text': s.story_text,
-                    'reading_level': s.reading_level,
-                }
-                for s in pack.stories.all()
-            ]
-
-            graphic_novel_candidates = _pack_graphic_novel_candidates(pack)
-            selected_novel = next(
-                (c for c in graphic_novel_candidates if c['is_selected']), None
-            )
-
-            infographic_candidates = _pack_infographic_candidates(pack)
-            selected_infographic = next(
-                (c for c in infographic_candidates if c['is_selected']), None
-            )
-
-            # Promoted (student-facing) cloze only; staged candidate cloze rides
-            # on each candidate in graphic_novels.
-            cloze_items = [
-                {
-                    'id': ci.id,
-                    'word_text': ci.word.text,
-                    'sentence_text': ci.sentence_text,
-                    'correct_answer': ci.correct_answer,
-                    'distractors': ci.distractors,
-                }
-                for ci in pack.cloze_items.filter(novel__isnull=True, infographic__isnull=True)
-            ]
-
-            packs_data.append({
-                'id': pack.id,
-                'label': pack.label,
-                'words': pack_words,
-                'primer_cards': primer_cards,
-                'graphic_novels': graphic_novel_candidates,
-                'graphic_novel': selected_novel,
-                'infographics': infographic_candidates,
-                'infographic': selected_infographic,
-                'stories': stories,
-                'cloze_items': cloze_items,
-            })
+        packs_data = _review_packs_data(job.word_set)
 
         return Response({
             'job_id': job.id,
@@ -1660,77 +1676,7 @@ class WordSetContentView(APIView):
         ]
 
         # All packs for this word set
-        packs = WordPack.objects.filter(
-            word_set=word_set,
-        ).prefetch_related(
-            'items__word', 'stories', 'graphic_novels__pages__audio',
-            'graphic_novels__cloze_items__word', 'cloze_items__word',
-            'infographics__cloze_items__word',
-        ).order_by('order')
-
-        packs_data = []
-        for pack in packs:
-            pack_words = [
-                {'id': item.word.id, 'text': item.word.text}
-                for item in pack.items.all()
-            ]
-
-            primer_cards = []
-            for item in pack.items.select_related('word__primer_content').all():
-                pc = getattr(item.word, 'primer_content', None)
-                if pc:
-                    primer_cards.append({
-                        'id': pc.id,
-                        'word_text': item.word.text,
-                        'syllable_text': pc.syllable_text,
-                        'kid_friendly_definition': pc.kid_friendly_definition,
-                        'example_sentence': pc.example_sentence,
-                    })
-
-            stories = [
-                {
-                    'id': s.id,
-                    'story_text': s.story_text,
-                    'reading_level': s.reading_level,
-                }
-                for s in pack.stories.all()
-            ]
-
-            graphic_novel_candidates = _pack_graphic_novel_candidates(pack)
-            selected_novel = next(
-                (c for c in graphic_novel_candidates if c['is_selected']), None
-            )
-
-            infographic_candidates = _pack_infographic_candidates(pack)
-            selected_infographic = next(
-                (c for c in infographic_candidates if c['is_selected']), None
-            )
-
-            # Promoted (student-facing) cloze only; staged candidate cloze rides
-            # on each candidate in graphic_novels.
-            cloze_items = [
-                {
-                    'id': ci.id,
-                    'word_text': ci.word.text,
-                    'sentence_text': ci.sentence_text,
-                    'correct_answer': ci.correct_answer,
-                    'distractors': ci.distractors,
-                }
-                for ci in pack.cloze_items.filter(novel__isnull=True, infographic__isnull=True)
-            ]
-
-            packs_data.append({
-                'id': pack.id,
-                'label': pack.label,
-                'words': pack_words,
-                'primer_cards': primer_cards,
-                'graphic_novels': graphic_novel_candidates,
-                'graphic_novel': selected_novel,
-                'infographics': infographic_candidates,
-                'infographic': selected_infographic,
-                'stories': stories,
-                'cloze_items': cloze_items,
-            })
+        packs_data = _review_packs_data(word_set)
 
         return Response({
             'word_set_id': word_set.id,

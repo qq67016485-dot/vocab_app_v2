@@ -16,7 +16,7 @@ Status: Updated 2026-05-31
 | 3 | Rate limiting on login endpoint | Done | `LoginRateThrottle` (5/min per IP) on `/api/login/`. 429 message surfaces in UI. |
 | 4 | Teacher self-service password reset | Pending | Teachers can already reset student passwords via Edit Student modal. Missing: self-service reset for teachers/admins (e.g., forgot password on login page). |
 | 5 | Pagination on list endpoints | Pending | `/api/words/`, `/api/word-sets/`, `/api/groups/` return all rows. |
-| 6 | Database indexes on frequently queried FKs | Partial | Done (2026-05-31, migration 0030): `UserWordProgress` `(user, next_review_at)` + `(user, instructional_status)`; `UserAnswer` `(user, answered_at)` + `(user, is_correct)` + `(question, answered_at)`. Remaining: `Question.word`. |
+| 6 | Database indexes on frequently queried FKs | Done | 2026-05-31 (migration 0030): `UserAnswer` `(user, answered_at)` + `(user, is_correct)` + `(question, answered_at)`. 2026-07-03 (migration 0040): `Question` `(word, lexile_score)` (covers the `Question.word` gap) and `UserWordProgress` `(user, instructional_status, next_review_at)` replacing `(user, instructional_status)`; `(user, next_review_at)` kept. |
 | 7 | React error boundary | Done | `ErrorBoundary` wraps entire app in `App.jsx`. Shows fallback UI + reload button. |
 
 ## Medium

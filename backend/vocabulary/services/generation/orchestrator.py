@@ -26,6 +26,7 @@ from vocabulary.services.generation.step_word_lookup import (
 )
 from vocabulary.services.generation.step_translations import _step_generate_translations
 from vocabulary.services.generation.step_questions import _step_generate_questions
+from vocabulary.services.generation.step_sentence_write import _step_generate_sentence_write
 from vocabulary.services.generation.step_packs import (
     _step_auto_create_packs, _step_generate_primers,
 )
@@ -104,6 +105,15 @@ def _clear_testing_outputs_for_step(job, step, words):
         job.questions_created = 0
         job.save(update_fields=['questions_created'])
 
+    elif step == S.SENTENCE_WRITE_GEN:
+        Question.objects.filter(
+            generation_job=job,
+            question_type__in=[
+                Question.QuestionType.SENTENCE_WRITE_GUIDED,
+                Question.QuestionType.SENTENCE_WRITE_OPEN,
+            ],
+        ).delete()
+
     elif step == S.PACK_CREATION:
         WordPack.objects.filter(word_set=job.word_set).delete()
         job.stories_created = 0
@@ -173,6 +183,7 @@ def _step_uses_generation_model(step):
         GenerationJobLog.Step.WORD_LOOKUP,
         GenerationJobLog.Step.TRANSLATION,
         GenerationJobLog.Step.QUESTION_GEN,
+        GenerationJobLog.Step.SENTENCE_WRITE_GEN,
         GenerationJobLog.Step.PACK_CREATION,
         GenerationJobLog.Step.PRIMER_GEN,
         GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
@@ -184,6 +195,7 @@ _STEP_TO_CONFIG_KEY = {
     GenerationJobLog.Step.WORD_LOOKUP: 'word_lookup',
     GenerationJobLog.Step.TRANSLATION: 'translation',
     GenerationJobLog.Step.QUESTION_GEN: 'question_gen',
+    GenerationJobLog.Step.SENTENCE_WRITE_GEN: 'sentence_write_gen',
     GenerationJobLog.Step.PACK_CREATION: 'pack_creation',
     GenerationJobLog.Step.PRIMER_GEN: 'primer_gen',
 }
@@ -323,6 +335,8 @@ def _execute_step(job, step, words, words_data, packs, S, site_config=None, mode
         _step_generate_translations(job, words, words_data, site_config)
     elif step == S.QUESTION_GEN:
         _step_generate_questions(job, words, words_data, site_config)
+    elif step == S.SENTENCE_WRITE_GEN:
+        _step_generate_sentence_write(job, words, words_data, site_config)
     elif step == S.PACK_CREATION:
         packs = _step_auto_create_packs(job, words, words_data, site_config)
     elif step == S.PRIMER_GEN:

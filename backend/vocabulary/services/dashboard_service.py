@@ -23,7 +23,7 @@ from vocabulary.models import (
     Word,
 )
 from vocabulary.constants import QUESTION_TYPE_TO_SKILL_TAG, QUESTION_TYPE_TO_PATTERN
-from vocabulary.utils import end_of_local_day, get_definition_translation
+from vocabulary.utils import end_of_local_day, get_definition_translation, start_of_local_day
 
 logger = logging.getLogger(__name__)
 
@@ -76,8 +76,10 @@ class DashboardService:
         today = timezone.localdate()
 
         def get_stats_for_period(start_date):
+            # Range filter, not answered_at__date__gte — the __date lookup is
+            # non-sargable on MySQL and scans the full answer history.
             stats = UserAnswer.objects.filter(
-                user=student, answered_at__date__gte=start_date,
+                user=student, answered_at__gte=start_of_local_day(start_date),
             ).aggregate(
                 total_answered=Count('id'),
                 total_correct=Count('id', filter=Q(is_correct=True)),

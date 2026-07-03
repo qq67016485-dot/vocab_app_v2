@@ -242,7 +242,7 @@ class TestQuestion:
         assert q.word is not None
 
     def test_all_question_types(self):
-        assert len(Question.QuestionType.choices) == 28
+        assert len(Question.QuestionType.choices) == 30
 
     def test_generation_job_nullable(self):
         q = QuestionFactory()
@@ -398,6 +398,7 @@ class TestGenerationJobLog:
         assert 'DEDUP' in steps
         assert 'TRANSLATION' in steps
         assert 'QUESTION_GEN' in steps
+        assert 'SENTENCE_WRITE_GEN' in steps
         assert 'PACK_CREATION' in steps
         assert 'PRIMER_GEN' in steps
         assert 'STORY_CLOZE_GEN' in steps
@@ -407,4 +408,4 @@ class TestGenerationJobLog:
         assert 'INFOGRAPHIC_IMAGE' in steps
         assert 'GN_6PAGE_SCRIPT' in steps
         assert 'GN_6PAGE_IMAGES' in steps
-        assert len(steps) == 13
+        assert len(steps) == 14

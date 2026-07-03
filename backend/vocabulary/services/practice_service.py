@@ -13,6 +13,7 @@ import string
 import logging
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import models, transaction
 from django.utils import timezone
 
@@ -30,6 +31,9 @@ logger = logging.getLogger(__name__)
 class PracticeService:
     MIN_TIMING_BASELINE_SAMPLES = 15
     TIMING_BASELINE_LIMIT = 50
+    # Baselines are 25th/80th percentiles over up to 50 samples — they move
+    # slowly, so a short cache TTL replaces an O(history) scan on every submit.
+    TIMING_BASELINE_CACHE_TTL = 600  # 10 min
     MIN_VALID_DURATION_SECONDS = 1
     MAX_VALID_DURATION_SECONDS = 100
     MIN_REVIEW_INTERVAL_DAYS = 1.0
@@ -77,6 +81,26 @@ class PracticeService:
             'interval_factor': 1.00,
             'is_fragile': False,
             'schedule_reason': 'insufficient_timing_baseline',
+        },
+        # Productive sentence-writing (LLM-judged). Timing is meaningless for
+        # free writing, so these are keyed off the judge outcome, not duration.
+        'productive_correct': {
+            'quality': 1.10,
+            'interval_factor': 1.00,
+            'is_fragile': False,
+            'schedule_reason': 'productive_correct',
+        },
+        'productive_recovered': {
+            'quality': 0.90,
+            'interval_factor': 0.85,
+            'is_fragile': True,
+            'schedule_reason': 'productive_recovered',
+        },
+        'productive_missed': {
+            'quality': 0.60,
+            'interval_factor': 0.60,
+            'is_fragile': True,
+            'schedule_reason': 'productive_missed',
         },
     }
 
@@ -174,6 +198,14 @@ class PracticeService:
 
     @classmethod
     def _get_timing_baseline(cls, user, question_type):
+        # Cached per (user, question_type): the underlying scan joins Question
+        # over the user's answer history on every scored submit otherwise. An
+        # empty-string sentinel caches the "not enough samples yet" case too.
+        cache_key = f'timing_baseline:{user.id}:{question_type}'
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached or None
+
         durations = list(
             UserAnswer.objects.filter(
                 user=user,
@@ -185,14 +217,18 @@ class PracticeService:
         )
 
         if len(durations) < cls.MIN_TIMING_BASELINE_SAMPLES:
-            return None
+            baseline = None
+        else:
+            sorted_durations = sorted(durations)
+            baseline = {
+                'fast_threshold': cls._percentile(sorted_durations, 0.25),
+                'slow_threshold': cls._percentile(sorted_durations, 0.80),
+                'sample_count': len(sorted_durations),
+            }
 
-        sorted_durations = sorted(durations)
-        return {
-            'fast_threshold': cls._percentile(sorted_durations, 0.25),
-            'slow_threshold': cls._percentile(sorted_durations, 0.80),
-            'sample_count': len(sorted_durations),
-        }
+        cache.set(cache_key, baseline if baseline is not None else '',
+                  cls.TIMING_BASELINE_CACHE_TTL)
+        return baseline
 
     @classmethod
     def _classify_response_quality(
@@ -251,14 +287,31 @@ class PracticeService:
     @classmethod
     def process_answer(
         cls, user, question_id, user_answer, duration_seconds, answer_switches,
-        is_retry=False, had_typo_retry=False,
+        is_retry=False, had_typo_retry=False, productive_judgment=None,
+        question=None,
     ):
+        """Process a submitted answer and update mastery/scheduling.
+
+        ``productive_judgment`` (sentence-writing questions only) short-circuits
+        the exact-match + typo path. It is a dict:
+            {
+                'is_correct': bool,      # from the LLM judge
+                'quality_rule': str,     # a RESPONSE_QUALITY_RULES key
+                'judge_result': dict,    # persisted on UserAnswer for analytics
+            }
+        When present the answer is terminal (the backend already ran the
+        judge/revision loop), so ``is_retry`` is always False here.
+
+        ``question`` lets a caller that already fetched the Question (with
+        ``select_related('word')``) pass it in and skip the duplicate lookup.
+        """
         with transaction.atomic():
             if not is_retry:
                 cls.update_practice_streak(user)
 
             try:
-                question = Question.objects.select_related('word').get(id=question_id)
+                if question is None:
+                    question = Question.objects.select_related('word').get(id=question_id)
                 mastery_record = UserWordProgress.objects.select_related('level').get(
                     user=user, word=question.word,
                 )
@@ -266,36 +319,40 @@ class PracticeService:
                 raise ValueError("Question or mastery record not found.")
 
             level_before = mastery_record.level
-            normalized_user_answer = cls.normalize_answer(user_answer)
 
-            correct_answers_from_db = question.correct_answers
-            if not isinstance(correct_answers_from_db, list):
-                correct_answers_from_db = [correct_answers_from_db]
+            if productive_judgment is not None:
+                is_correct = bool(productive_judgment.get('is_correct'))
+            else:
+                normalized_user_answer = cls.normalize_answer(user_answer)
 
-            is_correct = any(
-                normalized_user_answer == cls.normalize_answer(ans)
-                for ans in correct_answers_from_db
-            )
+                correct_answers_from_db = question.correct_answers
+                if not isinstance(correct_answers_from_db, list):
+                    correct_answers_from_db = [correct_answers_from_db]
 
-            # Typo detection: only for type-to-spell questions (answer == target word)
-            # If near-miss, return early without recording the attempt
-            if not is_correct and normalized_user_answer:
-                term_normalized = cls.normalize_answer(question.word.text)
-                is_type_to_spell = any(
-                    cls.normalize_answer(ans) == term_normalized
+                is_correct = any(
+                    normalized_user_answer == cls.normalize_answer(ans)
                     for ans in correct_answers_from_db
                 )
-                if is_type_to_spell and len(term_normalized) > 0:
-                    distance = cls._damerau_levenshtein_distance(
-                        normalized_user_answer, term_normalized
+
+                # Typo detection: only for type-to-spell questions (answer == target word)
+                # If near-miss, return early without recording the attempt
+                if not is_correct and normalized_user_answer:
+                    term_normalized = cls.normalize_answer(question.word.text)
+                    is_type_to_spell = any(
+                        cls.normalize_answer(ans) == term_normalized
+                        for ans in correct_answers_from_db
                     )
-                    ratio = distance / len(term_normalized)
-                    if ratio <= 0.25:
-                        return {
-                            'is_typo': True,
-                            'is_correct': False,
-                            'message': 'Almost! Check your spelling and try again.',
-                        }
+                    if is_type_to_spell and len(term_normalized) > 0:
+                        distance = cls._damerau_levenshtein_distance(
+                            normalized_user_answer, term_normalized
+                        )
+                        ratio = distance / len(term_normalized)
+                        if ratio <= 0.25:
+                            return {
+                                'is_typo': True,
+                                'is_correct': False,
+                                'message': 'Almost! Check your spelling and try again.',
+                            }
 
             current_mastery_level_before_update = mastery_record.level
             old_learning_speed = mastery_record.learning_speed
@@ -306,14 +363,19 @@ class PracticeService:
             schedule_info = None
 
             if not is_retry:
-                response_quality = cls._classify_response_quality(
-                    user=user,
-                    question=question,
-                    is_correct=is_correct,
-                    duration_seconds=duration_seconds,
-                    answer_switches=answer_switches,
-                    had_typo_retry=had_typo_retry,
-                )
+                if productive_judgment is not None:
+                    response_quality = cls.RESPONSE_QUALITY_RULES[
+                        productive_judgment['quality_rule']
+                    ].copy()
+                else:
+                    response_quality = cls._classify_response_quality(
+                        user=user,
+                        question=question,
+                        is_correct=is_correct,
+                        duration_seconds=duration_seconds,
+                        answer_switches=answer_switches,
+                        had_typo_retry=had_typo_retry,
+                    )
 
                 if is_correct:
                     mastery_record.mastery_points += 1
@@ -329,6 +391,12 @@ class PracticeService:
                                 bonus_info['new_word_mastery'] = 2
                         except MasteryLevel.DoesNotExist:
                             pass
+                elif productive_judgment is not None:
+                    # Softened miss for productive tasks: a genuine attempt at
+                    # producing the word is worth more than a wrong MC click, so
+                    # drop only 1 point and never force a demotion (still fragile
+                    # → shorter interval via response_quality).
+                    mastery_record.mastery_points = max(0, mastery_record.mastery_points - 1)
                 else:
                     mastery_record.mastery_points = max(0, mastery_record.mastery_points - 2)
                     if current_mastery_level_before_update.level_id > 1:
@@ -354,6 +422,13 @@ class PracticeService:
                     if current_mastery_level_before_update.level_id >= 4:
                         xp_earned += 5
                         bonus_info['good_old_memory'] = 5
+                    # Reward the high-effort productive task on a clean first try.
+                    if (
+                        productive_judgment is not None
+                        and response_quality['schedule_reason'] == 'productive_correct'
+                    ):
+                        xp_earned += 5
+                        bonus_info['sentence_writing'] = 5
 
                 mastery_record.learning_speed = (
                     cls.ALPHA * response_quality['quality']
@@ -393,16 +468,29 @@ class PracticeService:
                     is_correct=is_correct,
                     duration_seconds=duration_seconds,
                     answer_switches=answer_switches,
+                    judge_result=(
+                        productive_judgment.get('judge_result')
+                        if productive_judgment is not None else None
+                    ),
                 )
 
                 if xp_earned > 0:
                     did_level_up_user = cls.update_xp_and_level(user, xp_earned)
             else:
-                UserAnswer.objects.filter(
-                    user=user, question=question,
-                ).order_by('-answered_at').update(
-                    retry_count=models.F('retry_count') + 1,
+                # Increment retry_count on the LATEST answer only. `.update()`
+                # silently ignores `order_by`, so filtering by the fetched pk is
+                # required — updating the unfiltered queryset would touch every
+                # historical answer this user gave for this question.
+                latest_pk = (
+                    UserAnswer.objects.filter(user=user, question=question)
+                    .order_by('-answered_at')
+                    .values_list('pk', flat=True)
+                    .first()
                 )
+                if latest_pk is not None:
+                    UserAnswer.objects.filter(pk=latest_pk).update(
+                        retry_count=models.F('retry_count') + 1,
+                    )
 
             remediation_feedback = {}
             if not is_correct:
@@ -422,7 +510,8 @@ class PracticeService:
             }
 
             if is_correct:
-                response["correct_answer"] = question.correct_answers[0]
+                if question.correct_answers:
+                    response["correct_answer"] = question.correct_answers[0]
 
             if not is_retry:
                 response.update({

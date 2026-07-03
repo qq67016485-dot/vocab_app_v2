@@ -6,6 +6,7 @@ const PIPELINE_STEPS = [
   { key: 'DEDUP', label: 'Deduplication' },
   { key: 'TRANSLATION', label: 'Translation' },
   { key: 'QUESTION_GEN', label: 'Question Generation' },
+  { key: 'SENTENCE_WRITE_GEN', label: 'Sentence-Writing Questions' },
   { key: 'PRIMER_GEN', label: 'Primer Generation' },
   { key: 'PACK_CREATION', label: 'Pack Creation' },
   { key: 'GRAPHIC_NOVEL_SCRIPT', label: 'Graphic Novel Script' },

@@ -142,13 +142,14 @@ class TestRunFullPipeline:
     @patch('vocabulary.services.generation.orchestrator._step_graphic_novel_script')
     @patch('vocabulary.services.generation.orchestrator._step_generate_primers')
     @patch('vocabulary.services.generation.orchestrator._step_auto_create_packs')
+    @patch('vocabulary.services.generation.orchestrator._step_generate_sentence_write')
     @patch('vocabulary.services.generation.orchestrator._step_generate_questions')
     @patch('vocabulary.services.generation.orchestrator._step_generate_translations')
     @patch('vocabulary.services.generation.orchestrator._step_dedup_and_persist')
     @patch('vocabulary.services.generation.orchestrator._step_word_lookup')
     def test_runs_all_steps_in_order(
         self, mock_lookup, mock_dedup, mock_translate, mock_questions,
-        mock_packs, mock_primers, mock_script, mock_novel_images,
+        mock_sentence_write, mock_packs, mock_primers, mock_script, mock_novel_images,
     ):
         word = WordFactory(text='bright')
         mock_lookup.return_value = WORD_LOOKUP_RESPONSE['words']
@@ -162,6 +163,7 @@ class TestRunFullPipeline:
         mock_dedup.assert_called_once()
         mock_translate.assert_called_once()
         mock_questions.assert_called_once()
+        mock_sentence_write.assert_called_once()
         mock_packs.assert_called_once()
         mock_primers.assert_called_once()
         mock_script.assert_called_once()
@@ -205,13 +207,14 @@ class TestRunFullPipeline:
     @patch('vocabulary.services.generation.orchestrator._step_graphic_novel_script')
     @patch('vocabulary.services.generation.orchestrator._step_generate_primers')
     @patch('vocabulary.services.generation.orchestrator._step_auto_create_packs')
+    @patch('vocabulary.services.generation.orchestrator._step_generate_sentence_write')
     @patch('vocabulary.services.generation.orchestrator._step_generate_questions')
     @patch('vocabulary.services.generation.orchestrator._step_generate_translations')
     @patch('vocabulary.services.generation.orchestrator._step_dedup_and_persist')
     @patch('vocabulary.services.generation.orchestrator._step_word_lookup')
     def test_passes_words_data_between_steps(
         self, mock_lookup, mock_dedup, mock_translate, mock_questions,
-        mock_packs, mock_primers, mock_script, mock_novel_images,
+        mock_sentence_write, mock_packs, mock_primers, mock_script, mock_novel_images,
     ):
         words_data = WORD_LOOKUP_RESPONSE['words']
         word_objs = [WordFactory(text='bright'), WordFactory(text='discover')]

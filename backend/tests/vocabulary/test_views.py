@@ -388,6 +388,31 @@ class TestSubmitAnswerView:
         answer.refresh_from_db()
         assert answer.retry_count == 2
 
+    def test_retry_increments_only_latest_answer(self):
+        # Two separate scored answers for the same question on different days;
+        # a retry must bump retry_count on the newest row only (a bare
+        # queryset .update() ignores order_by and would touch both).
+        older = UserAnswer.objects.create(
+            user=self.student, question=self.question,
+            user_answer='wrong', is_correct=False, duration_seconds=5,
+        )
+        self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'wrong',
+            'duration_seconds': 5,
+        })
+        self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'still_wrong',
+            'is_retry': True,
+        })
+        older.refresh_from_db()
+        latest = UserAnswer.objects.filter(
+            user=self.student, question=self.question,
+        ).order_by('-answered_at').first()
+        assert older.retry_count == 0
+        assert latest.retry_count == 1
+
     def test_typo_retry_flag_makes_next_correct_answer_fragile(self):
         self.question.correct_answers = ['bright']
         self.question.save()

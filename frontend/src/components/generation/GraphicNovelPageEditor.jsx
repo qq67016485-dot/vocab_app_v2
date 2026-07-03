@@ -68,7 +68,7 @@ export default function GraphicNovelPageEditor({ page, audioUrl, audioStatus, au
           setError(data.generation_error || 'Image generation failed. Try again.');
           setBusy(false);
         }
-      } catch (err) {
+      } catch {
         clearInterval(pollRef.current);
         pollRef.current = null;
         setError('Lost track of the image. Refresh to see the result.');

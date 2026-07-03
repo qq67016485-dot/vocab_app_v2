@@ -17,9 +17,9 @@ from django.utils import timezone
 from vocabulary.models import (
     WordPack, WordPackItem, PrimerCardContent, MicroStory, ClozeItem,
     StudentPackCompletion, StudentWordSetAssignment, UserWordProgress,
-    GraphicNovelPageAudio,
+    GraphicNovel, GraphicNovelPage, GraphicNovelPageAudio, Infographic,
 )
-from vocabulary.utils import get_definition_translations
+from vocabulary.utils import get_definition_translations_for_words
 
 logger = logging.getLogger(__name__)
 
@@ -30,15 +30,25 @@ class InstructionalService:
         """Fetch pack with items, primer content, Lexile-matched story, cloze items.
         Validates student access via assignment."""
         try:
+            # Every prefetch below is shaped to be consumed as-is: calling
+            # .filter()/.select_related() on a prefetched manager later would
+            # bypass the cache and re-query, so the filtering happens here.
+            selected_novels = GraphicNovel.objects.filter(
+                is_selected=True,
+            ).prefetch_related(
+                Prefetch('pages', queryset=GraphicNovelPage.objects.select_related('audio')),
+            )
+            promoted_cloze = ClozeItem.objects.filter(
+                novel__isnull=True, infographic__isnull=True,
+            )
             pack = WordPack.objects.select_related('word_set').prefetch_related(
                 Prefetch('items', queryset=WordPackItem.objects.select_related(
                     'word', 'word__primer_content',
                 ).order_by('order')),
-                'cloze_items__word',
+                Prefetch('cloze_items', queryset=promoted_cloze),
                 'stories',
-                'graphic_novels__pages',
-                'graphic_novels__pages__audio',
-                'infographics',
+                Prefetch('graphic_novels', queryset=selected_novels),
+                Prefetch('infographics', queryset=Infographic.objects.filter(is_selected=True)),
             ).get(id=pack_id)
         except WordPack.DoesNotExist:
             raise ValueError("Pack not found.")
@@ -53,17 +63,19 @@ class InstructionalService:
             raise PermissionError("You are not assigned to this word set.")
         content_type = assignment.content_type
 
-        # Build primer cards
+        # Build primer cards (translations batched: 2 queries for the pack).
+        items = list(pack.items.all())
+        translations_by_word = get_definition_translations_for_words(
+            [item.word for item in items], user.native_language,
+            fields=('definition_text', 'example_sentence'),
+        )
         primer_cards = []
-        for item in pack.items.all():
+        for item in items:
             word = item.word
             primer = getattr(word, 'primer_content', None)
-            _translations = get_definition_translations(
-                word, user.native_language,
-                fields=('definition_text', 'example_sentence'),
-            )
-            definition_translation = _translations['definition_text']
-            example_translation = _translations['example_sentence']
+            _translations = translations_by_word.get(word.id, {})
+            definition_translation = _translations.get('definition_text', '')
+            example_translation = _translations.get('example_sentence', '')
             primer_cards.append({
                 'word_id': word.id,
                 'term_text': word.text,
@@ -80,8 +92,9 @@ class InstructionalService:
         # an admin selects a candidate, none is_selected and story_data stays None
         # (pack reads as not-yet-published). If the chosen type wasn't generated /
         # selected, fall back to whatever else is published, then legacy stories.
-        graphic_novel = pack.graphic_novels.filter(is_selected=True).first()
-        infographic = pack.infographics.filter(is_selected=True).first()
+        # (The prefetched managers already contain only is_selected candidates.)
+        graphic_novel = next(iter(pack.graphic_novels.all()), None)
+        infographic = next(iter(pack.infographics.all()), None)
         stories = list(pack.stories.all())
 
         wants_infographic = (
@@ -113,14 +126,14 @@ class InstructionalService:
 
         # Cloze items — only the promoted set (both novel and infographic NULL) is
         # student-facing; staged candidate cloze (novel=<id> or infographic=<id>) is
-        # excluded until promoted.
+        # excluded until promoted. The prefetch above already applied that filter.
         cloze_items = [{
             'id': ci.id,
             'sentence_text': ci.sentence_text,
             'correct_answer': ci.correct_answer,
             'distractors': ci.distractors,
             'order': ci.order,
-        } for ci in pack.cloze_items.filter(novel__isnull=True, infographic__isnull=True)]
+        } for ci in pack.cloze_items.all()]
 
         return {
             'pack_id': pack.id,

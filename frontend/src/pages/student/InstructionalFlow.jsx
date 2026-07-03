@@ -69,8 +69,6 @@ export default function InstructionalFlow() {
   if (error) return <div className="instructional-shell"><p style={{ color: 'red' }}>{error}</p><button onClick={handleBack}>Go Back</button></div>;
   if (!packData) return null;
 
-  const stepLabel = step === 'primer' ? 'Learn' : step === 'story' ? 'Read' : step === 'quiz' ? 'Quiz' : 'Done';
-
   return (
     <div className="instructional-shell">
       {step === 'primer' && (

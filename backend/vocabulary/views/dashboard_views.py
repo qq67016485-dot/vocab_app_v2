@@ -9,7 +9,7 @@ Changes from v1:
 """
 from datetime import timedelta
 
-from django.db.models import Count, Q
+from django.db.models import Count, Exists, OuterRef, Q
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -17,11 +17,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from users.models import CustomUser
-from ..models import UserWordProgress, MasteryLevel, UserAnswer, MasteryLevelLog
+from ..models import UserWordProgress, MasteryLevel, UserAnswer, MasteryLevelLog, Question
 from ..permissions import IsStudent, IsTeacherOrAdmin
 from ..serializers import WordSerializer, RosterDashboardSerializer
 from ..services.dashboard_service import DashboardService
-from ..utils import end_of_local_day
+from ..utils import end_of_local_day, start_of_local_day
 
 
 class StudentDashboardView(APIView):
@@ -32,25 +32,29 @@ class StudentDashboardView(APIView):
         today = timezone.localdate()
         due_cutoff = end_of_local_day(today)
 
-        lexile_filter = Q(
-            word__questions__lexile_score__gte=student.lexile_min,
-            word__questions__lexile_score__lte=student.lexile_max,
-        ) | Q(
-            word__questions__lexile_score__isnull=True,
+        lexile_q = Q(lexile_score__isnull=True) | Q(
+            lexile_score__gte=student.lexile_min,
+            lexile_score__lte=student.lexile_max,
         )
 
-        # Words answered today — exclude from due count so practiced words don't reappear
+        # Words answered today — exclude from due count so practiced words don't
+        # reappear. Range filter (not __date, which is non-sargable on MySQL).
+        today_start = start_of_local_day(today)
         answered_word_ids_today = set(
             UserAnswer.objects.filter(
-                user=student, answered_at__date=today,
+                user=student, answered_at__gte=today_start,
             ).values_list('question__word_id', flat=True)
         )
 
+        # EXISTS instead of join + DISTINCT (same shape as NextPracticeWordView).
+        has_suitable_question = Question.objects.filter(
+            lexile_q, word=OuterRef('word_id'),
+        )
         words_due_qs = UserWordProgress.objects.filter(
             user=student,
             next_review_at__lte=due_cutoff,
             instructional_status='READY',
-        ).filter(lexile_filter).distinct()
+        ).filter(Exists(has_suitable_question))
 
         if answered_word_ids_today:
             words_due_qs = words_due_qs.exclude(word_id__in=answered_word_ids_today)
@@ -59,7 +63,7 @@ class StudentDashboardView(APIView):
 
         total_words_count = UserWordProgress.objects.filter(user=student).count()
         questions_answered_today = UserAnswer.objects.filter(
-            user=student, answered_at__date=today,
+            user=student, answered_at__gte=today_start,
         ).count()
 
         # Streak logic

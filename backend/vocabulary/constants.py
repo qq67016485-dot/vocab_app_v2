@@ -27,6 +27,8 @@ QUESTION_TYPE_TO_SKILL_TAG = {
     'COLLOCATION_MATCHING': 'collocation_usage',
     'REVERSE_COLLOCATION_MC': 'collocation_usage',
     'CONCEPTUAL_ASSOCIATION_MC_SINGLE': 'conceptual_association',
+    'SENTENCE_WRITE_GUIDED': 'sentence_production',
+    'SENTENCE_WRITE_OPEN': 'sentence_production',
 }
 
 QUESTION_TYPE_TO_PATTERN = {
@@ -51,6 +53,8 @@ QUESTION_TYPE_TO_PATTERN = {
     'COLLOCATION_MC_SINGLE': 'Collocation & Usage',
     'REVERSE_COLLOCATION_MC': 'Collocation & Usage',
     'CONCEPTUAL_ASSOCIATION_MC_SINGLE': 'Conceptual Association',
+    'SENTENCE_WRITE_GUIDED': 'Sentence Production',
+    'SENTENCE_WRITE_OPEN': 'Sentence Production',
 }
 
 # Mastery level per question type (avoids asking the LLM to output suitable_mastery_levels).
@@ -77,4 +81,9 @@ QUESTION_TYPE_LEVEL = {
     # Level 5 – Deep Comparison
     'ODD_ONE_OUT_MC_SINGLE': 5,
     'NUANCE_CONTRAST_MC': 5,
+    # Productive sentence writing — gated at the top of the ladder. Guided
+    # (more scaffolding) enters at L4; Open (freer) at L5. See
+    # docs/feature_plan/design-sentence-writing-questions.md.
+    'SENTENCE_WRITE_GUIDED': 4,
+    'SENTENCE_WRITE_OPEN': 5,
 }
