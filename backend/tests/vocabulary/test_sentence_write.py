@@ -483,6 +483,54 @@ class TestSentenceWriteSubmitView:
         assert resp.data['sentence_write_unavailable'] is True
         mock_eval.assert_not_called()
 
+    @patch('vocabulary.views.practice_views.sentence_evaluation_service.evaluate_sentence')
+    def test_judge_call_budget_caps_pending_misses(self, mock_eval):
+        # Non-terminal misses don't record a UserAnswer, so the daily-answer
+        # limit alone can't bound judge (LLM) calls. The per-day judge-call
+        # budget (daily_question_limit × attempts-per-question) caps the
+        # abandon-and-cycle pattern across distinct questions.
+        mock_eval.return_value = {
+            'verdict': 'incorrect', 'error_type': 'wrong_meaning',
+            'hint': 'try again', 'is_correct': False,
+        }
+        self.student.daily_question_limit = 1  # budget = 1 × 4 = 4 judge calls
+        self.student.save()
+        level4 = MasteryLevel.objects.get(level_id=4)
+        questions = []
+        for i in range(6):
+            w = WordFactory(text=f'word_{i}')
+            UserWordProgress.objects.create(
+                user=self.student, word=w, level=level4,
+                mastery_points=3, next_review_at=timezone.now(),
+            )
+            questions.append(Question.objects.create(
+                word=w, question_type=GUIDED, question_text='Write.',
+                options={}, correct_answers=[], example_sentence='m.',
+                lexile_score=620,
+            ))
+
+        # First 4 distinct questions each get one pending miss (a judge call).
+        for q in questions[:4]:
+            resp = self.client.post('/api/practice/submit/', {
+                'question_id': q.id, 'user_answer': 'bad attempt',
+            }, format='json')
+            assert resp.data.get('sentence_write_pending') is True
+        assert mock_eval.call_count == 4
+
+        # The 5th is refused before the judge runs — budget exhausted.
+        resp = self.client.post('/api/practice/submit/', {
+            'question_id': questions[4].id, 'user_answer': 'bad attempt',
+        }, format='json')
+        assert resp.data.get('sentence_write_unavailable') is True
+        assert mock_eval.call_count == 4  # not called again
+
+        # Give-up makes no judge call, so it still works past the budget.
+        resp = self.client.post('/api/practice/submit/', {
+            'question_id': questions[5].id, 'user_answer': '', 'gave_up': True,
+        }, format='json')
+        assert resp.data.get('sentence_write_done') is True
+        assert mock_eval.call_count == 4
+
     def test_give_up_reveals_model_without_judge_call(self):
         resp = self.client.post('/api/practice/submit/', {
             'question_id': self.question.id, 'user_answer': '',

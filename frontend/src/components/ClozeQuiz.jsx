@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import correctSfx from '../assets/sounds/correct.mp3';
 import incorrectSfx from '../assets/sounds/incorrect.mp3';
 
@@ -9,6 +9,8 @@ export default function ClozeQuiz({ items, primerCards, onComplete }) {
   const [failures, setFailures] = useState(0);
   const [showPrimer, setShowPrimer] = useState(false);
   const [stats, setStats] = useState({ correct: 0, total: items.length });
+  const modalRef = useRef(null);
+  const triggerRef = useRef(null);
 
   const currentItem = items[currentIndex];
 
@@ -61,11 +63,56 @@ export default function ClozeQuiz({ items, primerCards, onComplete }) {
     }
   };
 
-  const handleTryAgain = () => {
+  const handleTryAgain = useCallback(() => {
     setSelected(null);
     setResult(null);
     setShowPrimer(false);
-  };
+  }, []);
+
+  // Modal focus management: move focus into the dialog on open, trap Tab within
+  // it, close on Escape, and restore focus to the trigger on close — the dialog
+  // is otherwise unusable for keyboard/screen-reader users.
+  useEffect(() => {
+    if (!showPrimer) return undefined;
+    triggerRef.current = document.activeElement;
+    const node = modalRef.current;
+    const focusables = () => Array.from(
+      node?.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      ) || [],
+    ).filter((el) => !el.disabled);
+
+    focusables()[0]?.focus();
+
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        handleTryAgain();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const items = focusables();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    node?.addEventListener('keydown', onKeyDown);
+    return () => {
+      node?.removeEventListener('keydown', onKeyDown);
+      // Restore focus to whatever opened the modal.
+      if (triggerRef.current && typeof triggerRef.current.focus === 'function') {
+        triggerRef.current.focus();
+      }
+    };
+  }, [showPrimer, handleTryAgain]);
 
   if (!currentItem) return null;
 
@@ -130,9 +177,16 @@ export default function ClozeQuiz({ items, primerCards, onComplete }) {
       )}
 
       {showPrimer && primerCard && failures < 3 && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={handleTryAgain}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()} role="document">
-            <h3 style={{ marginTop: 0 }}>{primerCard.term_text}</h3>
+        <div className="modal-backdrop" onClick={handleTryAgain}>
+          <div
+            className="modal-content"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cloze-primer-title"
+            ref={modalRef}
+          >
+            <h3 id="cloze-primer-title" style={{ marginTop: 0 }}>{primerCard.term_text}</h3>
             <p>{primerCard.kid_friendly_definition}</p>
             <p style={{ fontStyle: 'italic', color: '#6b7280' }}>{primerCard.example_sentence}</p>
             <button onClick={handleTryAgain} type="button">Try Again</button>

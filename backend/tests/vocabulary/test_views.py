@@ -450,6 +450,88 @@ class TestSubmitAnswerView:
         assert correct_response.data['response_quality'] == 'typo_retry_correct'
         assert correct_response.data['is_fragile'] is True
 
+    def test_submit_rejected_once_daily_limit_reached(self):
+        # The daily limit must be enforced on submit, not only on serve — else a
+        # replayed question_id farms XP/mastery past the cap.
+        self.student.daily_question_limit = 2
+        self.student.save(update_fields=['daily_question_limit'])
+        for _ in range(2):
+            other_word = WordFactory()
+            other_q = QuestionFactory(word=other_word, correct_answers=['x'])
+            level1 = MasteryLevel.objects.get(level_id=1)
+            UserWordProgress.objects.create(
+                user=self.student, word=other_word,
+                level=level1, next_review_at=timezone.now(),
+            )
+            resp = self.client.post('/api/practice/submit/', {
+                'question_id': other_q.id, 'user_answer': 'x', 'duration_seconds': 5,
+            })
+            assert resp.status_code == 200
+
+        blocked = self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id, 'user_answer': 'shining', 'duration_seconds': 5,
+        })
+        assert blocked.status_code == 429
+        assert blocked.data['daily_limit_reached'] is True
+        # No answer recorded, no XP awarded for the blocked submit.
+        assert UserAnswer.objects.filter(
+            user=self.student, question=self.question,
+        ).count() == 0
+
+    def test_retry_still_allowed_at_daily_limit(self):
+        # A retry doesn't create a new answer, so it must not be blocked by the
+        # limit — otherwise a wrong answer at the cap could never be corrected.
+        self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id, 'user_answer': 'wrong', 'duration_seconds': 5,
+        })
+        self.student.daily_question_limit = 1
+        self.student.save(update_fields=['daily_question_limit'])
+        resp = self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id, 'user_answer': 'shining', 'is_retry': True,
+        })
+        assert resp.status_code == 200
+        assert resp.data['is_correct'] is True
+
+    def test_submit_rejected_for_pending_word(self):
+        # A word in a not-yet-completed pack (PENDING) must not be scorable even
+        # if the client sends a valid question_id for it.
+        pending_word = WordFactory(text='locked')
+        pending_q = QuestionFactory(word=pending_word, correct_answers=['answer'])
+        level1 = MasteryLevel.objects.get(level_id=1)
+        UserWordProgress.objects.create(
+            user=self.student, word=pending_word, level=level1,
+            next_review_at=timezone.now(), instructional_status='PENDING',
+        )
+        resp = self.client.post('/api/practice/submit/', {
+            'question_id': pending_q.id, 'user_answer': 'answer', 'duration_seconds': 5,
+        })
+        assert resp.status_code == 404
+        assert UserAnswer.objects.filter(
+            user=self.student, question=pending_q,
+        ).count() == 0
+
+    def test_promotion_to_hidden_level_masks_level_name(self):
+        # Levels 6-7 are hidden; the submit response must surface "Mastered"
+        # rather than the internal tier name when a word promotes into them.
+        mastered = MasteryLevel.objects.get(level_id=5)  # points_to_promote=15
+        word = WordFactory(text='promoteme')
+        question = QuestionFactory(word=word, correct_answers=['yes'])
+        UserWordProgress.objects.create(
+            user=self.student, word=word, level=mastered,
+            mastery_points=mastered.points_to_promote - 1,
+            next_review_at=timezone.now(),
+        )
+        resp = self.client.post('/api/practice/submit/', {
+            'question_id': question.id, 'user_answer': 'yes', 'duration_seconds': 5,
+        })
+        assert resp.status_code == 200
+        assert resp.data['is_correct'] is True
+        assert resp.data['did_level_up_word'] is True
+        # Promoted into level 6 (is_hidden) — name must be masked.
+        assert resp.data['current_level_name'] == 'Mastered'
+        progress = UserWordProgress.objects.get(user=self.student, word=word)
+        assert progress.level.level_id == 6
+
 
 @pytest.mark.django_db
 class TestSessionSummaryView:
@@ -479,6 +561,27 @@ class TestSessionSummaryView:
         response = self.client.post('/api/practice/session-summary/', {})
         assert response.status_code == 400
 
+    def test_start_time_floored_to_24h(self):
+        # An epoch start_time must not pull in the user's entire history: the
+        # window is floored to 24h ago (a session is same-day). An answer from
+        # two days ago falls outside the floored window and is excluded.
+        word = WordFactory(text='ancient')
+        WordDefinitionFactory(word=word)
+        question = QuestionFactory(word=word)
+        old = UserAnswer.objects.create(
+            user=self.student, question=question,
+            user_answer='x', is_correct=True,
+        )
+        UserAnswer.objects.filter(pk=old.pk).update(
+            answered_at=timezone.now() - timedelta(days=2),
+        )
+        response = self.client.post('/api/practice/session-summary/', {
+            'start_time': '1970-01-01T00:00:00',
+        })
+        assert response.status_code == 200
+        # The 2-day-old answer is outside the floored window → not counted.
+        assert response.data['total_practiced'] == 0
+
 
 @pytest.mark.django_db
 class TestApplySessionBonusesView:
@@ -500,6 +603,38 @@ class TestApplySessionBonusesView:
             'max_focus_streak': -1,
         })
         assert response.status_code == 400
+
+    def test_bonus_is_idempotent_per_session(self):
+        # Replaying the same session_id must not stack the bonus repeatedly.
+        student = StudentUserFactory()
+        client = _make_client(student)
+        original_xp = student.xp_points
+        payload = {'max_focus_streak': 8, 'session_id': '2026-07-03T10:00:00.000Z'}
+
+        first = client.post('/api/practice/apply-bonuses/', payload)
+        assert first.status_code == 200
+        student.refresh_from_db()
+        assert student.xp_points == original_xp + 8
+
+        second = client.post('/api/practice/apply-bonuses/', payload)
+        assert second.status_code == 200
+        assert second.data.get('already_applied') is True
+        student.refresh_from_db()
+        assert student.xp_points == original_xp + 8  # unchanged
+
+    def test_distinct_sessions_each_apply(self):
+        # A different session_id is a new practice session → applies again.
+        student = StudentUserFactory()
+        client = _make_client(student)
+        original_xp = student.xp_points
+        client.post('/api/practice/apply-bonuses/', {
+            'max_focus_streak': 3, 'session_id': 'session-a',
+        })
+        client.post('/api/practice/apply-bonuses/', {
+            'max_focus_streak': 3, 'session_id': 'session-b',
+        })
+        student.refresh_from_db()
+        assert student.xp_points == original_xp + 6
 
 
 # =============================================================================

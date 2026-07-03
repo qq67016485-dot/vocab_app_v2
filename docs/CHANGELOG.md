@@ -2,6 +2,43 @@
 
 All notable changes to Vocab App V2 are documented in this file.
 
+## [Unreleased] - 2026-07-03 (student practice/instructional review: XP-farming + scoring-integrity hardening)
+
+### Context
+- Multi-agent review (correctness + security + frontend) of the student-facing practice and instructional layer: `practice_views.py`, `practice_service.py`, `instructional_views.py`, `instructional_service.py`, `sentence_evaluation_service.py`, plus `PracticeView.jsx` and its children. Theme: the answer-submit path trusted the client for things the serve path already guarded. Every finding fixed same-day — 1 CRITICAL, 3 HIGH, 3 MEDIUM, 8 LOW. Verified invariants (cloze double-FK filter, NULL-lexile inclusion, server-tracked sentence-write cap, anchor/model-sentence hiding, injection-hardened judge) all held.
+
+### Fixed — Daily Limit Not Enforced on Submit (CRITICAL: unbounded XP/mastery farming)
+- `daily_question_limit` was checked only in `NextPracticeWordView` (serve) and the sentence-write branch — the generic MC/typed-answer submit path never re-checked it. A client could replay `POST /practice/submit/` with a known `question_id` (reading `correct_answer` out of the first correct response) to farm unlimited XP, mastery points, and streak. The gate now lives inside `PracticeService.process_answer` itself (single source of truth): a non-retry submit past the limit raises `DailyLimitReached`, which both submit paths translate to **HTTP 429** `{daily_limit_reached: True}`. Retries are exempt (they create no `UserAnswer`).
+
+### Fixed — PENDING-Word Scoring (HIGH: bypasses the primer gate)
+- `AssignmentService` creates a `UserWordProgress` row for every word at assignment time, including words in still-locked (PENDING) packs. `process_answer` matched on `(user, word)` with no status check, so a guessed/enumerated `question_id` for a not-yet-unlocked word could be scored. `process_answer` now raises (→404) unless `instructional_status == 'READY'`, and `_handle_sentence_write` re-checks READY **before** the judge LLM call (cost guard).
+
+### Fixed — Lost-Update Race on Mastery/XP (HIGH)
+- `process_answer` read `UserWordProgress` and `CustomUser`, mutated them in Python, and saved without locking — two concurrent submits for the same word (double-tap, retry racing a submit) both read the old `mastery_points`/`xp_points` and one increment was lost. Now uses `select_for_update(of=('self',))` on the `UserWordProgress` row (deliberately NOT the joined `MasteryLevel`, which would serialize all students) and `select_for_update()` on the re-fetched user before the streak/XP read-modify-write.
+
+### Fixed — Frontend Double-Submit + Dead-Form Trap (HIGH)
+- `handleAnswerSubmission` (`PracticeView.jsx`) guarded only on `feedback`, which is set after the await — a rapid double-tap fired two scored submits. Added an `isSubmitting` ref (synchronous guard, matching the retry/sentence-write paths). Separately, a failed submit did `setFeedback({error})`, which both rendered the scored UI and permanently short-circuited the resubmit guard, trapping the child in a live-looking but dead form with no visible error. Failures now set a separate `submitError` banner and leave `feedback` null so resubmission works; 429s route to the finish screen.
+
+### Fixed — Sentence-Write Judge Cost Amplification (MEDIUM)
+- Non-terminal ("almost") misses call the judge LLM but record no `UserAnswer`, so they escaped the daily-answer counter — an abandon-and-cycle pattern across many words ran unbounded judge calls. `SubmitAnswerView` now keeps a per-day cache counter (`sw_judge_calls:{user_id}:{localdate}`, ~25h TTL) with budget `daily_question_limit × (max_revisions + 1)`; checked before the judge, incremented at the call. The give-up path is exempt (no LLM call).
+
+### Fixed — Hidden Level Name Leaked + Session-Bonus Replay (MEDIUM)
+- `process_answer` returned the raw `MasteryLevel.level_name`, so a word promoting to hidden level 6/7 exposed the internal tier name ("Long-Term Retention") instead of "Mastered" — now masked (`level.level_name if not level.is_hidden else "Mastered"`), matching `dashboard_service`.
+- `ApplySessionBonusesView` had no per-session dedupe (each call stacked up to +10 XP). It now records applied `session_id`s (the client's session-start timestamp) in the Django session (last 20 kept) and returns `{already_applied: True}` with 0 XP on replay; `handleFinishSession` sends `session_id`.
+
+### Fixed — LOW cleanups
+- `SessionSummaryView` floors `start_time` to 24h ago (a session is same-day) — an epoch timestamp no longer forces a full scan of the user's answer history.
+- `SubmitAnswerView` clamps client `duration_seconds` (0–3600) / `answer_switches` (0–100) via `_clamp_int` before they feed the response-quality classifier.
+- `ClozeQuiz` primer modal got proper dialog semantics: focus-into-dialog on open, Tab focus trap, Escape-to-close, focus restore to the trigger.
+- Consistent `tabIndex={feedbackReady?0:-1}` gating on ALL terminal "Next" buttons (post-Explain + sentence-write terminal); `applyTerminalStats` now sets `feedbackReady` for incorrect terminals too (per the focus-after-DOM-removal rule).
+- `PrimerCard` audio effect returns a cleanup that pauses the previous `Audio` — no overlapping pronunciation on fast navigation.
+- Dead `sessionStats.finalLevel`/`leveledUp` client state removed.
+- `settings.py`: explicit `SESSION_COOKIE_SAMESITE='Lax'` + `CSRF_COOKIE_SAMESITE='Lax'` + `*_SECURE = not DEBUG` + `SESSION_COOKIE_HTTPONLY` — the cross-site defense for the CSRF-exempt session auth is now intentional, not an implicit Django default.
+- **`PracticeView.jsx` decomposed** 1101 → 861 lines: the four `renderQuestionInput` branches extracted to `frontend/src/components/practice/` (`CorrectFeedbackBlock`, `SentenceWriteQuestion`, `ChoiceQuestion`, `ScrambleQuestion`). Behavior-preserving; verified via `npm run build` + lint clean.
+
+### Tests
+- Backend: +7 tests (daily-limit-blocks-submit, retry-still-allowed-at-limit, PENDING-word-rejected, hidden-level-name-masked, session-bonus idempotency, distinct-sessions-each-apply, judge-call-budget with give-up exemption, start_time-floored-to-24h); full run 225 passing. Frontend: `npm run build` compiles, lint clean (0 errors, 8 accepted baseline warnings).
+
 ## [Unreleased] - 2026-07-03 (generation-pipeline review round 2: remaining 4 HIGHs fixed)
 
 ### Context

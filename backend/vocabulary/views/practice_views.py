@@ -7,9 +7,10 @@ Changes from v1:
 - meaning.term.term_text → word.text
 """
 import random
-from datetime import datetime
+from datetime import datetime, timedelta, timezone as dt_timezone
 from collections import defaultdict
 
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
@@ -21,7 +22,7 @@ from rest_framework.views import APIView
 from users.models import CustomUser
 from ..models import UserWordProgress, Question, UserAnswer
 from ..serializers import QuestionSerializer
-from ..services.practice_service import PracticeService
+from ..services.practice_service import PracticeService, DailyLimitReached
 from ..services import sentence_evaluation_service
 from ..constants import QUESTION_TYPE_TO_SKILL_TAG
 from ..utils import end_of_local_day, start_of_local_day
@@ -180,15 +181,46 @@ class SubmitAnswerView(APIView):
     # resets when the question changes is enough (and self-prunes).
     _SW_SESSION_KEY = 'sw_attempts'
 
+    # Non-terminal sentence-write misses call the judge LLM but record no
+    # UserAnswer, so they escape the daily-answer counter. This per-day cache
+    # counter bounds total judge invocations at daily_question_limit × the max
+    # attempts a single question can legitimately consume (initial + revisions),
+    # which covers honest use but caps the abandon-and-cycle cost path.
+    _JUDGE_CALLS_PER_QUESTION = max(_MAX_REVISIONS.values()) + 1
+    _JUDGE_COUNT_TTL = 90000  # ~25h — outlives one local day, then self-prunes
+
     @staticmethod
     def _typo_retry_key(user_id, question_id):
         return f'typo_retry:{user_id}:{question_id}'
 
+    @staticmethod
+    def _judge_calls_key(user_id):
+        return f'sw_judge_calls:{user_id}:{timezone.localdate().isoformat()}'
+
+    # Client-reported timing/switch telemetry feeds the response-quality
+    # classifier (fast/slow/switched → review interval). Clamp to sane bounds so
+    # a crafted payload can't push the scheduler outside its intended range;
+    # out-of-range durations already fall through to the neutral 'solid' bucket.
+    _MAX_DURATION_SECONDS = 3600
+    _MAX_ANSWER_SWITCHES = 100
+
+    @classmethod
+    def _clamp_int(cls, value, low, high, default=0):
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            return default
+        return max(low, min(high, value))
+
     def post(self, request, *args, **kwargs):
         question_id = request.data.get('question_id')
         user_answer = request.data.get('user_answer')
-        duration_seconds = request.data.get('duration_seconds', 0)
-        answer_switches = request.data.get('answer_switches', 0)
+        duration_seconds = self._clamp_int(
+            request.data.get('duration_seconds', 0), 0, self._MAX_DURATION_SECONDS,
+        )
+        answer_switches = self._clamp_int(
+            request.data.get('answer_switches', 0), 0, self._MAX_ANSWER_SWITCHES,
+        )
         is_retry = request.data.get('is_retry', False)
         if isinstance(is_retry, str):
             is_retry = is_retry.lower() in ('true', '1')
@@ -226,6 +258,11 @@ class SubmitAnswerView(APIView):
                 request.session[typo_retry_key] = True
                 request.session.modified = True
             return Response(response_data)
+        except DailyLimitReached:
+            return Response({
+                'daily_limit_reached': True,
+                'message': f"You have reached your daily practice limit of {request.user.daily_question_limit} questions. Great work!",
+            }, status=status.HTTP_429_TOO_MANY_REQUESTS)
         except ValueError as e:
             if had_typo_retry:
                 request.session[typo_retry_key] = True
@@ -261,12 +298,33 @@ class SubmitAnswerView(APIView):
                 'message': "You've reached today's practice limit — great work!",
             })
 
+        # Guard the judge (an LLM call) against a guessed question_id for a word
+        # in a not-yet-unlocked pack — mirrors the READY check in process_answer,
+        # but here it must run BEFORE the judge to avoid the cost/farming path.
+        if not UserWordProgress.objects.filter(
+            user=request.user, word=question.word, instructional_status='READY',
+        ).exists():
+            return Response(
+                {'error': 'Question not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Bound total judge invocations per day (non-terminal misses don't count
+        # against the daily-answer limit above). The give-up path skips this: it
+        # makes no judge call.
+        gave_up = bool(request.data.get('gave_up', False))
+        judge_budget = request.user.daily_question_limit * self._JUDGE_CALLS_PER_QUESTION
+        judge_calls_key = self._judge_calls_key(request.user.id)
+        if not gave_up and (cache.get(judge_calls_key, 0) or 0) >= judge_budget:
+            return Response({
+                'sentence_write_unavailable': True,
+                'message': "Let's come back to this one — try a different question.",
+            })
+
         state = request.session.get(self._SW_SESSION_KEY) or {}
         if state.get('question_id') != question.id:
             state = {'question_id': question.id, 'attempts': []}
         prior_attempts = state.get('attempts') or []
-
-        gave_up = bool(request.data.get('gave_up', False))
 
         max_revisions = _MAX_REVISIONS.get(question.question_type, 2)
         revisions_used = len(prior_attempts)  # each prior attempt was one submit
@@ -289,6 +347,15 @@ class SubmitAnswerView(APIView):
                 request, question, user_answer, judgment,
                 model_sentence=model_sentence,
             )
+
+        # Count this judge call before making it (a failed call still cost the
+        # attempt). incr() is atomic on shared caches; seed the key first since
+        # incr() raises on a missing key.
+        cache.add(judge_calls_key, 0, self._JUDGE_COUNT_TTL)
+        try:
+            cache.incr(judge_calls_key)
+        except ValueError:
+            cache.set(judge_calls_key, 1, self._JUDGE_COUNT_TTL)
 
         try:
             verdict = sentence_evaluation_service.evaluate_sentence(
@@ -370,6 +437,14 @@ class SubmitAnswerView(APIView):
                 is_retry=False, productive_judgment=judgment,
                 question=question,
             )
+        except DailyLimitReached:
+            # Raced past the cap between the top-of-handler check and here; the
+            # judge already ran, so drop this attempt without scoring or penalty.
+            self._clear_sw_state(request)
+            return Response({
+                'sentence_write_unavailable': True,
+                'message': "You've reached today's practice limit — great work!",
+            })
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_404_NOT_FOUND)
 
@@ -401,6 +476,15 @@ class SessionSummaryView(APIView):
                 {"error": "Invalid start_time format."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Floor the window: a practice session is same-day, so clamp start_time
+        # to at most 24h ago. Without this a client could pass an epoch date and
+        # force a full scan of the user's entire answer history every summary.
+        if timezone.is_naive(start_time):
+            start_time = timezone.make_aware(start_time, dt_timezone.utc)
+        earliest = timezone.now() - timedelta(hours=24)
+        if start_time < earliest:
+            start_time = earliest
 
         session_answers = UserAnswer.objects.filter(
             user=request.user, answered_at__gte=start_time,
@@ -453,6 +537,11 @@ class SessionSummaryView(APIView):
 class ApplySessionBonusesView(APIView):
     permission_classes = [IsAuthenticated]
 
+    # Session key holding the set of session_ids whose bonus was already applied.
+    # Bounded to the most recent few so it can't grow unbounded in the session.
+    _APPLIED_KEY = 'session_bonus_applied'
+    _APPLIED_KEEP = 20
+
     def post(self, request, *args, **kwargs):
         max_focus_streak = request.data.get('max_focus_streak', 0)
         try:
@@ -468,11 +557,29 @@ class ApplySessionBonusesView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Idempotency: the streak bonus is a once-per-session award. Without this
+        # a client could replay the call to stack +10 XP repeatedly. session_id
+        # is the client's session start timestamp (unique per practice session).
+        session_id = str(request.data.get('session_id') or '')
+        applied = request.session.get(self._APPLIED_KEY, [])
+        if session_id and session_id in applied:
+            return Response({
+                "success": "0 bonus XP applied successfully.",
+                "already_applied": True,
+            })
+
         focus_streak_bonus = min(max_focus_streak, 10)
         if focus_streak_bonus > 0:
             with transaction.atomic():
                 user = CustomUser.objects.select_for_update().get(pk=request.user.pk)
                 PracticeService.update_xp_and_level(user, focus_streak_bonus)
+
+        if session_id:
+            # Keep only the most recent ids (newest last) to bound session size.
+            request.session[self._APPLIED_KEY] = (
+                applied + [session_id]
+            )[-self._APPLIED_KEEP:]
+            request.session.modified = True
 
         return Response({
             "success": f"{focus_streak_bonus} bonus XP applied successfully.",

@@ -170,6 +170,8 @@ vocab_app_v2/
 1. `NextPracticeWordView` finds words where `next_review_at ≤now`, `instructional_status = READY`, with questions in the student's Lexile range or with NULL Lexile score, excluding words already answered in the current session.
 2. Selects a question matching the word's current mastery level and Lexile range. Hidden levels 6 and 7 ignore `suitable_levels` and can use any question for the word within the student's Lexile range.
 3. `PracticeService.process_answer()` processes the answer atomically:
+   - **Enforces the daily limit and READY gate on submit** (not just on serve): a non-retry submit past `daily_question_limit` raises `DailyLimitReached` → **HTTP 429** `{daily_limit_reached: True}`, and a submit for a word whose `instructional_status != 'READY'` raises (→404). Both close XP/mastery-farming paths where a replayed or guessed `question_id` was scored without a limit or unlock check.
+   - **Row-locked** to prevent lost updates under concurrent submits: `select_for_update(of=('self',))` on the `UserWordProgress` row (not the shared `MasteryLevel`) and `select_for_update()` on the re-fetched `CustomUser` before the streak/XP read-modify-write.
    - Correct: +1 mastery point. If accumulated points reach the current level's `points_to_promote`, promote to the next level.
    - Promotion uses accumulated mastery points; points are not reset on promotion.
    - Incorrect: -2 mastery points (min 0). If points fall below the previous level's promotion threshold, demote to the previous level.
@@ -177,16 +179,16 @@ vocab_app_v2/
    - Correct answers without enough timing history use `unclassified_correct`, which preserves the previous quality value of 1.2 and no interval factor.
    - When a baseline exists, fast/solid/slow correct answers are classified using the 25th and 80th percentile duration thresholds. A correct answer with `answer_switches > 0` is `switched_correct`.
    - Near-miss spelling typos return `is_typo=True` without recording an attempt. `SubmitAnswerView` stores a short-lived Django session flag, and the next first-attempt correct answer for that user/question becomes `typo_retry_correct`.
-   - **Sentence-writing questions take a separate submit path** (`SubmitAnswerView._handle_sentence_write`): an LLM judge verdicts each attempt; non-terminal misses return a coaching hint *without scoring* and the attempt is recorded server-side in the session (`_SW_SESSION_KEY` — one key, resets when the question changes; the client cannot reset the cap or spoof its history). Guided allows 3 revisions, Open 2; terminal outcomes (correct / give-up / revisions exhausted) score via `productive_correct` (first-try, +5 XP bonus) / `productive_recovered` (fragile) / `productive_missed` (softened: −1 point, no demotion). Judged submits are gated on `daily_question_limit` (pending misses record no `UserAnswer`); if the judge is unavailable the attempt is discarded without penalty and a circuit breaker (3 failures, incl. config errors → 5-min flag) makes the picker skip sentence-write types.
+   - **Sentence-writing questions take a separate submit path** (`SubmitAnswerView._handle_sentence_write`): an LLM judge verdicts each attempt; non-terminal misses return a coaching hint *without scoring* and the attempt is recorded server-side in the session (`_SW_SESSION_KEY` — one key, resets when the question changes; the client cannot reset the cap or spoof its history). Guided allows 3 revisions, Open 2; terminal outcomes (correct / give-up / revisions exhausted) score via `productive_correct` (first-try, +5 XP bonus) / `productive_recovered` (fragile) / `productive_missed` (softened: −1 point, no demotion). Judged submits are gated on `daily_question_limit` (pending misses record no `UserAnswer`) AND on a per-day judge-call budget (`sw_judge_calls:{user}:{date}` cache counter, `daily_question_limit × (max_revisions+1)`, give-up exempt) so abandon-and-cycle can't run unbounded judge LLM calls; a READY check runs before the judge (cost guard). If the judge is unavailable the attempt is discarded without penalty and a circuit breaker (3 failures, incl. config errors → 5-min flag) makes the picker skip sentence-write types.
    - Updates `learning_speed` (adaptive multiplier): `0.3 * quality + 0.7 * old_speed`. Quality/interval factors are: fast correct `1.25/1.15`, solid correct `1.10/1.00`, slow correct `0.85/0.85`, switched correct `0.90/0.85`, typo-retry correct `0.90/0.85`, incorrect `0.50/0.50`, unclassified correct `1.20/1.00`.
    - Updates `next_review_at = now + timedelta(days=max(1.0, interval_days * learning_speed * interval_factor))`. The 1-day minimum prevents same-day repeat reviews.
    - Fragile correct answers can still promote, but if they promote, the next interval is capped at `old_level_interval_days * old_learning_speed` before applying the 1-day floor.
-   - Awards XP: 5 base + 5 bonus (level ≤4) + 2 for new mastery.
+   - Awards XP: 5 base + 5 bonus (level ≤4) + 2 for new mastery. Client-reported `duration_seconds` (0–3600) and `answer_switches` (0–100) are clamped before feeding the response-quality classifier — they influence review *intervals* only, never XP directly.
    - Logs level changes to MasteryLevelLog.
-   - Student-facing mastery statistics suppress logs where the displayed level does not change, such as transitions among Mastered and hidden levels 6-7.
+   - Student-facing mastery statistics suppress logs where the displayed level does not change, such as transitions among Mastered and hidden levels 6-7. The submit response's `current_level_name` is masked to "Mastered" for hidden levels 6-7 (matching the dashboard), never the internal tier name.
    - Retries (`is_retry=True`) skip mastery/XP updates and only increment `retry_count`.
    - Submit responses include scheduling metadata: `response_quality`, `is_fragile`, `review_interval_days`, `next_review_at`, and `schedule_reason`.
-4. Session summary analyzes strengths (correct words) and weaknesses (incorrect words + skill tags).
+4. Session summary analyzes strengths (correct words) and weaknesses (incorrect words + skill tags). `start_time` is floored to 24h ago server-side (a session is same-day) so a crafted timestamp can't scan the full history. The end-of-session focus-streak bonus (`apply-bonuses/`) is idempotent per `session_id` — a replay returns `already_applied` with 0 XP.
 
 ### Instructional Flow (Primer → Graphic Novel / Infographic / Micro Story → Cloze)
 1. Teacher assigns a word set to students → creates UserWordProgress with `instructional_status=PENDING` for words in packs, `READY` for words not in packs. The assignment also records a per-student `content_type` (`graphic_novel`/`infographic`) chosen by the teacher in `AssignSetForm`. **Assignment is gated on published content**: a format is offered only if the word set has at least one pack whose candidate of that type is admin-selected (`is_selected=True`). `AssignSetForm` renders only the available format(s) (radios when both, a read-only label when one) and blocks assignment entirely if neither is published; the `assign/` endpoint enforces the same rule server-side, so a word set with no selected content cannot be assigned.
@@ -290,9 +292,9 @@ For the multi-pack GRAPHIC_NOVEL_SCRIPT step, resume is per-pack, **per-candidat
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/practice/next/?session_start=<iso>` | Next due word (respects daily limit, Lexile range, session dedup, instructional_status=READY) |
-| POST | `/api/practice/submit/` | Submit answer → mastery update, XP, streak, response-quality scheduling metadata |
-| POST | `/api/practice/session-summary/` | Strengths/weaknesses for a session |
-| POST | `/api/practice/apply-bonuses/` | Apply focus streak XP bonus |
+| POST | `/api/practice/submit/` | Submit answer → mastery update, XP, streak, response-quality scheduling metadata. Enforces `daily_question_limit` (**429** `{daily_limit_reached}`) and READY status (**404**) server-side; row-locked against concurrent double-submits |
+| POST | `/api/practice/session-summary/` | Strengths/weaknesses for a session (`start_time` floored to 24h ago) |
+| POST | `/api/practice/apply-bonuses/` | Apply focus streak XP bonus (idempotent per `session_id` — replay returns `already_applied`, 0 XP) |
 
 ### Student Dashboard
 | Method | Path | Description |

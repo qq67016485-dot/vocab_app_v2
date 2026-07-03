@@ -23,9 +23,20 @@ from vocabulary.models import (
     MasteryLevelLog,
 )
 from vocabulary.constants import QUESTION_TYPE_TO_SKILL_TAG
-from vocabulary.utils import get_tier_info, get_definition_translation
+from vocabulary.utils import (
+    get_tier_info, get_definition_translation, start_of_local_day,
+)
 
 logger = logging.getLogger(__name__)
+
+
+class DailyLimitReached(Exception):
+    """Raised when a submit would exceed the user's daily question limit.
+
+    The generic MC path never checked the limit (only the serve side did), so a
+    client could replay ``/submit/`` with a known ``question_id`` to farm XP and
+    mastery. Callers translate this into a friendly, capped response.
+    """
 
 
 class PracticeService:
@@ -306,17 +317,43 @@ class PracticeService:
         ``select_related('word')``) pass it in and skip the duplicate lookup.
         """
         with transaction.atomic():
-            if not is_retry:
-                cls.update_practice_streak(user)
-
             try:
                 if question is None:
                     question = Question.objects.select_related('word').get(id=question_id)
-                mastery_record = UserWordProgress.objects.select_related('level').get(
-                    user=user, word=question.word,
+                # Lock only this UserWordProgress row (of=('self',)) — locking the
+                # joined MasteryLevel would serialize every student's submits on
+                # the shared level rows. The lock closes the read-modify-write
+                # race where two concurrent submits for the same word both read
+                # the old mastery_points and one increment is lost.
+                mastery_record = (
+                    UserWordProgress.objects
+                    .select_for_update(of=('self',))
+                    .select_related('level')
+                    .get(user=user, word=question.word)
                 )
             except (Question.DoesNotExist, UserWordProgress.DoesNotExist):
                 raise ValueError("Question or mastery record not found.")
+
+            # Words in not-yet-completed packs stay PENDING; only READY words are
+            # in the SRS. The serve endpoint filters on this, but submit must too,
+            # or a client can score a guessed question_id for a locked word.
+            if mastery_record.instructional_status != 'READY':
+                raise ValueError("Question or mastery record not found.")
+
+            if not is_retry:
+                # Enforce the daily limit here (not just on the serve side) so a
+                # replayed question_id can't farm XP/mastery past the cap.
+                answers_today = UserAnswer.objects.filter(
+                    user=user, answered_at__gte=start_of_local_day(),
+                ).count()
+                if answers_today >= user.daily_question_limit:
+                    raise DailyLimitReached()
+
+                # Lock the user row before the streak + XP read-modify-write, for
+                # the same reason as the mastery lock above. Reuse the locked
+                # instance for all subsequent user mutations.
+                user = CustomUser.objects.select_for_update().get(pk=user.pk)
+                cls.update_practice_streak(user)
 
             level_before = mastery_record.level
 
@@ -514,10 +551,18 @@ class PracticeService:
                     response["correct_answer"] = question.correct_answers[0]
 
             if not is_retry:
+                # Levels 6-7 are hidden from students and surfaced as "Mastered"
+                # everywhere else (see dashboard_service); mask here too so this
+                # response can't leak an internal tier name if a UI wires it up.
+                current_level = mastery_record.level
+                current_level_name = (
+                    current_level.level_name
+                    if not current_level.is_hidden else "Mastered"
+                )
                 response.update({
                     "mastery_points": mastery_record.mastery_points,
                     "points_to_promote": mastery_record.level.points_to_promote,
-                    "current_level_name": mastery_record.level.level_name,
+                    "current_level_name": current_level_name,
                     "did_level_up_word": did_level_up_word,
                     "xp_earned": xp_earned,
                     "bonus_info": bonus_info,

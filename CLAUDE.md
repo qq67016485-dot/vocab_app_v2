@@ -48,6 +48,7 @@ backend/          Django project
 frontend/         React + Vite
   src/pages/      Role-based page components
   src/components/ Reusable UI components
+    practice/     Per-question-type renderers split out of PracticeView (Choice/SentenceWrite/Scramble/CorrectFeedbackBlock)
   src/context/    UserContext, ThemeContext
   src/api/        Axios config with CSRF interceptor
 docs/             Architecture docs, changelogs, feature plans
@@ -178,7 +179,9 @@ Frontend: build locally (`npm run build`), then `scp -r frontend/dist ubuntu@106
 
 ### SRS / student-facing
 - Response-quality-aware scheduling (fast/solid/slow affects intervals). Words go PENDING → READY on pack completion; only READY words enter SRS. Mastery 6–7 hidden from students (shown as "Mastered").
+- **Submit-path integrity** (`PracticeService.process_answer`): `daily_question_limit` is enforced here, not just on serve — a non-retry submit past the cap raises `DailyLimitReached` → 429 (retries exempt); a non-READY word raises → 404 (the sentence-write path re-checks READY before the judge LLM call). The `UserWordProgress` row (`select_for_update(of=('self',))`, NOT the shared `MasteryLevel`) and the re-fetched `CustomUser` are locked before the streak/XP read-modify-write (closes the lost-update race). Client `duration_seconds`/`answer_switches` are clamped; `current_level_name` is masked to "Mastered" for hidden levels. `apply-bonuses/` is idempotent per `session_id`; `session-summary` floors `start_time` to 24h. Sentence-write judge calls are also bounded per-day (`sw_judge_calls` cache counter = `daily_limit × (max_revisions+1)`, give-up exempt).
 - Primer `kid_friendly_definition` is a concise 3–8 word phrase (also the review-page definition source; fallback `WordDefinition` truncated to 8 words). Review page: no story title, story characters used.
+- Frontend `PracticeView.jsx` delegates each question type to `components/practice/` (`CorrectFeedbackBlock`, `SentenceWriteQuestion`, `ChoiceQuestion`, `ScrambleQuestion`). Submit has an `isSubmitting` ref double-tap guard; submit failures show a `submitError` banner (never `setFeedback({error})`, which traps the child in a dead form).
 
 ## Testing
 

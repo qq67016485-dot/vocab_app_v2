@@ -3,6 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import apiClient from '../../api/axiosConfig.js';
 import { useUser } from '../../context/UserContext.jsx';
 import TextToSpeechButton from '../../components/TextToSpeechButton.jsx';
+import CorrectFeedbackBlock from '../../components/practice/CorrectFeedbackBlock.jsx';
+import SentenceWriteQuestion from '../../components/practice/SentenceWriteQuestion.jsx';
+import ChoiceQuestion from '../../components/practice/ChoiceQuestion.jsx';
+import ScrambleQuestion from '../../components/practice/ScrambleQuestion.jsx';
 import { SKILL_TAG_DISPLAY_NAMES_STUDENT } from '../../constants/skillTags.js';
 import { useTranslationVisibility } from '../../hooks/useTranslationVisibility.js';
 import correctSfx from '../../assets/sounds/correct.mp3';
@@ -83,7 +87,7 @@ const ReasonDisplay = ({ category }) => {
 
 export default function PracticeView() {
   const navigate = useNavigate();
-  const { user, refreshUser } = useUser();
+  const { refreshUser } = useUser();
 
   const [question, setQuestion] = useState(null);
   const [userAnswer, setUserAnswer] = useState('');
@@ -107,6 +111,10 @@ export default function PracticeView() {
   const [typoHint, setTypoHint] = useState('');
   const [showKeepGoingPrompt, setShowKeepGoingPrompt] = useState(false);
   const [dailyGoalMax, setDailyGoalMax] = useState(50);
+  // Submit failure banner. Kept separate from `feedback` so a failed submit
+  // doesn't set a truthy feedback that would (a) render the scored UI and
+  // (b) permanently short-circuit the resubmit guard, trapping the student.
+  const [submitError, setSubmitError] = useState('');
 
   // Sentence-writing (productive, LLM-judged) state. The backend holds the
   // authoritative attempt history in the session (revision cap + fragility);
@@ -122,6 +130,7 @@ export default function PracticeView() {
   const { visibleTranslationTerm, handleShowTranslation } = useTranslationVisibility();
 
   const answerSwitchCount = useRef(0);
+  const isSubmitting = useRef(false);
   const isSubmittingRetry = useRef(false);
   const sessionStartTime = useRef(new Date().toISOString());
   const questionStartTimeRef = useRef(null);
@@ -135,8 +144,6 @@ export default function PracticeView() {
     bonuses: {},
     maxFocusStreak: 0,
     currentFocusStreak: 0,
-    leveledUp: false,
-    finalLevel: user?.level || 1,
   });
 
   const skillTagDisplayNames = SKILL_TAG_DISPLAY_NAMES_STUDENT;
@@ -200,6 +207,7 @@ export default function PracticeView() {
     setSwSentence('');
     setSwHint('');
     setSwAttempts(0);
+    setSubmitError('');
     answerSwitchCount.current = 0;
 
     try {
@@ -229,6 +237,7 @@ export default function PracticeView() {
       try {
         await apiClient.post('/practice/apply-bonuses/', {
           max_focus_streak: focusStreakValue,
+          session_id: sessionStartTime.current,
         });
       } catch (error) {
         console.error('Could not apply session bonuses:', error);
@@ -265,7 +274,12 @@ export default function PracticeView() {
   };
 
   const handleAnswerSubmission = async (answerToSubmit) => {
-    if (!question || feedback || !answerToSubmit) return;
+    // `feedback` only becomes truthy after the await resolves, so on its own it
+    // can't stop a rapid double-tap (both taps see it null and both POST, which
+    // the server would score twice). The ref closes that window synchronously.
+    if (!question || feedback || !answerToSubmit || isSubmitting.current) return;
+    isSubmitting.current = true;
+    setSubmitError('');
 
     const endTime = new Date();
     const durationMillis = endTime - questionStartTimeRef.current;
@@ -279,6 +293,11 @@ export default function PracticeView() {
         answer_switches: answerSwitchCount.current,
       });
       const data = response.data;
+
+      if (data.daily_limit_reached) {
+        setFinishMessage(data.message || "You've reached today's practice limit. Great work!");
+        return;
+      }
 
       if (data.is_typo) {
         setTypoHint(data.message || 'Almost! Check your spelling and try again.');
@@ -311,11 +330,6 @@ export default function PracticeView() {
 
         stats.currentFocusStreak++;
         stats.maxFocusStreak = Math.max(stats.maxFocusStreak, stats.currentFocusStreak);
-
-        if (data.did_level_up_user) {
-          stats.leveledUp = true;
-          stats.finalLevel++;
-        }
       } else {
         stats.currentFocusStreak = 0;
         setRetryMode(true);
@@ -327,7 +341,18 @@ export default function PracticeView() {
       }
     } catch (error) {
       console.error('Error submitting answer:', error);
-      setFeedback({ error: 'Could not submit answer.' });
+      if (error?.response?.status === 429) {
+        setFinishMessage(
+          error.response.data?.message
+          || "You've reached today's practice limit. Great work!",
+        );
+      } else {
+        // Leave `feedback` null so the input + submit stay usable; show a
+        // friendly banner instead of trapping the student in a dead form.
+        setSubmitError("We couldn't submit that answer. Check your connection and try again.");
+      }
+    } finally {
+      isSubmitting.current = false;
     }
   };
 
@@ -399,15 +424,14 @@ export default function PracticeView() {
       }
       stats.currentFocusStreak++;
       stats.maxFocusStreak = Math.max(stats.maxFocusStreak, stats.currentFocusStreak);
-      if (data.did_level_up_user) {
-        stats.leveledUp = true;
-        stats.finalLevel++;
-      }
       setCorrectMessage(getCorrectMessage(selfCorrected));
-      setTimeout(() => setFeedbackReady(true), 50);
     } else {
       stats.currentFocusStreak = 0;
     }
+    // Gate the terminal "Next Question" button (both correct and incorrect):
+    // the textarea it replaces was focused, so a delayed tabIndex flip stops
+    // the just-submitted Enter keypress from immediately activating the button.
+    setTimeout(() => setFeedbackReady(true), 50);
   };
 
   const submitSentenceWrite = async (sentenceText, { gaveUp = false } = {}) => {
@@ -416,6 +440,7 @@ export default function PracticeView() {
     swSubmittingRef.current = true;
     setSwBusy(true);
     setSwHint('');
+    setSubmitError('');
 
     try {
       // Attempt history lives server-side in the session; the backend caps
@@ -426,6 +451,11 @@ export default function PracticeView() {
         gave_up: gaveUp,
       });
       const data = response.data;
+
+      if (data.daily_limit_reached) {
+        setFinishMessage(data.message || "You've reached today's practice limit. Great work!");
+        return;
+      }
 
       if (data.sentence_write_unavailable) {
         // Judge is down — discard silently and move to a different question.
@@ -456,7 +486,14 @@ export default function PracticeView() {
       setFeedback(data);
     } catch (error) {
       console.error('Error submitting sentence:', error);
-      setFeedback({ error: 'Could not submit answer.' });
+      if (error?.response?.status === 429) {
+        setFinishMessage(
+          error.response.data?.message
+          || "You've reached today's practice limit. Great work!",
+        );
+      } else {
+        setSubmitError("We couldn't check that sentence. Check your connection and try again.");
+      }
     } finally {
       swSubmittingRef.current = false;
       setSwBusy(false);
@@ -512,6 +549,16 @@ export default function PracticeView() {
     if (finishMessage && !sessionSummary) handleFinishSession();
   }, [finishMessage, sessionSummary]);
 
+  const MC_QUESTION_TYPES = [
+    'DEFINITION_MC_SINGLE', 'SYNONYM_MC_SINGLE', 'ANTONYM_MC_SINGLE',
+    'CONTEXT_MC_SINGLE', 'COLLOCATION_MC_SINGLE', 'ODD_ONE_OUT_MC_SINGLE',
+    'WORD_FORM_MC', 'CONCEPTUAL_ASSOCIATION_MC_SINGLE',
+    'REVERSE_DEFINITION_MC', 'SYNONYM_IN_CONTEXT_MC',
+    'REVERSE_SYNONYM_IN_CONTEXT_MC', 'APPLICATION_MC',
+    'REVERSE_ASSOCIATION_MC', 'REVERSE_COLLOCATION_MC',
+    'NUANCE_CONTRAST_MC',
+  ];
+
   const renderQuestionInput = () => {
     if (!question) return null;
 
@@ -523,79 +570,16 @@ export default function PracticeView() {
     const nextLabel = isLastQuestion ? 'Finish Session' : 'Next Question';
 
     const correctFeedbackBlock = correctDone ? (
-      <div className="correct-inline-feedback" style={{ marginTop: '20px' }}>
-        {!showExplanation ? (
-          <>
-            <p className="correct-encouragement">{correctMessage || 'Correct!'}</p>
-            <div className="correct-actions">
-              <button
-                className="correct-action-btn outline"
-                onClick={() => setShowExplanation(true)}
-                type="button"
-                tabIndex={feedbackReady ? 0 : -1}
-              >
-                Explain
-              </button>
-              <button
-                className="correct-action-btn filled"
-                onClick={fetchNextQuestion}
-                type="button"
-                tabIndex={feedbackReady ? 0 : -1}
-              >
-                {nextLabel}
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            {feedbackSource.explanation && (
-              <div className="feedback-block explain">
-                <div className="block-title">
-                  Explanation
-                  <TextToSpeechButton textToSpeak={feedbackSource.explanation} />
-                </div>
-                <p className="block-body">
-                  <em>{feedbackSource.explanation}</em>
-                </p>
-              </div>
-            )}
-            {feedbackSource.example_sentence && (
-              <div className="feedback-block example">
-                <div className="block-title">
-                  Example
-                  <TextToSpeechButton textToSpeak={feedbackSource.example_sentence} />
-                </div>
-                <p className="block-body">{feedbackSource.example_sentence}</p>
-              </div>
-            )}
-            <p className="correct-encouragement">{correctMessage || 'Correct!'}</p>
-            <button
-              className="correct-action-btn filled"
-              onClick={fetchNextQuestion}
-              type="button"
-              style={{ width: '100%' }}
-            >
-              {nextLabel}
-            </button>
-          </>
-        )}
-      </div>
+      <CorrectFeedbackBlock
+        showExplanation={showExplanation}
+        setShowExplanation={setShowExplanation}
+        correctMessage={correctMessage}
+        feedbackReady={feedbackReady}
+        feedbackSource={feedbackSource}
+        fetchNextQuestion={fetchNextQuestion}
+        nextLabel={nextLabel}
+      />
     ) : null;
-
-    const mcQuestionTypes = [
-      'DEFINITION_MC_SINGLE', 'SYNONYM_MC_SINGLE', 'ANTONYM_MC_SINGLE',
-      'CONTEXT_MC_SINGLE', 'COLLOCATION_MC_SINGLE', 'ODD_ONE_OUT_MC_SINGLE',
-      'WORD_FORM_MC', 'CONCEPTUAL_ASSOCIATION_MC_SINGLE',
-      'REVERSE_DEFINITION_MC', 'SYNONYM_IN_CONTEXT_MC',
-      'REVERSE_SYNONYM_IN_CONTEXT_MC', 'APPLICATION_MC',
-      'REVERSE_ASSOCIATION_MC', 'REVERSE_COLLOCATION_MC',
-      'NUANCE_CONTRAST_MC',
-    ];
-
-    const handleMcOptionClick = (option) => {
-      if (userAnswer && userAnswer !== option) answerSwitchCount.current += 1;
-      setUserAnswer(option);
-    };
 
     // Type-to-spell: when answer is the target word and Lexile > 600,
     // show options as read-only reference and require typing the answer
@@ -627,254 +611,65 @@ export default function PracticeView() {
       question.question_type === 'SENTENCE_WRITE_GUIDED' ||
       question.question_type === 'SENTENCE_WRITE_OPEN'
     ) {
-      const sw = question.sentence_write || {};
-      const feedbackDone = feedback && !feedback.error;
-      const maxRevisions = sw.max_revisions ?? 2;
-      const revisionsLeft = Math.max(0, maxRevisions - swAttempts);
-      const canRevise = revisionsLeft > 0 && !feedbackDone;
-
-      if (feedbackDone) {
-        return (
-          <div className="sentence-write">
-            <div className={`sw-verdict ${feedback.is_correct ? 'correct' : 'missed'}`}>
-              <p className="correct-encouragement">
-                {feedback.is_correct ? (correctMessage || 'Nicely done!') : "Good effort — here's a strong example:"}
-              </p>
-              {feedback.hint && <p className="sw-hint-final"><em>{feedback.hint}</em></p>}
-              {feedback.model_sentence && (
-                <div className="feedback-block example">
-                  <div className="block-title">
-                    Example sentence
-                    <TextToSpeechButton textToSpeak={feedback.model_sentence} />
-                  </div>
-                  <p className="block-body">{feedback.model_sentence}</p>
-                </div>
-              )}
-            </div>
-            <button
-              className="correct-action-btn filled"
-              onClick={fetchNextQuestion}
-              type="button"
-              style={{ width: '100%', marginTop: '16px' }}
-            >
-              {isLastQuestion ? 'Finish Session' : 'Next Question'}
-            </button>
-          </div>
-        );
-      }
-
       return (
-        <div className="sentence-write">
-          {sw.definition && (
-            <div className="sw-definition">
-              <span className="sw-def-label">{question.term_text}</span>
-              <span className="sw-def-text">{sw.definition}</span>
-              <TextToSpeechButton textToSpeak={`${question.term_text}. ${sw.definition}`} />
-            </div>
-          )}
-          {swHint ? (
-            <div className="retry-encouragement-banner">
-              <span className="retry-encouragement-text">
-                {incorrectMessage || 'Almost — try again!'}
-              </span>
-            </div>
-          ) : null}
-          {swHint && (
-            <div className="retry-hint-block">
-              <div className="block-title">
-                Hint
-                <TextToSpeechButton textToSpeak={swHint} />
-              </div>
-              <p className="block-body"><em>{swHint}</em></p>
-            </div>
-          )}
-          {sw.sentence_starter && !swHint && (
-            <p className="sw-starter">Try starting with: <em>{sw.sentence_starter}</em></p>
-          )}
-          <form
-            onSubmit={(e) => { e.preventDefault(); submitSentenceWrite(swSentence); }}
-          >
-            <textarea
-              className="sw-textarea"
-              value={swSentence}
-              onChange={(e) => setSwSentence(e.target.value)}
-              placeholder={swAttempts > 0
-                ? 'Rewrite your sentence...'
-                : `Write a sentence using "${question.term_text}"...`}
-              rows={3}
-              autoFocus
-            />
-            <div className="sw-actions">
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={!swSentence.trim() || swBusy}
-              >
-                {swBusy ? 'Checking…' : (swAttempts > 0 ? 'Try Again' : 'Submit')}
-              </button>
-              {swAttempts > 0 && (
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => submitSentenceWrite(swSentence, { gaveUp: true })}
-                  disabled={swBusy}
-                >
-                  Show me an example
-                </button>
-              )}
-            </div>
-            {!canRevise && swAttempts > 0 && (
-              <p className="sw-note">Last try — this one counts.</p>
-            )}
-          </form>
-        </div>
+        <SentenceWriteQuestion
+          question={question}
+          feedback={feedback}
+          correctMessage={correctMessage}
+          incorrectMessage={incorrectMessage}
+          feedbackReady={feedbackReady}
+          isLastQuestion={isLastQuestion}
+          swSentence={swSentence}
+          setSwSentence={setSwSentence}
+          swHint={swHint}
+          swAttempts={swAttempts}
+          swBusy={swBusy}
+          submitSentenceWrite={submitSentenceWrite}
+          fetchNextQuestion={fetchNextQuestion}
+        />
       );
     }
 
     if (
       question.question_type === 'DEFINITION_TRUE_FALSE' ||
-      mcQuestionTypes.includes(question.question_type)
+      MC_QUESTION_TYPES.includes(question.question_type)
     ) {
       const choices =
         question.question_type === 'DEFINITION_TRUE_FALSE' ? ['True', 'False'] : optionsArray;
-
-      if (isTypeToSpell) {
-        return (
-          <form onSubmit={handleSubmit}>
-            <div className="mc-options-container">
-              {choices.map((option, index) => (
-                <div key={index} className="mc-option-button reference">
-                  {option}
-                </div>
-              ))}
-            </div>
-            {retryHintBlock}
-            {typoHint && (
-              <div className="typo-hint">{typoHint}</div>
-            )}
-            {!correctDone && (
-              <input
-                type="text"
-                className={`type-to-spell-input${typoHint ? ' typo-shake' : ''}`}
-                placeholder={retryMode ? "Try typing the word again..." : "Type the correct word..."}
-                value={userAnswer || ''}
-                onChange={(e) => { setUserAnswer(e.target.value); setTypoHint(''); }}
-                autoFocus
-              />
-            )}
-            {correctDone ? correctFeedbackBlock : userAnswer && (
-              <button type="submit" className="btn btn-primary" style={{ marginTop: '20px', width: '100%' }}>
-                {retryMode ? 'Try Again' : 'Submit'}
-              </button>
-            )}
-          </form>
-        );
-      }
-
       return (
-        <form onSubmit={handleSubmit}>
-          <div
-            className={
-              question.question_type === 'DEFINITION_TRUE_FALSE'
-                ? 'tf-options-container'
-                : 'mc-options-container'
-            }
-          >
-            {choices.map((option, index) => {
-              const isWrong = wrongOptions.includes(option);
-              const isCorrectOption = correctDone && userAnswer === option;
-              return (
-                <button
-                  key={index}
-                  type="button"
-                  className={`mc-option-button ${isCorrectOption ? 'correct-answer' : userAnswer === option ? 'selected' : ''}${isWrong ? ' wrong-answer' : ''}`}
-                  onClick={() => handleMcOptionClick(option)}
-                  disabled={isWrong || correctDone}
-                >
-                  {option}
-                </button>
-              );
-            })}
-          </div>
-          {retryHintBlock}
-          {correctDone ? correctFeedbackBlock : (
-            <>
-              {retryMode && wrongOptions.length >= choices.length && (
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  style={{ marginTop: '20px', width: '100%' }}
-                  onClick={fetchNextQuestion}
-                >
-                  {nextLabel}
-                </button>
-              )}
-              {userAnswer && (
-                <button type="submit" className="btn btn-primary" style={{ marginTop: '20px', width: '100%' }}>
-                  {retryMode ? 'Try Again' : 'Submit'}
-                </button>
-              )}
-            </>
-          )}
-        </form>
+        <ChoiceQuestion
+          question={question}
+          choices={choices}
+          isTypeToSpell={isTypeToSpell}
+          userAnswer={userAnswer}
+          setUserAnswer={setUserAnswer}
+          wrongOptions={wrongOptions}
+          correctDone={correctDone}
+          retryMode={retryMode}
+          typoHint={typoHint}
+          setTypoHint={setTypoHint}
+          answerSwitchCount={answerSwitchCount}
+          handleSubmit={handleSubmit}
+          fetchNextQuestion={fetchNextQuestion}
+          nextLabel={nextLabel}
+          retryHintBlock={retryHintBlock}
+          correctFeedbackBlock={correctFeedbackBlock}
+        />
       );
     }
 
     if (question.question_type === 'SENTENCE_SCRAMBLE') {
-      const initialWords = optionsArray.map((text, index) => ({ id: index, text }));
-      const availableWords = initialWords.filter(
-        (w) => !scrambledAttempt.some((aw) => aw.id === w.id),
-      );
-      const handleWordBankClick = (word) => setScrambledAttempt([...scrambledAttempt, word]);
-      const handleAttemptClick = (wordToRemove) =>
-        setScrambledAttempt(scrambledAttempt.filter((w) => w.id !== wordToRemove.id));
-
       return (
-        <form onSubmit={handleSubmit}>
-          {retryHintBlock}
-          <div className="scramble-container">
-            <div className="scramble-attempt-box">
-              {scrambledAttempt.length > 0 ? (
-                scrambledAttempt.map((word) => (
-                  <button
-                    type="button"
-                    key={word.id}
-                    className="scramble-word-tile attempt"
-                    onClick={() => handleAttemptClick(word)}
-                  >
-                    {word.text}
-                  </button>
-                ))
-              ) : (
-                <span className="scramble-placeholder">
-                  Click words below to build your sentence...
-                </span>
-              )}
-            </div>
-            <div className="scramble-word-bank">
-              {availableWords.map((word) => (
-                <button
-                  type="button"
-                  key={word.id}
-                  className="scramble-word-tile"
-                  onClick={() => handleWordBankClick(word)}
-                >
-                  {word.text}
-                </button>
-              ))}
-            </div>
-          </div>
-          {correctDone ? correctFeedbackBlock : (
-            <div className="scramble-controls">
-              <button type="button" className="secondary-button" onClick={() => setScrambledAttempt([])}>
-                Reset
-              </button>
-              <button type="submit" disabled={scrambledAttempt.length === 0}>
-                {retryMode ? 'Try Again' : 'Submit'}
-              </button>
-            </div>
-          )}
-        </form>
+        <ScrambleQuestion
+          optionsArray={optionsArray}
+          scrambledAttempt={scrambledAttempt}
+          setScrambledAttempt={setScrambledAttempt}
+          correctDone={correctDone}
+          retryMode={retryMode}
+          handleSubmit={handleSubmit}
+          retryHintBlock={retryHintBlock}
+          correctFeedbackBlock={correctFeedbackBlock}
+        />
       );
     }
 
@@ -1030,6 +825,11 @@ export default function PracticeView() {
             <ReasonDisplay category={question.reason_category} />
           </div>
         </div>
+        {submitError && (
+          <div className="submit-error-banner" role="alert">
+            <span>{submitError}</span>
+          </div>
+        )}
         {renderQuestionInput()}
       </div>
     );

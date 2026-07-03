@@ -196,6 +196,16 @@
   font-size: 18px;
   text-align: center;
 }
+[data-app="student"] .submit-error-banner {
+  margin: 14px 0;
+  padding: 12px 16px;
+  border-radius: var(--radius-btn);
+  background: #fee2e2;
+  border: 1px solid #ef4444;
+  color: #991b1b;
+  font-size: 18px;
+  text-align: center;
+}
 [data-app="student"] .type-to-spell-input.typo-shake {
   border-color: #f59e0b;
   animation: shake 0.4s ease;

@@ -18,6 +18,8 @@ Status: Updated 2026-07-03
 | 5 | Pagination on list endpoints | Pending | `/api/words/`, `/api/word-sets/`, `/api/groups/` return all rows. |
 | 6 | Database indexes on frequently queried FKs | Done | 2026-05-31 (migration 0030): `UserAnswer` `(user, answered_at)` + `(user, is_correct)` + `(question, answered_at)`. 2026-07-03 (migration 0040): `Question` `(word, lexile_score)` (covers the `Question.word` gap) and `UserWordProgress` `(user, instructional_status, next_review_at)` replacing `(user, instructional_status)`; `(user, next_review_at)` kept. |
 | 7 | React error boundary | Done | `ErrorBoundary` wraps entire app in `App.jsx`. Shows fallback UI + reload button. |
+| 18 | Practice-submit scoring integrity | Done | 2026-07-03 review: `daily_question_limit` + READY gate now enforced inside `process_answer` (was serve-only → replayed `question_id` farmed XP/mastery, incl. locked-pack words); row-locked against concurrent double-submits; `duration_seconds`/`answer_switches` clamped; hidden level name masked; sentence-write judge calls bounded per-day; `apply-bonuses` idempotent per session; `session-summary` start_time floored. Frontend double-tap guard + non-trapping error banner. |
+| 19 | Session cookie SameSite/Secure hardening | Done | 2026-07-03: explicit `SESSION_COOKIE_SAMESITE`/`CSRF_COOKIE_SAMESITE='Lax'` + `*_SECURE = not DEBUG` + `SESSION_COOKIE_HTTPONLY` — the cross-site defense for the CSRF-exempt session auth is no longer an implicit default. **Note:** DRF still has no per-endpoint throttling beyond login (`/practice/submit/` relies on the daily limit); a global throttle remains a defense-in-depth gap. |
 
 ## Medium
 

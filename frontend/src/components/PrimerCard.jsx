@@ -32,6 +32,15 @@ export default function PrimerCard({ card, index, total, onNext }) {
         audioRef.current = audio;
       } catch { /* ignore */ }
     }
+
+    // Stop this card's pronunciation when the card changes or unmounts, or a
+    // fast "Next Word" tapper stacks overlapping audio across cards.
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
   }, [card, index]);
 
   const handleGotIt = () => {
