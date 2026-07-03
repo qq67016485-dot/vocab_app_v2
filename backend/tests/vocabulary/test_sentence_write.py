@@ -223,6 +223,50 @@ class TestSentenceJudge:
 
     @patch('vocabulary.services.sentence_evaluation_service._call_llm_with_config')
     @patch('vocabulary.services.sentence_evaluation_service.get_step_config')
+    def test_hints_array_capped_and_joined(self, mock_cfg, mock_llm):
+        # The judge returns 1–3 coaching bullets. Extras beyond 3 are dropped,
+        # blanks filtered, and `hint` is the joined string (back-compat/TTS).
+        mock_cfg.return_value = {'primary': {'model': 'm', 'provider_type': 'gemini_native'}}
+        mock_llm.return_value = {
+            'verdict': 'almost', 'error_type': 'spelling',
+            'hints': ['Right word!', '', 'Check the spelling.', 'Fix "I were".', 'extra'],
+        }
+        with patch('vocabulary.services.llm_service.load_prompt_template', return_value='t'):
+            result = judge.evaluate_sentence(self._question(), 'the glass is gragile.')
+        assert result['hints'] == ['Right word!', 'Check the spelling.', 'Fix "I were".']
+        assert result['hint'] == 'Right word! Check the spelling. Fix "I were".'
+
+    @patch('vocabulary.services.sentence_evaluation_service._call_llm_with_config')
+    @patch('vocabulary.services.sentence_evaluation_service.get_step_config')
+    def test_legacy_single_hint_becomes_one_bullet(self, mock_cfg, mock_llm):
+        # A model that still emits a single `hint` string is normalized to a
+        # one-item hints array.
+        mock_cfg.return_value = {'primary': {'model': 'm', 'provider_type': 'gemini_native'}}
+        mock_llm.return_value = {'verdict': 'correct', 'error_type': 'none', 'hint': 'Great!'}
+        with patch('vocabulary.services.llm_service.load_prompt_template', return_value='t'):
+            result = judge.evaluate_sentence(self._question(), 'I was meticulous.')
+        assert result['hints'] == ['Great!']
+        assert result['hint'] == 'Great!'
+
+    @patch('vocabulary.services.sentence_evaluation_service._call_llm_with_config')
+    @patch('vocabulary.services.sentence_evaluation_service.get_step_config')
+    def test_spelling_error_type_preserved(self, mock_cfg, mock_llm):
+        # A misspelled word (target or otherwise) is a soft 'almost'/'spelling'
+        # miss, not 'correct'. The new error_type must survive normalization
+        # rather than being coerced to a generic value.
+        mock_cfg.return_value = {'primary': {'model': 'm', 'provider_type': 'gemini_native'}}
+        mock_llm.return_value = {
+            'verdict': 'almost', 'error_type': 'spelling',
+            'hint': "Right word! Check its spelling.",
+        }
+        with patch('vocabulary.services.llm_service.load_prompt_template', return_value='t'):
+            result = judge.evaluate_sentence(self._question(), 'the glass is gragile.')
+        assert result['verdict'] == 'almost'
+        assert result['error_type'] == 'spelling'
+        assert result['is_correct'] is False
+
+    @patch('vocabulary.services.sentence_evaluation_service._call_llm_with_config')
+    @patch('vocabulary.services.sentence_evaluation_service.get_step_config')
     def test_unknown_verdict_normalized_to_incorrect(self, mock_cfg, mock_llm):
         mock_cfg.return_value = {'primary': {'model': 'm', 'provider_type': 'gemini_native'}}
         mock_llm.return_value = {'verdict': 'banana', 'hint': 'x'}

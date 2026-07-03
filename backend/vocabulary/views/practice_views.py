@@ -390,6 +390,7 @@ class SubmitAnswerView(APIView):
                 'verdict': verdict['verdict'],
                 'error_type': verdict['error_type'],
                 'hint': verdict['hint'],
+                'hints': verdict.get('hints') or ([verdict['hint']] if verdict['hint'] else []),
                 'attempts_used': revisions_used + 1,
                 'revisions_left': max_revisions - revisions_used,
             })
@@ -413,6 +414,7 @@ class SubmitAnswerView(APIView):
                 'verdict': verdict['verdict'],
                 'error_type': verdict['error_type'],
                 'hint': verdict['hint'],
+                'hints': verdict.get('hints') or ([verdict['hint']] if verdict['hint'] else []),
                 'attempts': revisions_used + 1,
                 'gave_up': False,
             },
@@ -453,6 +455,9 @@ class SubmitAnswerView(APIView):
             response_data['verdict'] = verdict['verdict']
             response_data['error_type'] = verdict['error_type']
             response_data['hint'] = verdict['hint']
+            response_data['hints'] = (
+                verdict.get('hints') or ([verdict['hint']] if verdict['hint'] else [])
+            )
         if model_sentence:
             response_data['model_sentence'] = model_sentence
         return Response(response_data)

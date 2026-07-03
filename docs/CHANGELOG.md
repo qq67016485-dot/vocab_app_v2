@@ -2,6 +2,29 @@
 
 All notable changes to Vocab App V2 are documented in this file.
 
+## [Unreleased] - 2026-07-03 (sentence-writing judge strictness + feedback UX)
+
+### Context
+- Iterative tuning of the sentence-writing answer-time judge and student feedback UI, driven by manual testing (typos + grammar mistakes were being marked fully correct). All decisions made with the user. Pure prompt/service/frontend changes — no migration.
+
+### Changed — Judge now grades spelling
+- `sentence_judge.txt` gained a **Spelling** rubric rule: a clear letter-level misspelling — the target word ("gragile" for "fragile") **or any other word** ("wrop" for "wrap") — keeps a sentence from being `correct` → `almost` with the new `error_type='spelling'`. A misspelled *target word* can **never** be `correct` (the student hasn't produced the taught word). Spelling alone is never `incorrect`. Capitalization/punctuation/spacing are still forgiven. `spelling` added to `VALID_ERROR_TYPES` in `sentence_evaluation_service.py` (the frontend doesn't branch on `error_type`, and scoring keys off `verdict`/`quality_rule`, so the new value is additive).
+
+### Changed — Grammar feedback is notice-only (never blocks)
+- Grammar unrelated to the target word still never lowers the verdict or triggers `incorrect`. But the judge now surfaces **one** clear, basic subject–verb/be-verb agreement error ("I were"→"I was", "my friends asks"→"my friends ask") as a separate coaching bullet. It explicitly does NOT flag articles, prepositions, word-order wobble, or punctuation. Rationale (ESL pedagogy): focused feedback beats comprehensive correction; protect the affective filter on a *productive* task; and LLM grammar judgment on child ESL writing is too unreliable to gate on (spelling is objective, grammar isn't).
+
+### Changed — Coaching hints are now a bullet array (max 3)
+- The judge output moved from a single `hint` string to a **`hints` array of 1–3 bullets** (cap enforced server-side in `_normalize_verdict`, not just the prompt): bullet 1 = word-focused feedback per `error_type`, bullets 2–3 = distinct spelling/grammar tips only when real (never padded). A joined `hint` string is retained for back-compat, TTS, and `UserAnswer.judge_result`. `practice_views.py` returns `hints` in the pending-miss response, terminal response, and `judge_result` (defensive `.get`, so older/mocked verdicts without `hints` fall back to `[hint]`). Frontend renders 1 bullet as a plain line, 2–3 as a `<ul>`.
+
+### Added — Student's sentence shown in feedback
+- The textarea is cleared on submit (fresh rewrite), so neither the revision view nor the terminal panel showed what the student wrote. Added `swLastSentence` state (`PracticeView.jsx`) → a **"You wrote"** quote above the hint in the revision view and a **"Your sentence"** block on the terminal panel beside the example (the side-by-side comparison is the noticing moment). The kid-friendly definition anchor stays shown on **both** guided and open variants (kept deliberately — this is a production task, not a recall task).
+
+### Added — Manual test harness
+- `python manage.py seed_sentence_write_test [--student … --password … --reset]` seeds a student (`swtest`/`testpass123` by default) with 3 words carrying guided+open sentence-write questions and READY progress rows due now (guided served at L4, open at L5), so the student flow is exercisable **without** running the LLM generation pipeline. The judge itself still needs a live `sentence_judge` LLM config.
+
+### Tests
+- `test_sentence_write.py`: +3 (spelling `error_type` preserved through normalization, `hints` array cap-3 + join, legacy single-`hint` → one-bullet fallback); full sentence-write suite 28 passing. Frontend `npm run build` compiles, lint clean (0 errors, 8 accepted baseline warnings). Prompt edits apply immediately (template loaded per judge call).
+
 ## [Unreleased] - 2026-07-03 (student practice/instructional review: XP-farming + scoring-integrity hardening)
 
 ### Context

@@ -75,8 +75,8 @@ One judge call per attempt returns structured output:
 
 ```
 verdict:        correct | almost | incorrect
-error_type:     wrong_meaning | wrong_form | echo_definition | off_scenario | none
-hint:           a metalinguistic nudge — NOT the answer
+error_type:     wrong_meaning | wrong_form | spelling | echo_definition | off_scenario | none
+hints:          1–3 short metalinguistic bullets — NOT the answer (was a single `hint` string before 2026-07-03; joined `hint` kept for back-compat)
 model_sentence: withheld; revealed only at the terminal step
 ```
 
@@ -84,10 +84,11 @@ Rubric priority (ordered — the judge weighs them in this order):
 
 1. **Semantic correctness (dominant)** — is the word used consistently with its meaning? This is the thing actually tested.
 2. **Word-form correctness (secondary)** — is the target word in a grammatically valid form?
-3. **Genuine use vs. echo** — reject definition restatements ("Meticulous means very careful") and empty frames ("This is meticulous").
-4. **Scenario adherence** — if a scenario was given.
+3. **Spelling (2026-07-03)** — a clear letter-level misspelling of the target word or any other word can't be `correct` → `almost`/`spelling`; a misspelled *target word* is never `correct`; spelling alone is never `incorrect`. Capitalization/punctuation/spacing are still forgiven.
+4. **Genuine use vs. echo** — reject definition restatements ("Meticulous means very careful") and empty frames ("This is meticulous").
+5. **Scenario adherence** — if a scenario was given.
 
-**Unrelated minor grammar errors (missing article, tense slip) never fail the item.** Failing an ESL child's correct vocab use over an article teaches the wrong lesson.
+**Unrelated minor grammar errors (missing article, tense slip) never fail the item.** Failing an ESL child's correct vocab use over an article teaches the wrong lesson. **Grammar noticing (2026-07-03):** grammar still never changes the verdict, but ONE clear basic subject–verb/be-verb agreement error ("I were"→"I was") is now surfaced as an extra coaching bullet (notice-only; never articles/prepositions/punctuation).
 
 ### 2.4 Correction flow — the core
 
@@ -263,6 +264,14 @@ Two-part semantics:
 6. **XP → +5 bonus** (`bonus_info['sentence_writing']`) on a clean first-try correct, on top of the standard +5 / +5 L4 bonus.
 7. **Revision loop → SERVER-TRACKED** (revised 2026-07-03; originally shipped frontend-driven). The original design had the client hold and post `prior_attempts`, with the backend "validating" the cap against that client-supplied list — which made the cap, the fragility decision, and the first-try XP bonus spoofable, and let pending misses call the judge LLM without bound (they record no `UserAnswer`, so the daily limit never engaged). Since 2026-07-03 the attempt history lives in the session (`SubmitAnswerView._SW_SESSION_KEY`, one key, resets on question change — the typo-retry pattern); the body's `prior_attempts` is ignored, judged submits are gated on `daily_question_limit`, and pending responses return server-truth `attempts_used`/`revisions_left` for display. Caps unchanged (Guided 3 / Open 2); only the terminal step scores.
 8. **Judge-down → SKIP.** Circuit breaker (`sentence_evaluation_service`): 3 consecutive failures flip a 5-min cache flag; `NextPracticeWordView` excludes sentence-write types while unhealthy, and a submit-time failure discards without penalty. Since 2026-07-03 an `LLMConfigError` (missing/broken `sentence_judge` step config) also counts toward the threshold — previously it bypassed the breaker, so an unjudgeable question could be served in a loop.
+
+**Resolved 2026-07-03 (judge strictness + feedback UX; prompt/service/frontend only, no migration):**
+
+9. **Spelling → GRADED.** A clear misspelling of the target word or any other word blocks `correct` → `almost` with the new `error_type='spelling'` (added to `VALID_ERROR_TYPES`); a misspelled target word is never `correct`; spelling alone is never `incorrect`; capitalization/punctuation forgiven. (User chose "all noticeable typos," not target-word-only.)
+10. **Grammar → NOTICE-ONLY.** Never changes the verdict; one clear basic agreement error is surfaced as an extra coaching bullet. Articles/prepositions/word-order/punctuation are not flagged. Rationale: focused feedback, affective filter, and not gating a vocab task on unreliable LLM grammar judgment.
+11. **Coaching → `hints` ARRAY (max 3).** Judge emits `hints` (1–3 bullets); `_normalize_verdict` clamps + hard-caps at 3 and keeps a joined `hint` for back-compat/TTS/`judge_result`. Cap of 3 was the product call (2 was proposed). Views return `hints` in pending + terminal.
+12. **Show the student's sentence → YES.** "You wrote" quote in the revision view + "Your sentence" block on the terminal panel beside the example (`swLastSentence`). The definition anchor stays shown on **both** variants (fading it on open/L5 was considered and rejected — production task, not recall).
+13. **Manual test seed → ADDED** (distinct from the "no backfill command" decision #5, which is about production data): `manage.py seed_sentence_write_test [--reset]` seeds `swtest`/`testpass123` with READY guided+open questions so the student flow is testable without generation.
 
 ### 5.3 Non-goals (this iteration)
 

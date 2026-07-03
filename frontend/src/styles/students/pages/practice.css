@@ -652,3 +652,23 @@
   color: #555;
   margin: 8px 0;
 }
+[data-app="student"] .sw-hint-list {
+  margin: 4px 0 0;
+  padding-left: 20px;
+}
+[data-app="student"] .sw-hint-list li {
+  margin: 4px 0;
+  line-height: 1.5;
+}
+[data-app="student"] .sw-your-sentence {
+  padding: 10px 14px;
+  background: var(--t-surface-2, #f3f5fb);
+  border-radius: 12px;
+  margin-bottom: 12px;
+}
+[data-app="student"] .sw-your-sentence .block-body {
+  color: #444;
+}
+[data-app="student"] .feedback-block.your-sentence {
+  background: var(--t-surface-2, #f3f5fb);
+}

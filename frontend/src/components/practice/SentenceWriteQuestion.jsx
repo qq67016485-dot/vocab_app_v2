@@ -2,6 +2,23 @@ import React from 'react';
 import TextToSpeechButton from '../TextToSpeechButton.jsx';
 
 /**
+ * Render 1–3 coaching bullets. A single bullet shows as a plain line; two or
+ * three render as a list. The array is already capped server-side at 3.
+ */
+function HintBullets({ hints }) {
+  const list = (hints || []).filter(Boolean);
+  if (list.length === 0) return null;
+  if (list.length === 1) {
+    return <p className="block-body"><em>{list[0]}</em></p>;
+  }
+  return (
+    <ul className="sw-hint-list">
+      {list.map((h, i) => <li key={i}>{h}</li>)}
+    </ul>
+  );
+}
+
+/**
  * Productive, LLM-judged sentence-writing question. Two views: the write/revise
  * form, and the terminal verdict panel (once `feedbackDone`). The revision cap
  * and fragility are decided server-side; this component only reflects state.
@@ -16,6 +33,8 @@ export default function SentenceWriteQuestion({
   swSentence,
   setSwSentence,
   swHint,
+  swHints,
+  swLastSentence,
   swAttempts,
   swBusy,
   submitSentenceWrite,
@@ -26,15 +45,27 @@ export default function SentenceWriteQuestion({
   const maxRevisions = sw.max_revisions ?? 2;
   const revisionsLeft = Math.max(0, maxRevisions - swAttempts);
   const canRevise = revisionsLeft > 0 && !feedbackDone;
+  const hintList = (swHints && swHints.length) ? swHints : (swHint ? [swHint] : []);
 
   if (feedbackDone) {
+    const finalHints = (feedback.hints && feedback.hints.length)
+      ? feedback.hints
+      : (feedback.hint ? [feedback.hint] : []);
     return (
       <div className="sentence-write">
         <div className={`sw-verdict ${feedback.is_correct ? 'correct' : 'missed'}`}>
           <p className="correct-encouragement">
             {feedback.is_correct ? (correctMessage || 'Nicely done!') : "Good effort — here's a strong example:"}
           </p>
-          {feedback.hint && <p className="sw-hint-final"><em>{feedback.hint}</em></p>}
+          {swLastSentence && (
+            <div className="feedback-block your-sentence">
+              <div className="block-title">Your sentence</div>
+              <p className="block-body">“{swLastSentence}”</p>
+            </div>
+          )}
+          {finalHints.length > 0 && (
+            <div className="sw-hint-final"><HintBullets hints={finalHints} /></div>
+          )}
           {feedback.model_sentence && (
             <div className="feedback-block example">
               <div className="block-title">
@@ -67,23 +98,29 @@ export default function SentenceWriteQuestion({
           <TextToSpeechButton textToSpeak={`${question.term_text}. ${sw.definition}`} />
         </div>
       )}
-      {swHint ? (
+      {hintList.length > 0 ? (
         <div className="retry-encouragement-banner">
           <span className="retry-encouragement-text">
             {incorrectMessage || 'Almost — try again!'}
           </span>
         </div>
       ) : null}
-      {swHint && (
-        <div className="retry-hint-block">
-          <div className="block-title">
-            Hint
-            <TextToSpeechButton textToSpeak={swHint} />
-          </div>
-          <p className="block-body"><em>{swHint}</em></p>
+      {swLastSentence && hintList.length > 0 && (
+        <div className="sw-your-sentence">
+          <div className="block-title">You wrote</div>
+          <p className="block-body"><em>“{swLastSentence}”</em></p>
         </div>
       )}
-      {sw.sentence_starter && !swHint && (
+      {hintList.length > 0 && (
+        <div className="retry-hint-block">
+          <div className="block-title">
+            {hintList.length > 1 ? 'Hints' : 'Hint'}
+            <TextToSpeechButton textToSpeak={hintList.join('. ')} />
+          </div>
+          <HintBullets hints={hintList} />
+        </div>
+      )}
+      {sw.sentence_starter && hintList.length === 0 && (
         <p className="sw-starter">Try starting with: <em>{sw.sentence_starter}</em></p>
       )}
       <form

@@ -33,7 +33,8 @@ JUDGE_TEMPLATE = 'sentence_judge'
 
 VALID_VERDICTS = ('correct', 'almost', 'incorrect')
 VALID_ERROR_TYPES = (
-    'none', 'wrong_meaning', 'wrong_form', 'echo_definition', 'off_scenario',
+    'none', 'wrong_meaning', 'wrong_form', 'spelling', 'echo_definition',
+    'off_scenario',
 )
 
 SENTENCE_WRITE_TYPES = (
@@ -103,7 +104,8 @@ def evaluate_sentence(question, student_sentence, prior_attempts=None):
         {
             'verdict': 'correct'|'almost'|'incorrect',
             'error_type': one of VALID_ERROR_TYPES,
-            'hint': str,
+            'hints': [str, ...],         # 1–3 short coaching bullets
+            'hint': str,                 # bullets joined (back-compat / TTS)
             'is_correct': bool,          # verdict == 'correct'
         }
 
@@ -159,11 +161,21 @@ def _normalize_verdict(result: dict) -> dict:
     if error_type not in VALID_ERROR_TYPES:
         error_type = 'none' if verdict == 'correct' else 'wrong_meaning'
 
-    hint = _clamp_str(result.get('hint', ''), 500)
+    # Coaching is a list of 1–3 short bullets. Accept the new `hints` array;
+    # fall back to a legacy single `hint` string. Clamp each bullet, drop
+    # blanks, and hard-cap at 3 (the schema cap is enforced here too, not just
+    # in the prompt). `hint` (joined) is retained for storage/TTS back-compat.
+    raw_hints = result.get('hints')
+    if isinstance(raw_hints, list):
+        hints = [_clamp_str(h, 300) for h in raw_hints if str(h or '').strip()][:3]
+    else:
+        single = _clamp_str(result.get('hint', ''), 500)
+        hints = [single] if single else []
 
     return {
         'verdict': verdict,
         'error_type': error_type,
-        'hint': hint,
+        'hints': hints,
+        'hint': ' '.join(hints),
         'is_correct': verdict == 'correct',
     }

@@ -123,6 +123,11 @@ export default function PracticeView() {
   // async, so a ref is the reliable double-click gate).
   const [swSentence, setSwSentence] = useState('');
   const [swHint, setSwHint] = useState('');
+  const [swHints, setSwHints] = useState([]);
+  // The sentence the student last submitted this turn. The textarea is cleared
+  // on submit (for a fresh rewrite), so this holds it for the "You wrote" /
+  // "Your sentence" display in the revision and terminal views.
+  const [swLastSentence, setSwLastSentence] = useState('');
   const [swAttempts, setSwAttempts] = useState(0);
   const [swBusy, setSwBusy] = useState(false);
   const swSubmittingRef = useRef(false);
@@ -206,6 +211,8 @@ export default function PracticeView() {
     setFeedbackReady(false);
     setSwSentence('');
     setSwHint('');
+    setSwHints([]);
+    setSwLastSentence('');
     setSwAttempts(0);
     setSubmitError('');
     answerSwitchCount.current = 0;
@@ -440,7 +447,11 @@ export default function PracticeView() {
     swSubmittingRef.current = true;
     setSwBusy(true);
     setSwHint('');
+    setSwHints([]);
     setSubmitError('');
+    // Remember what they submitted (skip an empty give-up, which keeps the
+    // prior real attempt on screen) so the revision/terminal views can show it.
+    if (sentenceText && sentenceText.trim()) setSwLastSentence(sentenceText);
 
     try {
       // Attempt history lives server-side in the session; the backend caps
@@ -467,6 +478,7 @@ export default function PracticeView() {
         // Non-terminal miss: show the hint, let them revise.
         setSwAttempts(data.attempts_used ?? swAttempts + 1);
         setSwHint(data.hint || '');
+        setSwHints(data.hints?.length ? data.hints : (data.hint ? [data.hint] : []));
         setIncorrectMessage(
           incorrectMessages[Math.floor(Math.random() * incorrectMessages.length)],
         );
@@ -622,6 +634,8 @@ export default function PracticeView() {
           swSentence={swSentence}
           setSwSentence={setSwSentence}
           swHint={swHint}
+          swHints={swHints}
+          swLastSentence={swLastSentence}
           swAttempts={swAttempts}
           swBusy={swBusy}
           submitSentenceWrite={submitSentenceWrite}

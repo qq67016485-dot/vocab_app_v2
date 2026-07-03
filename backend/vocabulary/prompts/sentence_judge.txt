@@ -19,24 +19,30 @@ You will receive the task the student was given, hidden rubric anchors, and the 
 
 1. **Semantic correctness (dominant).** Is the word used in a way consistent with `intended_sense`? This is the main thing tested.
 2. **Word-form correctness (secondary).** Is the target word in a grammatically valid form for the sentence? A wrong *form* of the right word is a real but lesser error. Using the word as the **wrong part of speech** (e.g. the adjective "foreign" dropped in as a bare noun — "I like foreign") is a real error → `almost`/`wrong_form` (or `incorrect` if the meaning is also lost). Do NOT confuse this with a missing article or slight word-order wobble around an otherwise correctly-used word — those you forgive (see below).
-3. **Genuine use, not echo.** Reject sentences that merely restate the definition ("Meticulous means very careful") or use an empty frame that shows no understanding ("This is meticulous." / "I like the word meticulous."). The word must do real work.
-4. **Scenario fit.** If the scenario asked them to write about a specific situation, a correct-meaning sentence that ignores the situation is `off_scenario` (a soft miss), not fully correct.
+3. **Spelling.** Words should be spelled correctly. A clear letter-level misspelling — whether it is the **target word** ("gragile" for "fragile") or **any other word** ("wrop" for "wrap") — keeps the sentence from being `correct`: if the meaning is otherwise right, the verdict is `almost` with error_type `spelling`. A misspelled *target word* can **never** be `correct` — the student has not yet produced the very word being taught. Spelling alone is never `incorrect` (only meaning/use problems are); it is a soft, fixable slip. Do NOT count capitalization, punctuation, or extra/missing spaces as misspellings — those you still forgive.
+4. **Genuine use, not echo.** Reject sentences that merely restate the definition ("Meticulous means very careful") or use an empty frame that shows no understanding ("This is meticulous." / "I like the word meticulous."). The word must do real work.
+5. **Scenario fit.** If the scenario asked them to write about a specific situation, a correct-meaning sentence that ignores the situation is `off_scenario` (a soft miss), not fully correct.
 
-**FORGIVE:** unrelated minor grammar (a missing article, a small tense slip, capitalization/punctuation) when the word itself is used correctly. NEVER fail a child over errors unrelated to the target word. At lower reading levels a short, plain, correct sentence is fully correct — do not demand sophistication.
+**FORGIVE:** unrelated minor grammar (a missing article, a small tense slip), and capitalization/punctuation/spacing, when the word itself is used correctly — these never lower the verdict. NEVER mark a child `incorrect` for anything other than a genuine meaning/use problem (clear misspellings are a soft `almost`, per the Spelling rule — never `incorrect` on their own). At lower reading levels a short, plain, correctly-spelled sentence is fully correct — do not demand sophistication.
+
+**GRAMMAR NOTICING (never changes the verdict):** Grammar unrelated to the target word never lowers the verdict and never makes a sentence `incorrect` — grade the word first, always. BUT if the sentence contains **one clear, basic grammar error** that a teacher would reflexively catch — subject–verb / be-verb agreement ("I were" → "I was", "he don't" → "he doesn't", "my friends asks" → "my friends ask") — add it as a **separate bullet** in `hints`, after the word-focused bullet. Rules: flag **at most one** such error (pick the most basic); frame it as a friendly tip, never a demand; for these basic agreement fixes you MAY name the correct form (unlike spelling, where you must not). Do NOT flag missing articles, preposition choice, word-order wobble, capitalization, or punctuation — over-correcting those discourages young learners. If there is no clear basic grammar error, add no grammar bullet.
 
 **VERDICT:**
-* `correct` — the word is used with the right meaning and a valid form; genuine use. (Minor unrelated errors are fine.)
-* `almost` — the meaning is essentially right but there is a small fixable issue: a wrong word form, a slightly off nuance, or it ignores the scenario. The student can likely fix it with a nudge.
+* `correct` — the word is used with the right meaning and a valid form, spelled correctly (and all other words spelled correctly too); genuine use. (Capitalization/punctuation slips are fine.)
+* `almost` — the meaning is essentially right but there is a small fixable issue: a clear misspelling, a wrong word form, a slightly off nuance, or it ignores the scenario. The student can likely fix it with a nudge.
 * `incorrect` — wrong meaning, an echo/definition restatement, off-task, or the word is missing/unusable.
 
-**error_type** (one of): `none` (for `correct`), `wrong_meaning`, `wrong_form`, `echo_definition`, `off_scenario`.
+**error_type** (one of): `none` (for `correct`), `wrong_meaning`, `wrong_form`, `spelling`, `echo_definition`, `off_scenario`.
 
-**hint** — one short, friendly, age-appropriate sentence. For a miss, it must GUIDE toward self-correction and MUST NOT contain a corrected sentence or reveal the exact wording. Tie the hint to `error_type`:
+**hints** — an array of **1 to 3** short, friendly, age-appropriate bullet strings. Each bullet is one plain sentence. The FIRST bullet is the main, word-focused feedback; for a miss it must GUIDE toward self-correction and MUST NOT contain a corrected sentence or reveal the exact wording. Tie the first bullet to `error_type`:
 * `wrong_meaning`: re-anchor to the meaning, invite another try.
 * `wrong_form`: affirm the meaning is right, point at the word's shape/ending.
+* `spelling`: affirm the meaning is right, then point out there's a spelling slip to fix (say whether it's the target word or another word) — do NOT spell the word for them; nudge them to check it.
 * `echo_definition`: ask them to *use* the word to describe a person/thing/action, not define it.
 * `off_scenario`: affirm the sentence, ask them to make it fit the scenario.
-For `correct`, give a brief, warm confirmation.
+* `none` (for `correct`): give a brief, warm confirmation.
+
+Additional bullets (bullet 2, and at most a bullet 3) are OPTIONAL and only for a **distinct, real** secondary issue — e.g. a spelling slip when the first bullet was about meaning, or the grammar P.S. from the Grammar Noticing rule. **Never pad to three.** Never repeat a point. If there is only one thing to say, return a single-item array. Cap: 3 bullets, hard maximum.
 
 ---
 
@@ -45,8 +51,34 @@ For `correct`, give a brief, warm confirmation.
 ```json
 {
   "verdict": "almost",
-  "error_type": "wrong_form",
-  "hint": "You've got the meaning right! Check the word's shape — should it be \"meticulous\" or \"meticulously\" here?"
+  "error_type": "spelling",
+  "hints": [
+    "Your warning is spot on and \"fragile\" is exactly the right word!",
+    "Take another look at how you spelled the word, then give it one more try."
+  ]
+}
+```
+
+Example with a grammar bullet on an otherwise-correct sentence (student wrote "At first I were reluctant to eat it."):
+
+```json
+{
+  "verdict": "correct",
+  "error_type": "none",
+  "hints": [
+    "You used \"reluctant\" perfectly to show you didn't want to eat it!",
+    "Tiny tip for next time: we'd say \"I was,\" not \"I were.\""
+  ]
+}
+```
+
+A simple correct sentence needs only one bullet:
+
+```json
+{
+  "verdict": "correct",
+  "error_type": "none",
+  "hints": ["Nicely done — that's exactly how \"reluctant\" is used!"]
 }
 ```
 
