@@ -85,6 +85,13 @@ const ReasonDisplay = ({ category }) => {
   return <p className="reason-display"><em>{message}</em></p>;
 };
 
+const LoadingState = ({ label }) => (
+  <div className="practice-loading" role="status">
+    <div className="loading-dots" aria-hidden="true"><span /><span /><span /></div>
+    <p>{label}</p>
+  </div>
+);
+
 export default function PracticeView() {
   const navigate = useNavigate();
   const { refreshUser } = useUser();
@@ -710,11 +717,12 @@ export default function PracticeView() {
   };
 
   const renderContent = () => {
-    if (isLoading) return <p>Loading...</p>;
+    if (isLoading) return <LoadingState label="Getting your next question…" />;
 
     if (showKeepGoingPrompt) {
       return (
         <div className="keep-going-prompt">
+          <div className="keep-going-emoji" aria-hidden="true">🎉</div>
           <h3>Goal reached!</h3>
           <p>You answered {questionsAnsweredThisSession} questions. Want to keep going?</p>
           <div className="keep-going-actions">
@@ -747,7 +755,7 @@ export default function PracticeView() {
     }
 
     if (finishMessage) {
-      if (!sessionSummary) return <p>Wrapping up your session...</p>;
+      if (!sessionSummary) return <LoadingState label="Wrapping up your session…" />;
       const minutes = Math.max(1, Math.round((sessionSummary.timeSeconds || 0) / 60));
       return (
         <div className="session-summary">
@@ -824,7 +832,7 @@ export default function PracticeView() {
     }
 
     if (!question) {
-      if (!finishMessage) return <p>Loading next question...</p>;
+      if (!finishMessage) return <LoadingState label="Loading next question…" />;
       return null;
     }
 

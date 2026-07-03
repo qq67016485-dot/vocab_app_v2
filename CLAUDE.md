@@ -193,4 +193,5 @@ Frontend: build locally (`npm run build`), then `scp -r frontend/dist ubuntu@106
 
 - Backend: Django/DRF patterns — models → serializers → views → services; services hold business logic, views stay thin
 - Frontend: functional components with hooks; plain CSS files, 5-theme student system (no CSS-in-JS)
+- **Student CSS cascade**: `students.css` declares `@layer legacy,tokens,theme,base,components,pages`; `students/fixes.css` imports LAST in the `pages` layer and intentionally uses `!important` to own themed colors — a state color written in an earlier pages file (e.g. `practice.css`) without `!important` silently loses to fixes.css's neutral base rules. Brand-ish colors derive from `color-mix(in oklab, var(--primary) …)` (never hardcode the default indigo); semantic states (success/amber/danger) stay theme-independent; for small text keep the primary share ≤ ~55% vs near-black (mint/seafoam are the AA-contrast bottleneck). `prefers-reduced-motion` guard lives in `students/base.css`.
 - Definition/example translation lookups are centralized in `vocabulary/utils.py` (`get_definition_translation(s)`) — import the shared helper, never add per-service copies

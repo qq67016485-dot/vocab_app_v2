@@ -40,7 +40,7 @@ export default function ScrambleQuestion({
             ))
           ) : (
             <span className="scramble-placeholder">
-              Click words below to build your sentence...
+              Tap the words below to build your sentence…
             </span>
           )}
         </div>

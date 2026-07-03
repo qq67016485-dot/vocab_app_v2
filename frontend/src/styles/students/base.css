@@ -18,6 +18,18 @@
   outline-offset: 2px;
 }
 
+/* Respect users (and school devices) that turn off animation */
+@media (prefers-reduced-motion: reduce) {
+  [data-app="student"] *,
+  [data-app="student"] *::before,
+  [data-app="student"] *::after {
+    animation-duration: .01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
 /* "panel" look shared by many blocks (now also sets comfortable padding) */
 [data-app="student"] .practice-card,
 [data-app="student"] .summary-section,

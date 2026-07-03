@@ -2,6 +2,33 @@
 
 All notable changes to Vocab App V2 are documented in this file.
 
+## [Unreleased] - 2026-07-04 (student practice view visual polish)
+
+### Context
+- Design review + polish pass on the student practice view (`PracticeView.jsx`, `components/practice/*`, student CSS). No behavior/logic changes — the `feedbackReady` tabIndex gating, submit guards, and session flow are untouched. Verified: `npm run lint` (0 errors, 8 accepted baseline warnings), `npm run build`, and a code-review agent pass (0 criticals; both HIGHs fixed same-day).
+
+### Fixed
+- `feedback.css` had invalid CSS `color: var;` on `.block-body` — explanation/example text silently fell back to inherited color. Now `color: var(--text)`.
+- `.btn-secondary` had **no styles anywhere in the student CSS** — "Show me an example" (sentence-write give-up), "I'm Done" (keep-going prompt), and the exhausted-retries Next button rendered as unstyled browser-default buttons. Now themed outline buttons scoped to `.practice-card` / `.keep-going-actions`.
+- Wrong MC answers lost their red tint: the neutral `!important` base rule in `fixes.css` (loads last in the `pages` layer) overrode `practice.css`'s non-`!important` `.wrong-answer` colors, washing eliminated options back to white. Added a danger-tint `!important` override in `fixes.css` after the base rule; removed the now-dead hardcoded colors from `practice.css`.
+- `.sw-textarea` borrowed the teacher-portal token `--t-border` (undefined in student scope, always fell to its fallback) → now `var(--border)`.
+- `practice.css` mojibake comment headers (encoding-corrupted box-drawing chars) cleaned; file is valid UTF-8 throughout.
+- The sentence-write "missed" terminal panel reuses `.correct-encouragement` for its consolation line ("Good effort — …") — it rendered success-green; now neutral `var(--text)` via a `.sw-verdict.missed` override.
+
+### Changed — theme coherence (the main pass)
+- Everything brand-ish in the practice view now derives from `var(--primary)` via `color-mix(in oklab, …)` instead of hardcoded default-theme indigo (`#4a6cf7`, `#283593`, `#4338ca`, `#eef2ff`, `#e8eaf6`, `#c5cae9`…): scramble tiles + attempt box, reason pill, retry encouragement text, sentence-write definition strip + "your sentence" panels, feedback tag chips, input/textarea focus rings, Reset button. All 5 themes (sky-lavender / mint-meadow / sunny-peach / grape-soda / seafoam-breeze) now look intentional. Semantic states (success green / warning amber / danger red) deliberately stay theme-independent.
+- Contrast tuned for AA at small text sizes: the mint (#10b981) and seafoam (#14b8a6) primaries are the bottleneck — text mixes keep the primary share ≤ ~55% against near-black (e.g. `color-mix(in oklab, var(--primary) 52%, #20242f)`).
+
+### Added — micro-interactions & states
+- MC options: hover lift (`translateY(-1px)` + shadow) and press compress; revealed correct answer plays a one-shot `answerPop` scale and gets a `✓` pseudo-element mark; eliminated wrong options get a `✕` mark.
+- Scramble: tiles pop in when placed (`tilePop`), hover lift/press, themed tile + dashed attempt-box colors; placeholder copy now "Tap the words below…" (tablet-first wording).
+- Loading states: bare `<p>Loading...</p>` replaced by a `LoadingState` component (three bouncing themed dots, `role="status"`, friendly copy — "Getting your next question…" / "Wrapping up your session…").
+- Correct-answer praise line gets a circular green ✓ badge (`::before`, scoped so the sw-missed consolation line is NOT decorated); keep-going prompt opens with a popping 🎉; session progress fill gets an inset top highlight.
+- `prefers-reduced-motion` guard in `students/base.css` zeroing animation/transition durations + delays across the student app (works from the `base` layer via `!important`-reverses-layer-order precedence).
+
+### Files
+- `frontend/src/styles/students/pages/practice.css` (rewritten), `feedback.css`, `fixes.css`, `base.css`; `frontend/src/pages/student/PracticeView.jsx` + `components/practice/ScrambleQuestion.jsx` (presentational only).
+
 ## [Unreleased] - 2026-07-03 (sentence-writing judge strictness + feedback UX)
 
 ### Context

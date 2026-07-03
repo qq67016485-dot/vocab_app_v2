@@ -122,6 +122,14 @@
   box-shadow: inset 3px 0 0 var(--success, #16a34a) !important;
 }
 
+/* Eliminated wrong choices keep a soft danger tint (the neutral base rule
+   above would otherwise wash them back to plain white) */
+[data-app="student"] .mc-option-button.wrong-answer {
+  background: color-mix(in oklab, var(--danger) 7%, #fff) !important;
+  border-color: color-mix(in oklab, var(--danger) 32%, #fff) !important;
+  color: color-mix(in oklab, var(--danger) 52%, #3a3f4a) !important;
+}
+
 /* Submit button (practice) → filled CTA */
 [data-app="student"] .practice-card :is(button[type="submit"], .btn-primary, .submit, .btn.btn-primary) {
   background: var(--primary) !important;
