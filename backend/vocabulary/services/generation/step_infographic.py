@@ -18,6 +18,7 @@ import time
 
 from django.conf import settings
 from django.core.files.base import ContentFile
+from django.db import transaction
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -249,7 +250,12 @@ def _clean_infographic_title(title):
 
 def _persist_candidate_infographic(pack, candidate_index, design_result,
                                    content_lexile, cloze_result):
-    """Create the candidate Infographic + its staged cloze rows."""
+    """Create the candidate Infographic + its staged cloze rows.
+
+    Atomic: a mid-write failure rolls back the whole candidate instead of
+    stranding an Infographic row without its staged cloze, which the resume
+    skip-check would treat as complete (selectable but broken).
+    """
     entries = design_result.get('entries', [])
     content = {
         'big_idea': design_result.get('big_idea', ''),
@@ -263,37 +269,59 @@ def _persist_candidate_infographic(pack, candidate_index, design_result,
         'theme': design_result.get('scene_description', '') or design_result.get('theme', ''),
         'layout_notes': design_result.get('visual_structure', '') or design_result.get('layout_notes', ''),
     }
-    infographic = Infographic.objects.create(
-        pack=pack,
-        candidate_index=candidate_index,
-        is_selected=False,
-        title=_clean_infographic_title(
-            design_result.get('title', f'{pack.label} Infographic')
-        ),
-        intro_text=design_result.get('intro_text', ''),
-        content=content,
-        style_prompt=design_result.get('style_prompt', DEFAULT_INFOGRAPHIC_STYLE),
-        reading_level=design_result.get('reading_level', content_lexile),
-        metadata={},
-    )
-
-    word_map = {
-        item.word.text.lower(): item.word
-        for item in pack.items.select_related('word').all()
-    }
-    for idx, ci in enumerate((cloze_result or {}).get('cloze_items', [])):
-        word = word_map.get(ci.get('term', '').lower())
-        if not word:
-            continue
-        ClozeItem.objects.create(
+    with transaction.atomic():
+        infographic = Infographic.objects.create(
             pack=pack,
-            infographic=infographic,
-            word=word,
-            sentence_text=ci.get('sentence_text', ''),
-            correct_answer=ci.get('correct_answer', ''),
-            distractors=ci.get('distractors', []),
-            order=idx,
+            candidate_index=candidate_index,
+            is_selected=False,
+            title=_clean_infographic_title(
+                design_result.get('title', f'{pack.label} Infographic')
+            ),
+            intro_text=design_result.get('intro_text', ''),
+            content=content,
+            style_prompt=design_result.get('style_prompt', DEFAULT_INFOGRAPHIC_STYLE),
+            reading_level=design_result.get('reading_level', content_lexile),
+            metadata={},
         )
+
+        # Items are joined to pack words via term OR correct_answer — the cloze
+        # validator accepts either, so the persist must too. A pack word with no
+        # matching item fails the candidate: silently skipping it would leave
+        # the word without practice cloze once this candidate is published.
+        word_map = {
+            item.word.text.lower(): item.word
+            for item in pack.items.select_related('word').all()
+        }
+        covered_terms = set()
+        for idx, ci in enumerate((cloze_result or {}).get('cloze_items', [])):
+            word = (
+                word_map.get((ci.get('term') or '').lower())
+                or word_map.get((ci.get('correct_answer') or '').lower())
+            )
+            if not word:
+                logger.warning(
+                    "Pack '%s' infographic candidate %d: skipping cloze item for "
+                    "non-pack term %r.", pack.label, candidate_index, ci.get('term'),
+                )
+                continue
+            covered_terms.add(word.text.lower())
+            ClozeItem.objects.create(
+                pack=pack,
+                infographic=infographic,
+                word=word,
+                sentence_text=ci.get('sentence_text', ''),
+                correct_answer=ci.get('correct_answer', ''),
+                distractors=ci.get('distractors', []),
+                order=idx,
+            )
+        missing_cloze = set(word_map) - covered_terms
+        if missing_cloze:
+            raise ValueError(
+                f"Cloze persistence for pack '{pack.label}' infographic candidate "
+                f"{candidate_index} matched no item for: "
+                f"{', '.join(sorted(missing_cloze))}. Every pack word needs a "
+                "staged cloze item (matched by term or correct_answer)."
+            )
 
     return infographic
 
@@ -319,6 +347,31 @@ def restart_infographic_from_substep(job, pack_id, substep_key, words_data,
     pack = WordPack.objects.prefetch_related('items__word').get(
         id=pack_id, word_set=job.word_set,
     )
+
+    # Reconstruct the design substep from its artifact when resuming. Validate
+    # BEFORE deleting the existing candidate — a bad restart target must leave
+    # it untouched — and require the COMPLETED log, not just artifact presence:
+    # the artifact is written before validation, so a failed design attempt
+    # leaves unvalidated output on disk that must not feed cloze generation.
+    design_result = None
+    if start_idx > 0:
+        design_key = INFOGRAPHIC_SUBSTEPS[0]['key']
+        if design_key not in _completed_substep_keys(job, pack, candidate_index):
+            raise ValueError(
+                f"Cannot restart infographic from '{substep_key}': the "
+                f"'{design_key}' substep (candidate {candidate_index}) has no "
+                "COMPLETED log — its artifact may be unvalidated output from a "
+                "failed attempt. Restart from 'design'."
+            )
+        design_result = _load_infographic_artifact(
+            job, pack, INFOGRAPHIC_SUBSTEPS[0], candidate_index,
+        )
+        if design_result is None:
+            raise ValueError(
+                f"Cannot restart infographic from '{substep_key}': missing design "
+                f"artifact for candidate {candidate_index}. Run from 'design'."
+            )
+
     pack.infographics.filter(candidate_index=candidate_index).delete()
 
     pack_word_keys = {t.lower() for t in pack.items.values_list('word__text', flat=True)}
@@ -340,18 +393,6 @@ def restart_infographic_from_substep(job, pack_id, substep_key, words_data,
         'word_count': len(pack_words_data),
         'words': [wd.get('term', '') for wd in pack_words_data],
     }
-
-    # Reconstruct prior substeps from artifacts when resuming.
-    design_result = None
-    if start_idx > 0:
-        design_result = _load_infographic_artifact(
-            job, pack, INFOGRAPHIC_SUBSTEPS[0], candidate_index,
-        )
-        if design_result is None:
-            raise ValueError(
-                f"Cannot restart infographic from '{substep_key}': missing design "
-                f"artifact for candidate {candidate_index}. Run from 'design'."
-            )
 
     if start_idx <= 0:
         design_template = _llm_service.load_prompt_template(INFOGRAPHIC_SUBSTEPS[0]['template'])
@@ -488,8 +529,9 @@ def _validate_infographic_design_result(result, ctx=None):
 def _step_infographic_design(job, packs, words_data):
     """Generate ``INFOGRAPHIC_CANDIDATE_COUNT`` candidate infographics per pack.
 
-    Skips candidates already complete (an Infographic row exists); resumes
-    incomplete ones from the first substep lacking a COMPLETED log.
+    Skips candidates already complete (an Infographic row with staged cloze, or
+    a published one); resumes incomplete ones from the first substep lacking a
+    COMPLETED log.
     """
     start = time.time()
     try:
@@ -501,12 +543,30 @@ def _step_infographic_design(job, packs, words_data):
         total = 0
         for pack in packs:
             for candidate_index in range(INFOGRAPHIC_CANDIDATE_COUNT):
-                if _candidate_infographic(pack, candidate_index):
+                existing = _candidate_infographic(pack, candidate_index)
+                if existing and existing.is_selected:
+                    # Never delete a published candidate, even one that looks
+                    # incomplete — a resume must not unpublish student content.
+                    logger.info(
+                        "Pack '%s' infographic candidate %d is published (selected), skipping",
+                        pack.label, candidate_index,
+                    )
+                    continue
+                if existing and existing.cloze_items.exists():
                     logger.info(
                         "Pack '%s' infographic candidate %d already exists, skipping",
                         pack.label, candidate_index,
                     )
                     continue
+                if existing:
+                    # Half-persisted (row without staged cloze, from before the
+                    # persist became atomic) — the restart engine deletes and
+                    # regenerates it. Selection copies staged cloze on promotion,
+                    # so complete candidates always keep theirs.
+                    logger.info(
+                        "Pack '%s' infographic candidate %d has no staged cloze, regenerating",
+                        pack.label, candidate_index,
+                    )
 
                 resume_idx = _resume_substep_index(job, pack, candidate_index)
                 if resume_idx > 0 and _prior_artifacts_exist(

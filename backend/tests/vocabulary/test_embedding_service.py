@@ -71,7 +71,7 @@ class TestFindDuplicateDefinition:
         assert result is None
 
     @patch('vocabulary.services.embedding_service.get_embedding')
-    def test_existing_word_high_similarity_returns_word(self, mock_embed):
+    def test_existing_word_high_similarity_returns_matched_definition(self, mock_embed):
         from vocabulary.services.embedding_service import find_duplicate_definition
         word = WordFactory(text='bright', part_of_speech='adjective')
         defn = WordDefinitionFactory(word=word, definition_text='Giving out much light')
@@ -81,7 +81,37 @@ class TestFindDuplicateDefinition:
         mock_embed.return_value = [0.1] * 768
         result = find_duplicate_definition('bright', 'adjective', 'Emitting a lot of light')
         assert result is not None
-        assert result.pk == word.pk
+        assert result.pk == defn.pk
+        assert result.word.pk == word.pk
+
+    @patch('vocabulary.services.embedding_service.get_embedding')
+    def test_returns_best_matching_definition_not_first(self, mock_embed):
+        """A word with several definitions must yield the one that actually
+        matched, not an arbitrary (e.g. lowest-Lexile-ordered) sibling."""
+        from vocabulary.services.embedding_service import find_duplicate_definition
+        word = WordFactory(text='bright', part_of_speech='adjective')
+        low_lexile = WordDefinitionFactory(
+            word=word, definition_text='Very shiny', lexile_score=400,
+        )
+        high_lexile = WordDefinitionFactory(
+            word=word,
+            definition_text='Reflecting a great deal of light',
+            lexile_score=900,
+        )
+        # low-Lexile embedding is orthogonal; high-Lexile matches the incoming.
+        DefinitionEmbeddingFactory(
+            definition=low_lexile, embedding=[1.0, 0.0] + [0.0] * 766,
+        )
+        DefinitionEmbeddingFactory(
+            definition=high_lexile, embedding=[0.0, 1.0] + [0.0] * 766,
+        )
+
+        mock_embed.return_value = [0.0, 1.0] + [0.0] * 766
+        result = find_duplicate_definition(
+            'bright', 'adjective', 'Giving off a lot of light',
+        )
+        assert result is not None
+        assert result.pk == high_lexile.pk
 
     @patch('vocabulary.services.embedding_service.get_embedding')
     def test_existing_word_low_similarity_returns_none(self, mock_embed):

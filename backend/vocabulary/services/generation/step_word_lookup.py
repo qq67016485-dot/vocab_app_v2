@@ -3,6 +3,7 @@ import logging
 import time
 
 from django.conf import settings
+from django.db import transaction
 
 from vocabulary.models import (
     Word, WordDefinition, DefinitionEmbedding,
@@ -84,8 +85,48 @@ def _snapshots_to_words_data(snapshots):
 
 
 def _definition_for_snapshot(word, incoming_definition):
-    exact_match = word.definitions.filter(definition_text=incoming_definition).first()
-    return exact_match or word.definitions.first()
+    """Exact-text definition match, used as the no-network resume fast path.
+
+    Returns None when the word carries no definition with this exact text —
+    an embedding-level reuse from an earlier run, which the caller re-resolves
+    through find_duplicate_definition so the snapshot records the definition
+    that actually matched (never an arbitrary fallback).
+    """
+    return word.definitions.filter(definition_text=incoming_definition).first()
+
+
+def _snapshot_entry(word, defn):
+    return {
+        'term': word.text,
+        'word_id': word.id,
+        'definition_id': defn.id,
+        'part_of_speech': word.part_of_speech,
+        'definition': defn.definition_text,
+        'example_sentence': defn.example_sentence,
+        'lexile_score': defn.lexile_score,
+    }
+
+
+def _persist_definition(word, wd, embedding_vector):
+    """Create a WordDefinition + its DefinitionEmbedding for ``word``.
+
+    Callers wrap this in transaction.atomic() together with any related writes
+    and fetch ``embedding_vector`` beforehand, so a definition row can never
+    outlive a crash without its embedding (which would make the word invisible
+    to dedup and yield duplicate Word rows on resume).
+    """
+    defn = WordDefinition.objects.create(
+        word=word,
+        definition_text=wd.get('definition', ''),
+        example_sentence=wd.get('example_sentence', ''),
+        lexile_score=wd.get('lexile_score'),
+    )
+    DefinitionEmbedding.objects.create(
+        definition=defn,
+        embedding=embedding_vector,
+        model_version=settings.QWEN_EMBEDDING_MODEL,
+    )
+    return defn
 
 
 def _step_word_lookup(job, site_config=None):
@@ -167,26 +208,61 @@ def _step_dedup_and_persist(job, words_data):
             seen_terms.add(key)
             unique_words_data.append(wd)
 
+    # Words already attached to this job's word set by a prior partial run of
+    # this step. Reusing them keeps resume idempotent and skips the embedding
+    # round-trip for words this job already persisted.
+    attached_words = {w.text.lower(): w for w in job.word_set.words.all()}
+
     for wd in unique_words_data:
         term = wd['term']
         pos = wd.get('part_of_speech', '')
         definition = wd.get('definition', '')
 
-        existing = _embedding_service.find_duplicate_definition(term, pos, definition)
-        if existing:
-            logger.info("Dedup: reusing existing Word '%s' (id=%s)", term, existing.id)
+        prior = attached_words.get(term.lower())
+        if prior is not None:
+            prior_defn = _definition_for_snapshot(prior, definition)
+            if prior_defn is not None:
+                logger.info(
+                    "Dedup: word '%s' (id=%s) already persisted by this job",
+                    term, prior.id,
+                )
+                words.append(prior)
+                word_snapshots.append(_snapshot_entry(prior, prior_defn))
+                continue
+            # Attached without an exact-text definition: an embedding-level
+            # reuse from an earlier run. Fall through so the dedup lookup
+            # re-resolves which definition matched.
+
+        existing_defn = _embedding_service.find_duplicate_definition(term, pos, definition)
+        if existing_defn is not None:
+            existing = existing_defn.word
+            logger.info(
+                "Dedup: reusing existing Word '%s' (id=%s), definition id=%s",
+                term, existing.id, existing_defn.id,
+            )
             words.append(existing)
             job.word_set.words.add(existing)
-            defn = _definition_for_snapshot(existing, wd.get('definition', ''))
-            word_snapshots.append({
-                'term': existing.text,
-                'word_id': existing.id,
-                'definition_id': defn.id if defn else None,
-                'part_of_speech': existing.part_of_speech,
-                'definition': defn.definition_text if defn else wd.get('definition', ''),
-                'example_sentence': defn.example_sentence if defn else wd.get('example_sentence', ''),
-                'lexile_score': defn.lexile_score if defn else wd.get('lexile_score'),
-            })
+            word_snapshots.append(_snapshot_entry(existing, existing_defn))
+            continue
+
+        if prior is not None:
+            # Attached by a prior run, but neither an exact-text nor an
+            # embedding-level match for this job's definition exists —
+            # typically a crash between writes before this step became atomic.
+            # Create the job's definition on the existing Word rather than a
+            # duplicate Word row; the exact-text fast path above makes this
+            # idempotent on any later resume.
+            if prior.definitions.exists():
+                logger.warning(
+                    "Dedup repair: word '%s' (id=%s) has %d definition(s) but "
+                    "none matched this job's; creating the job's definition.",
+                    term, prior.id, prior.definitions.count(),
+                )
+            embedding_vector = _embedding_service.get_embedding(definition)
+            with transaction.atomic():
+                defn = _persist_definition(prior, wd, embedding_vector)
+            words.append(prior)
+            word_snapshots.append(_snapshot_entry(prior, defn))
             continue
 
         source_context = ''
@@ -195,37 +271,20 @@ def _step_dedup_and_persist(job, words_data):
             if job.input_source_chapter:
                 source_context += f", {job.input_source_chapter}"
 
-        word = Word.objects.create(
-            text=term,
-            part_of_speech=pos,
-            source_context=source_context,
-        )
-
-        defn = WordDefinition.objects.create(
-            word=word,
-            definition_text=definition,
-            example_sentence=wd.get('example_sentence', ''),
-            lexile_score=wd.get('lexile_score'),
-        )
-
+        # Fetch the embedding before opening the transaction so it is never
+        # held open across a network call.
         embedding_vector = _embedding_service.get_embedding(definition)
-        DefinitionEmbedding.objects.create(
-            definition=defn,
-            embedding=embedding_vector,
-            model_version=settings.QWEN_EMBEDDING_MODEL,
-        )
+        with transaction.atomic():
+            word = Word.objects.create(
+                text=term,
+                part_of_speech=pos,
+                source_context=source_context,
+            )
+            defn = _persist_definition(word, wd, embedding_vector)
+            job.word_set.words.add(word)
 
-        job.word_set.words.add(word)
         words.append(word)
-        word_snapshots.append({
-            'term': word.text,
-            'word_id': word.id,
-            'definition_id': defn.id,
-            'part_of_speech': word.part_of_speech,
-            'definition': defn.definition_text,
-            'example_sentence': defn.example_sentence,
-            'lexile_score': defn.lexile_score,
-        })
+        word_snapshots.append(_snapshot_entry(word, defn))
         new_count += 1
 
     job.words_created = new_count

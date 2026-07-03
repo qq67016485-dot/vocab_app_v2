@@ -88,7 +88,8 @@ class TestStepDedupAndPersist:
     @patch('vocabulary.services.embedding_service.get_embedding')
     def test_skips_duplicates(self, mock_embed, mock_dedup):
         existing_word = WordFactory(text='bright', part_of_speech='adjective')
-        mock_dedup.return_value = existing_word  # Found duplicate
+        existing_defn = WordDefinitionFactory(word=existing_word)
+        mock_dedup.return_value = existing_defn  # Found duplicate definition
         mock_embed.return_value = [0.1] * 768
         job = GenerationJobFactory(input_words=['bright'])
 
@@ -99,6 +100,78 @@ class TestStepDedupAndPersist:
         assert words[0].id == existing_word.id
         # Should NOT create a new Word
         assert Word.objects.filter(text='bright').count() == 1
+
+    @patch('vocabulary.services.embedding_service.find_duplicate_definition')
+    @patch('vocabulary.services.embedding_service.get_embedding')
+    def test_reuse_snapshot_records_matched_definition(self, mock_embed, mock_dedup):
+        """The snapshot must carry the definition dedup matched, not an
+        arbitrary sibling (the old code fell back to .first(), which is the
+        lowest-Lexile definition)."""
+        existing_word = WordFactory(text='bright', part_of_speech='adjective')
+        WordDefinitionFactory(
+            word=existing_word, definition_text='Very shiny', lexile_score=400,
+        )
+        matched_defn = WordDefinitionFactory(
+            word=existing_word,
+            definition_text='Reflecting a great deal of light',
+            lexile_score=900,
+        )
+        mock_dedup.return_value = matched_defn
+        mock_embed.return_value = [0.1] * 768
+        job = GenerationJobFactory(input_words=['bright'])
+
+        _step_dedup_and_persist(job, [WORD_LOOKUP_RESPONSE['words'][0]])
+
+        log = GenerationJobLog.objects.get(job=job, step=GenerationJobLog.Step.DEDUP)
+        snapshot = log.output_data['word_snapshots'][0]
+        assert snapshot['definition_id'] == matched_defn.id
+        assert snapshot['definition'] == 'Reflecting a great deal of light'
+        assert snapshot['lexile_score'] == 900
+
+    @patch('vocabulary.services.embedding_service.find_duplicate_definition')
+    @patch('vocabulary.services.embedding_service.get_embedding')
+    def test_resume_skips_words_already_persisted_by_this_job(self, mock_embed, mock_dedup):
+        """A word this job already attached (prior partial run) is reused
+        without another embedding round-trip and without duplicate rows."""
+        wd = WORD_LOOKUP_RESPONSE['words'][0]
+        job = GenerationJobFactory(input_words=['bright'])
+        prior_word = WordFactory(text='bright', part_of_speech='adjective')
+        prior_defn = WordDefinitionFactory(
+            word=prior_word,
+            definition_text=wd['definition'],
+            example_sentence=wd['example_sentence'],
+            lexile_score=wd['lexile_score'],
+        )
+        job.word_set.words.add(prior_word)
+
+        words = _step_dedup_and_persist(job, [wd])
+
+        mock_dedup.assert_not_called()
+        mock_embed.assert_not_called()
+        assert [w.id for w in words] == [prior_word.id]
+        assert Word.objects.filter(text='bright').count() == 1
+        log = GenerationJobLog.objects.get(job=job, step=GenerationJobLog.Step.DEDUP)
+        assert log.output_data['word_snapshots'][0]['definition_id'] == prior_defn.id
+
+    @patch('vocabulary.services.embedding_service.find_duplicate_definition')
+    @patch('vocabulary.services.embedding_service.get_embedding')
+    def test_resume_repairs_attached_word_without_definition(self, mock_embed, mock_dedup):
+        """An attached word whose definition/embedding never landed (crash in
+        a pre-atomic run) gets repaired in place, not duplicated."""
+        mock_dedup.return_value = None
+        mock_embed.return_value = [0.1] * 768
+        wd = WORD_LOOKUP_RESPONSE['words'][0]
+        job = GenerationJobFactory(input_words=['bright'])
+        prior_word = WordFactory(text='bright', part_of_speech='adjective')
+        job.word_set.words.add(prior_word)
+
+        words = _step_dedup_and_persist(job, [wd])
+
+        assert [w.id for w in words] == [prior_word.id]
+        assert Word.objects.filter(text='bright').count() == 1
+        defn = WordDefinition.objects.get(word=prior_word)
+        assert defn.definition_text == wd['definition']
+        assert DefinitionEmbedding.objects.filter(definition=defn).exists()
 
     @patch('vocabulary.services.embedding_service.find_duplicate_definition')
     @patch('vocabulary.services.embedding_service.get_embedding')

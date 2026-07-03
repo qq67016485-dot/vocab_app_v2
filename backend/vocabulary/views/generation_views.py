@@ -854,6 +854,8 @@ class RestartGraphicNovelSubstepView(APIView):
         thread = threading.Thread(
             target=restart_graphic_novel_substep,
             args=(job.id, int(pack_id), substep, candidate_index),
+            # The RUNNING claim above happened under select_for_update.
+            kwargs={'already_claimed': True},
             daemon=True,
         )
         thread.start()
@@ -935,6 +937,8 @@ class RestartInfographicSubstepView(APIView):
         thread = threading.Thread(
             target=restart_infographic_substep,
             args=(job.id, int(pack_id), substep, candidate_index),
+            # The RUNNING claim above happened under select_for_update.
+            kwargs={'already_claimed': True},
             daemon=True,
         )
         thread.start()

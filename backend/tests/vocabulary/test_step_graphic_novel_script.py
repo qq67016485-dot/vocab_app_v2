@@ -901,3 +901,162 @@ class TestGraphicNovelCandidates:
         assert mock_anthropic.call_count == 0
         assert GraphicNovel.objects.filter(pack=pack).count() == 3
 
+
+@pytest.mark.django_db
+class TestRestartGuardsAndPersistIntegrity:
+    """2026-07-03 review HIGHs #5/#6: a manual substep restart must not trust
+    unvalidated artifacts, persistence must be all-or-nothing, and the resume
+    skip-check must not treat a half-persisted candidate as complete."""
+
+    def _make_pack(self, job):
+        word1 = WordFactory(text='bright')
+        word2 = WordFactory(text='discover')
+        pack = WordPack.objects.create(word_set=job.word_set, label='Pack 1', order=0)
+        WordPackItem.objects.create(pack=pack, word=word1, order=0)
+        WordPackItem.objects.create(pack=pack, word=word2, order=1)
+        return pack, word1, word2
+
+    def _full_run(self, mock_anthropic, job, pack):
+        mock_anthropic.side_effect = [
+            GRAPHIC_NOVEL_TEAM_RESPONSE,
+            GRAPHIC_NOVEL_ROUTER_RESPONSE,
+            GRAPHIC_NOVEL_SCORING_RESPONSE,
+            GRAPHIC_NOVEL_CLOZE_RESPONSE,
+            GRAPHIC_NOVEL_BEAT_RESPONSE,
+            GRAPHIC_NOVEL_RESPONSE,
+        ]
+        _step_graphic_novel_script(job, [pack], WORD_LOOKUP_RESPONSE['words'])
+        return GraphicNovel.objects.get(pack=pack)
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_restart_rejects_prior_substep_without_completed_log(
+        self, mock_load, mock_anthropic,
+    ):
+        """Artifacts are written BEFORE validation, so artifact presence alone
+        must not qualify a prior substep — the COMPLETED log is required. The
+        check must also fire before the existing candidate is deleted."""
+        from vocabulary.services.generation.graphic_novel_script import (
+            restart_graphic_novel_from_substep,
+        )
+        mock_load.return_value = "Graphic novel template {input_json}"
+        job = GenerationJobFactory(input_words=['bright', 'discover'])
+        pack, _, _ = self._make_pack(job)
+        novel = self._full_run(mock_anthropic, job, pack)
+
+        # Simulate premise_scoring having failed validation on a later attempt:
+        # its artifact stays on disk but the COMPLETED log is gone.
+        GenerationJobLog.objects.filter(
+            job=job,
+            step=GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
+            status=GenerationJob.Status.COMPLETED,
+            output_data__substep='premise_scoring',
+        ).delete()
+        mock_anthropic.reset_mock()
+        mock_anthropic.side_effect = ValueError('no LLM call expected')
+
+        with pytest.raises(ValueError, match='no COMPLETED log'):
+            restart_graphic_novel_from_substep(
+                job, pack.id, 'cloze_generation', WORD_LOOKUP_RESPONSE['words'],
+            )
+
+        assert mock_anthropic.call_count == 0
+        # Validation ran before the delete: the candidate is untouched.
+        assert GraphicNovel.objects.filter(id=novel.id).exists()
+        assert ClozeItem.objects.filter(novel=novel).count() == 2
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_half_persisted_candidate_regenerated_on_rerun(
+        self, mock_load, mock_anthropic,
+    ):
+        """A candidate with pages but no staged cloze (pre-atomic half persist)
+        must be regenerated, not skipped as complete."""
+        mock_load.return_value = "Graphic novel template {input_json}"
+        job = GenerationJobFactory(input_words=['bright', 'discover'])
+        pack, _, _ = self._make_pack(job)
+        novel = self._full_run(mock_anthropic, job, pack)
+        novel.cloze_items.all().delete()
+
+        # All substeps have COMPLETED logs, so the rerun resumes at the final
+        # script substep (1 LLM call) and re-persists the candidate.
+        mock_anthropic.reset_mock()
+        mock_anthropic.side_effect = [GRAPHIC_NOVEL_RESPONSE]
+        _step_graphic_novel_script(job, [pack], WORD_LOOKUP_RESPONSE['words'])
+
+        assert mock_anthropic.call_count == 1
+        new_novel = GraphicNovel.objects.get(pack=pack)
+        assert new_novel.id != novel.id
+        assert new_novel.cloze_items.count() == 2
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_selected_candidate_never_deleted_by_rerun(self, mock_load, mock_anthropic):
+        """A published (selected) candidate is skipped even when it looks
+        incomplete — a resume must never unpublish student content."""
+        mock_load.return_value = "Graphic novel template {input_json}"
+        mock_anthropic.side_effect = ValueError('no LLM call expected')
+        job = GenerationJobFactory(input_words=['bright', 'discover'])
+        pack, _, _ = self._make_pack(job)
+        novel = GraphicNovel.objects.create(
+            pack=pack, candidate_index=0, is_selected=True,
+            title='Published', synopsis='s', style_prompt='x', reading_level=600,
+        )
+
+        _step_graphic_novel_script(job, [pack], WORD_LOOKUP_RESPONSE['words'])
+
+        assert mock_anthropic.call_count == 0
+        assert GraphicNovel.objects.filter(id=novel.id).exists()
+
+    def test_persist_rolls_back_when_cloze_misses_a_pack_word(self):
+        """Persistence is atomic and every pack word needs a staged cloze item:
+        a dropped word raises and leaves no half-persisted candidate behind."""
+        from vocabulary.services.generation.graphic_novel_script import (
+            _persist_candidate_novel,
+        )
+        job = GenerationJobFactory(input_words=['bright', 'discover'])
+        pack, _, _ = self._make_pack(job)
+        cloze_missing_discover = {
+            'cloze_items': [GRAPHIC_NOVEL_CLOZE_RESPONSE['cloze_items'][0]],
+        }
+
+        with pytest.raises(ValueError, match='discover'):
+            _persist_candidate_novel(
+                pack, 0, GRAPHIC_NOVEL_RESPONSE,
+                {'vault_framing': False, 'page_count': 5}, 600,
+                [{'term': 'bright'}, {'term': 'discover'}],
+                cloze_missing_discover,
+            )
+
+        assert not GraphicNovel.objects.filter(pack=pack).exists()
+        assert not GraphicNovelPage.objects.filter(novel__pack=pack).exists()
+        assert not ClozeItem.objects.filter(pack=pack).exists()
+
+    def test_persist_matches_cloze_item_by_correct_answer(self):
+        """The validator accepts an item via term OR correct_answer, so the
+        persist join must too (LLM term labels vary)."""
+        from vocabulary.services.generation.graphic_novel_script import (
+            _persist_candidate_novel,
+        )
+        job = GenerationJobFactory(input_words=['bright'])
+        word = WordFactory(text='bright')
+        pack = WordPack.objects.create(word_set=job.word_set, label='Pack 1', order=0)
+        WordPackItem.objects.create(pack=pack, word=word, order=0)
+        cloze = {
+            'cloze_items': [{
+                'term': 'shining brightly',
+                'sentence_text': 'The sun is _______.',
+                'correct_answer': 'bright',
+                'distractors': ['dark', 'quiet'],
+            }],
+        }
+
+        novel = _persist_candidate_novel(
+            pack, 0, GRAPHIC_NOVEL_RESPONSE,
+            {'vault_framing': False, 'page_count': 5}, 600,
+            [{'term': 'bright'}], cloze,
+        )
+
+        staged = ClozeItem.objects.get(novel=novel)
+        assert staged.word == word
+

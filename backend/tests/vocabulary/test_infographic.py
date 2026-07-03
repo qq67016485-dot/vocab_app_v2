@@ -8,7 +8,10 @@ from unittest.mock import patch
 
 import pytest
 
-from vocabulary.models import ClozeItem, Infographic, StudentWordSetAssignment
+from vocabulary.models import (
+    ClozeItem, GenerationJob, GenerationJobLog, Infographic,
+    StudentWordSetAssignment,
+)
 from vocabulary.services.infographic_selection_service import (
     select_infographic_candidate,
 )
@@ -18,7 +21,8 @@ from vocabulary.services.graphic_novel_selection_service import (
 from vocabulary.services.instructional_service import InstructionalService
 from vocabulary.services.generation.step_infographic import (
     restart_infographic_from_substep, build_infographic_image_prompt,
-    _clean_infographic_title,
+    _clean_infographic_title, _persist_candidate_infographic,
+    _step_infographic_design,
 )
 from tests.factories import (
     GraphicNovelFactory, GraphicNovelPageFactory, InfographicFactory,
@@ -391,6 +395,130 @@ class TestInfographicGeneration:
         with pytest.raises(ValueError, match='intro_text must use every target word'):
             restart_infographic_from_substep(job, pack.id, 'design', words_data, candidate_index=0)
         assert not Infographic.objects.filter(pack=pack).exists()
+
+
+@pytest.mark.django_db
+class TestInfographicRestartGuardsAndPersistIntegrity:
+    """2026-07-03 review HIGHs #5/#6 mirrors: the infographic restart must not
+    trust unvalidated design artifacts, persistence must be all-or-nothing, and
+    the resume skip-check must not treat a cloze-less candidate as complete."""
+
+    def _make_job_and_pack(self):
+        job = GenerationJobFactory(
+            input_words=['bright', 'discover'], content_types=['infographic'],
+        )
+        word1 = WordFactory(text='bright')
+        word2 = WordFactory(text='discover')
+        pack = WordPackFactory(word_set=job.word_set, label='Pack 1', order=0)
+        WordPackItemFactory(pack=pack, word=word1, order=0)
+        WordPackItemFactory(pack=pack, word=word2, order=1)
+        words_data = [
+            {'term': 'bright', 'part_of_speech': 'adjective', 'definition': 'full of light'},
+            {'term': 'discover', 'part_of_speech': 'verb', 'definition': 'to find'},
+        ]
+        return job, pack, words_data
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_restart_from_cloze_requires_completed_design_log(
+        self, mock_load, mock_gemini,
+    ):
+        """The design artifact is written BEFORE validation, so presence alone
+        must not qualify it; and the check must fire before the existing
+        candidate is deleted."""
+        mock_load.return_value = 'Infographic template'
+        mock_gemini.side_effect = [IG_DESIGN_RESPONSE, IG_CLOZE_RESPONSE]
+        job, pack, words_data = self._make_job_and_pack()
+        ig = restart_infographic_from_substep(job, pack.id, 'design', words_data)
+
+        # Simulate the design substep having failed validation on a later
+        # attempt: artifact on disk, COMPLETED log gone.
+        GenerationJobLog.objects.filter(
+            job=job,
+            step=GenerationJobLog.Step.INFOGRAPHIC_DESIGN,
+            status=GenerationJob.Status.COMPLETED,
+            output_data__substep='design',
+        ).delete()
+        mock_gemini.reset_mock()
+        mock_gemini.side_effect = ValueError('no LLM call expected')
+
+        with pytest.raises(ValueError, match='no COMPLETED log'):
+            restart_infographic_from_substep(job, pack.id, 'cloze', words_data)
+
+        assert mock_gemini.call_count == 0
+        assert Infographic.objects.filter(id=ig.id).exists()
+        assert ClozeItem.objects.filter(infographic=ig).count() == 2
+
+    @patch('vocabulary.services.generation.step_infographic.INFOGRAPHIC_CANDIDATE_COUNT', 1)
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_half_persisted_candidate_regenerated_on_rerun(
+        self, mock_load, mock_gemini,
+    ):
+        """An Infographic row without staged cloze (pre-atomic half persist)
+        must be regenerated, not skipped as complete."""
+        mock_load.return_value = 'Infographic template'
+        mock_gemini.side_effect = [IG_DESIGN_RESPONSE, IG_CLOZE_RESPONSE]
+        job, pack, words_data = self._make_job_and_pack()
+        half = InfographicFactory(pack=pack, candidate_index=0, title='Half-written')
+
+        _step_infographic_design(job, [pack], words_data)
+
+        assert mock_gemini.call_count == 2
+        new_ig = Infographic.objects.get(pack=pack)
+        assert new_ig.id != half.id
+        assert new_ig.title == 'Light Words'
+        assert ClozeItem.objects.filter(infographic=new_ig).count() == 2
+
+    @patch('vocabulary.services.generation.step_infographic.INFOGRAPHIC_CANDIDATE_COUNT', 1)
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_selected_candidate_never_deleted_by_rerun(self, mock_load, mock_gemini):
+        """A published (selected) candidate is skipped even without staged
+        cloze — a resume must never unpublish student content."""
+        mock_load.return_value = 'Infographic template'
+        mock_gemini.side_effect = ValueError('no LLM call expected')
+        job, pack, words_data = self._make_job_and_pack()
+        published = InfographicFactory(pack=pack, candidate_index=0, is_selected=True)
+
+        _step_infographic_design(job, [pack], words_data)
+
+        assert mock_gemini.call_count == 0
+        assert Infographic.objects.filter(id=published.id).exists()
+
+    def test_persist_rolls_back_when_cloze_misses_a_pack_word(self):
+        """Persistence is atomic and every pack word needs a staged cloze item:
+        a dropped word raises and leaves no cloze-less Infographic row behind."""
+        job, pack, _ = self._make_job_and_pack()
+        cloze_missing_discover = {
+            'cloze_items': [IG_CLOZE_RESPONSE['cloze_items'][0]],
+        }
+
+        with pytest.raises(ValueError, match='discover'):
+            _persist_candidate_infographic(
+                pack, 0, IG_DESIGN_RESPONSE, 600, cloze_missing_discover,
+            )
+
+        assert not Infographic.objects.filter(pack=pack).exists()
+        assert not ClozeItem.objects.filter(pack=pack).exists()
+
+    def test_persist_matches_cloze_item_by_correct_answer(self):
+        """The cloze validator accepts an item via term OR correct_answer, so
+        the persist join must too."""
+        job, pack, _ = self._make_job_and_pack()
+        cloze = {
+            'cloze_items': [
+                {'term': 'shining brightly', 'sentence_text': 'The sun is _______.',
+                 'correct_answer': 'bright', 'distractors': ['dark', 'cold']},
+                IG_CLOZE_RESPONSE['cloze_items'][1],
+            ],
+        }
+
+        ig = _persist_candidate_infographic(pack, 0, IG_DESIGN_RESPONSE, 600, cloze)
+
+        staged = ClozeItem.objects.filter(infographic=ig)
+        assert staged.count() == 2
+        assert set(staged.values_list('word__text', flat=True)) == {'bright', 'discover'}
 
 
 class TestCleanInfographicTitle:

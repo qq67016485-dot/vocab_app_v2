@@ -106,6 +106,7 @@ def _step_generate_questions(job, words, words_data, site_config=None):
             result = _call_llm_with_config(site_config, prompt_text, '')
             question_sets = result.get('generated_question_sets', [])
 
+            persisted_terms = set()
             for qs in question_sets:
                 term = qs.get('term', '').lower()
                 word = word_map.get(term)
@@ -113,12 +114,25 @@ def _step_generate_questions(job, words, words_data, site_config=None):
                     logger.warning("Question set for unknown term '%s', skipping", term)
                     continue
 
-                for qd in qs.get('questions', []):
+                questions = qs.get('questions', [])
+                for qd in questions:
                     options = qd.get('options')
                     if isinstance(options, dict) and 'choices' in options:
                         options = options['choices']
 
-                    q_type = qd.get('question_type', 'DEFINITION_MC_SINGLE')
+                    q_type = (qd.get('question_type') or 'DEFINITION_MC_SINGLE').strip()
+                    level = mastery_levels.get(QUESTION_TYPE_LEVEL.get(q_type))
+                    if level is None:
+                        # Persisting anyway would create a question no mastery
+                        # level ever serves — invisible to students, with the
+                        # step still reporting success. Fail the batch so the
+                        # normal retry path regenerates it.
+                        raise ValueError(
+                            f"Question for '{term}' has question_type '{q_type}' "
+                            f"with no servable mastery level (unmapped type or "
+                            f"missing MasteryLevel row)."
+                        )
+
                     question = Question.objects.create(
                         word=word,
                         question_type=q_type,
@@ -130,12 +144,21 @@ def _step_generate_questions(job, words, words_data, site_config=None):
                         lexile_score=qd.get('lexile_score'),
                         generation_job=job,
                     )
+                    question.suitable_levels.add(level)
 
-                    level_num = QUESTION_TYPE_LEVEL.get(q_type)
-                    if level_num:
-                        ml = mastery_levels.get(level_num)
-                        if ml:
-                            question.suitable_levels.add(ml)
+                if questions:
+                    persisted_terms.add(term)
+
+            # Every word sent in the batch must have come back with questions;
+            # a silently dropped word would otherwise never be retried (resume
+            # tracks per-word rows, not batch expectations).
+            expected_terms = {t.lower() for t in batch_terms if t.lower() in word_map}
+            missing_terms = expected_terms - persisted_terms
+            if missing_terms:
+                raise ValueError(
+                    f"Question generation batch {batch_idx} returned no "
+                    f"questions for: {', '.join(sorted(missing_terms))}"
+                )
 
         # Count all questions for the job (including batches skipped this run) so
         # the counter is correct whether this was a fresh run or a resume.

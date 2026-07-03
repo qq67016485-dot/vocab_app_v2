@@ -153,7 +153,21 @@ def _step_generate_sentence_write(job, words, words_data, site_config=None):
                 result = _call_llm_with_config(site_config, template, input_json)
                 tasks = result.get('sentence_tasks', [])
 
-                _persist_tasks(job, q_type, tasks, word_map, task_levels, target_lexile)
+                persisted_terms = _persist_tasks(
+                    job, q_type, tasks, word_map, task_levels, target_lexile,
+                )
+
+                # Every pending word must have come back with a task; a
+                # silently dropped word would otherwise never be retried
+                # (resume tracks per-word rows, not batch expectations).
+                missing_terms = {
+                    w['term'].lower() for w in pending
+                } - persisted_terms
+                if missing_terms:
+                    raise ValueError(
+                        f"Sentence-write {q_type} batch {batch_idx} returned "
+                        f"no task for: {', '.join(sorted(missing_terms))}"
+                    )
 
         created_count = Question.objects.filter(
             generation_job=job,
@@ -189,7 +203,11 @@ def _persist_tasks(job, q_type, tasks, word_map, mastery_levels_to_add, target_l
     ``mastery_levels_to_add`` is the list of MasteryLevel rows to attach as
     ``suitable_levels`` (usually one; the guided variant gets both L4 and L5 in
     guided-only mode).
+
+    Returns the set of lowercased terms a row was created for, so the caller
+    can verify batch coverage.
     """
+    persisted_terms = set()
     for task in tasks:
         term = (task.get('term') or '').lower()
         word = word_map.get(term)
@@ -225,3 +243,5 @@ def _persist_tasks(job, q_type, tasks, word_map, mastery_levels_to_add, target_l
         )
         if mastery_levels_to_add:
             question.suitable_levels.add(*mastery_levels_to_add)
+        persisted_terms.add(term)
+    return persisted_terms

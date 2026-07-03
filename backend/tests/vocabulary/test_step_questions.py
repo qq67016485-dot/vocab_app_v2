@@ -10,6 +10,7 @@ from vocabulary.services.generation_pipeline_service import (
 )
 from tests.factories import (
     WordFactory, WordDefinitionFactory, GenerationJobFactory,
+    MasteryLevelFactory,
 )
 from tests.vocabulary.generation_fixtures import (
     WORD_LOOKUP_RESPONSE, QUESTION_RESPONSE,
@@ -46,6 +47,12 @@ def _question_response_for(*terms):
 @pytest.mark.django_db
 class TestStepGenerateQuestions:
     """Tests for _step_generate_questions — LLM generates practice questions per word."""
+
+    @pytest.fixture(autouse=True)
+    def seed_mastery_level(self):
+        # DEFINITION_MC_SINGLE maps to level 1; the step now fails fast when a
+        # question's mastery level cannot be attached.
+        MasteryLevelFactory(level_id=1)
 
     @patch('vocabulary.services.llm_service.call_gemini')
     @patch('vocabulary.services.llm_service.load_prompt_template')
@@ -168,6 +175,69 @@ class TestStepGenerateQuestions:
             status=GenerationJob.Status.COMPLETED,
         ).latest('created_at')
         assert log.output_data['batches_skipped'] == 1
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_batch_missing_word_fails_step(self, mock_load, mock_gemini):
+        """A word the LLM silently dropped must fail the batch — otherwise it
+        never gets questions and resume never retries it."""
+        mock_load.return_value = "Question gen template"
+        words, words_data = self._make_words(['alpha', 'beta'])
+        # One batch of 2, but the response only covers alpha.
+        mock_gemini.return_value = _question_response_for('alpha')
+        job = GenerationJobFactory(input_words=['alpha', 'beta'])
+
+        with pytest.raises(ValueError, match='beta'):
+            _step_generate_questions(job, words, words_data)
+
+        log = GenerationJobLog.objects.get(
+            job=job, step=GenerationJobLog.Step.QUESTION_GEN,
+        )
+        assert log.status == GenerationJob.Status.FAILED
+        assert 'beta' in log.error_message
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_unmapped_question_type_fails_batch_without_orphan_row(
+        self, mock_load, mock_gemini,
+    ):
+        """A question_type outside QUESTION_TYPE_LEVEL would persist a row no
+        mastery level ever serves; the batch must fail instead."""
+        mock_load.return_value = "Question gen template"
+        words, words_data = self._make_words(['alpha'])
+        response = _question_response_for('alpha')
+        response['generated_question_sets'][0]['questions'][0]['question_type'] = (
+            'NOT_A_REAL_TYPE'
+        )
+        mock_gemini.return_value = response
+        job = GenerationJobFactory(input_words=['alpha'])
+
+        with pytest.raises(ValueError, match='NOT_A_REAL_TYPE'):
+            _step_generate_questions(job, words, words_data)
+
+        assert Question.objects.filter(generation_job=job).count() == 0
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_question_type_whitespace_normalized(self, mock_load, mock_gemini):
+        """A trailing-space type from the LLM maps to the same level instead
+        of orphaning the row."""
+        mock_load.return_value = "Question gen template"
+        words, words_data = self._make_words(['alpha'])
+        response = _question_response_for('alpha')
+        response['generated_question_sets'][0]['questions'][0]['question_type'] = (
+            'DEFINITION_MC_SINGLE '
+        )
+        mock_gemini.return_value = response
+        job = GenerationJobFactory(input_words=['alpha'])
+
+        _step_generate_questions(job, words, words_data)
+
+        question = Question.objects.get(generation_job=job)
+        assert question.question_type == 'DEFINITION_MC_SINGLE'
+        assert list(
+            question.suitable_levels.values_list('level_id', flat=True)
+        ) == [1]
 
     def _make_words(self, terms):
         """Create Word + WordDefinition rows and the matching words_data list."""

@@ -410,6 +410,63 @@ class TestRestartGraphicNovelSubstep:
         assert job.status == GenerationJob.Status.FAILED
         assert 'remaining pack failed' in job.error_message
 
+    @patch('vocabulary.services.generation.orchestrator.restart_graphic_novel_from_substep')
+    @patch('vocabulary.services.generation.orchestrator._step_graphic_novel_script')
+    def test_skipped_when_job_already_running(self, mock_script, mock_restart):
+        """2026-07-03 review HIGH #8: a direct call (not via the view, which
+        claims the job under select_for_update) must not stomp a RUNNING job —
+        two concurrent restarts could otherwise both mutate the same novels."""
+        admin = AdminUserFactory()
+        word_set = WordSetFactory(creator=admin)
+        word = WordFactory(text='bright')
+        WordDefinitionFactory(word=word)
+        word_set.words.add(word)
+        pack = WordPackFactory(word_set=word_set, label='Pack 1', order=0)
+        WordPackItem.objects.create(pack=pack, word=word, order=0)
+        job = GenerationJobFactory(
+            word_set=word_set,
+            created_by=admin,
+            input_words=['bright'],
+            status=GenerationJob.Status.RUNNING,
+        )
+
+        with patch('vocabulary.services.generation.helpers.close_old_connections'):
+            restart_graphic_novel_substep(job.id, pack.id, 'team_selection')
+
+        mock_restart.assert_not_called()
+        mock_script.assert_not_called()
+        job.refresh_from_db()
+        # Untouched: not overwritten to COMPLETED/FAILED by the skipped run.
+        assert job.status == GenerationJob.Status.RUNNING
+
+    @patch('vocabulary.services.generation.orchestrator.restart_graphic_novel_from_substep')
+    @patch('vocabulary.services.generation.orchestrator._step_graphic_novel_script')
+    def test_already_claimed_bypasses_running_guard(self, mock_script, mock_restart):
+        """The view flips the job to RUNNING before spawning the thread; the
+        thread must honor that claim instead of rejecting its own run."""
+        admin = AdminUserFactory()
+        word_set = WordSetFactory(creator=admin)
+        word = WordFactory(text='bright')
+        WordDefinitionFactory(word=word)
+        word_set.words.add(word)
+        pack = WordPackFactory(word_set=word_set, label='Pack 1', order=0)
+        WordPackItem.objects.create(pack=pack, word=word, order=0)
+        job = GenerationJobFactory(
+            word_set=word_set,
+            created_by=admin,
+            input_words=['bright'],
+            status=GenerationJob.Status.RUNNING,
+        )
+
+        with patch('vocabulary.services.generation.helpers.close_old_connections'):
+            restart_graphic_novel_substep(
+                job.id, pack.id, 'team_selection', already_claimed=True,
+            )
+
+        mock_restart.assert_called_once()
+        job.refresh_from_db()
+        assert job.status == GenerationJob.Status.COMPLETED
+
 
 @pytest.mark.django_db
 class TestRestartInfographicSubstep:
@@ -489,3 +546,30 @@ class TestRestartInfographicSubstep:
         job.refresh_from_db()
         assert job.status == GenerationJob.Status.FAILED
         assert 'remaining candidate failed' in job.error_message
+
+    @patch('vocabulary.services.generation.orchestrator.restart_infographic_from_substep')
+    @patch('vocabulary.services.generation.orchestrator._step_infographic_design')
+    def test_skipped_when_job_already_running(self, mock_design, mock_restart):
+        """Mirror of the GN guard: a direct call must not stomp a RUNNING job."""
+        admin = AdminUserFactory()
+        word_set = WordSetFactory(creator=admin)
+        word = WordFactory(text='bright')
+        WordDefinitionFactory(word=word)
+        word_set.words.add(word)
+        pack = WordPackFactory(word_set=word_set, label='Pack 1', order=0)
+        WordPackItem.objects.create(pack=pack, word=word, order=0)
+        job = GenerationJobFactory(
+            word_set=word_set,
+            created_by=admin,
+            input_words=['bright'],
+            content_types=['infographic'],
+            status=GenerationJob.Status.RUNNING,
+        )
+
+        with patch('vocabulary.services.generation.helpers.close_old_connections'):
+            restart_infographic_substep(job.id, pack.id, 'design')
+
+        mock_restart.assert_not_called()
+        mock_design.assert_not_called()
+        job.refresh_from_db()
+        assert job.status == GenerationJob.Status.RUNNING

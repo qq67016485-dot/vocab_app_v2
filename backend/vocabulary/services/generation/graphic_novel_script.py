@@ -12,6 +12,8 @@ import json
 import logging
 import time
 
+from django.db import transaction
+
 from vocabulary.models import (
     ClozeItem, GenerationJob, GenerationJobLog, GraphicNovel, GraphicNovelPage,
 )
@@ -88,6 +90,41 @@ def _prior_substep_artifacts_exist(job, pack, up_to_idx, candidate_index):
     return True
 
 
+def _load_validated_prior_substeps(job, pack, substep_key, start_idx, candidate_index):
+    """Load artifacts for every substep before ``start_idx``, requiring each to
+    also have a COMPLETED log for this (pack, candidate).
+
+    Artifact presence alone is not enough: ``_run_graphic_novel_substep`` writes
+    the artifact *before* validation, so a substep that failed validation leaves
+    an unvalidated artifact on disk. Without the log check, a manual admin
+    restart from a later substep would silently feed that garbage into the rest
+    of the workflow. Raising here (before the caller deletes the existing
+    candidate novel) leaves the candidate untouched on a bad restart target.
+    """
+    if start_idx <= 0:
+        return []
+    completed = _completed_substep_keys_for_candidate(job, pack, candidate_index)
+    prior_results = []
+    for idx in range(start_idx):
+        prior = GRAPHIC_NOVEL_SUBSTEPS[idx]
+        if prior['key'] not in completed:
+            raise ValueError(
+                f"Cannot restart from '{substep_key}': prior substep '{prior['key']}' "
+                f"(candidate {candidate_index}) has no COMPLETED log — its artifact "
+                "may be unvalidated output from a failed attempt. Restart from that "
+                "substep or an earlier one."
+            )
+        artifact_response = _load_substep_artifact(job, pack, prior, candidate_index)
+        if artifact_response is None:
+            raise ValueError(
+                f"Cannot restart from '{substep_key}': missing artifact for prior "
+                f"substep '{prior['key']}' (candidate {candidate_index}). "
+                "Run from an earlier substep."
+            )
+        prior_results.append(artifact_response)
+    return prior_results
+
+
 def _resume_substep_index_for_candidate(job, pack, candidate_index):
     """Index of the first GN substep that should run for this candidate on resume.
 
@@ -107,6 +144,30 @@ def _candidate_novel(pack, candidate_index):
     return pack.graphic_novels.filter(candidate_index=candidate_index).first()
 
 
+def _candidate_novel_is_complete(novel):
+    """True when the candidate's persisted records look fully written.
+
+    ``pages.exists()`` alone is too weak for candidates persisted before
+    ``_persist_candidate_novel`` became atomic: a mid-write crash could leave
+    some pages but no review page or staged cloze, and the candidate would be
+    treated as done — selectable but broken. Requires all story pages (checked
+    against ``metadata['page_count']`` when recorded), the review page, and
+    staged cloze. Selection *copies* staged cloze on promotion, so a selected
+    or previously-selected candidate still passes the cloze check.
+    """
+    pages = list(novel.pages.all())
+    story_pages = [p for p in pages if not p.is_review_page]
+    if not story_pages or not any(p.is_review_page for p in pages):
+        return False
+    expected_story_pages = (novel.metadata or {}).get('page_count')
+    # Legacy rows persisted before page_count was tracked lack the field; for
+    # them the check intentionally degrades to pages + review page + cloze
+    # (current code always records page_count before persisting).
+    if expected_story_pages and len(story_pages) != expected_story_pages:
+        return False
+    return novel.cloze_items.exists()
+
+
 def _step_graphic_novel_script(job, packs, words_data):
     """
     Step 7A: Generate ``GRAPHIC_NOVEL_CANDIDATE_COUNT`` candidate novels per pack.
@@ -114,8 +175,9 @@ def _step_graphic_novel_script(job, packs, words_data):
     Each candidate runs the full team-selection→script workflow independently and
     creates its own novel/page/cloze records (without images, so image generation
     can resume independently). No candidate is auto-selected — an admin picks one
-    later. Candidates already complete (novel with pages) are skipped; incomplete
-    ones resume from the first substep lacking a COMPLETED log.
+    later. Complete candidates (see ``_candidate_novel_is_complete``) and selected
+    ones are skipped; incomplete ones resume from the first substep lacking a
+    COMPLETED log.
     """
     start = time.time()
     try:
@@ -132,18 +194,29 @@ def _step_graphic_novel_script(job, packs, words_data):
         for pack in packs:
             for candidate_index in range(GRAPHIC_NOVEL_CANDIDATE_COUNT):
                 existing = _candidate_novel(pack, candidate_index)
-                if existing and existing.pages.exists():
+                if existing and existing.is_selected:
+                    # Never delete a published candidate, even one that looks
+                    # incomplete — a resume must not unpublish student content.
+                    logger.info(
+                        "Pack '%s' candidate %d is published (selected), skipping",
+                        pack.label, candidate_index,
+                    )
+                    continue
+                if existing and _candidate_novel_is_complete(existing):
                     logger.info(
                         "Pack '%s' candidate %d already complete, skipping",
                         pack.label, candidate_index,
                     )
                     continue
                 if existing:
+                    # Half-persisted (pages/review page/cloze missing). The
+                    # restart engine deletes it — after validating the restart
+                    # target — and regenerates (same as the infographic step).
                     logger.info(
-                        "Pack '%s' candidate %d has a novel but no pages, regenerating",
+                        "Pack '%s' candidate %d is half-persisted "
+                        "(pages/review page/cloze missing), regenerating",
                         pack.label, candidate_index,
                     )
-                    existing.delete()
 
                 # Resume: if earlier substeps for this candidate already completed
                 # (a later one failed), pick up from the first incomplete substep
@@ -230,6 +303,13 @@ def restart_graphic_novel_from_substep(job, pack_id, substep_key, words_data,
     start_idx = substep_keys.index(substep_key)
     pack = WordPack.objects.prefetch_related('items__word').get(id=pack_id, word_set=job.word_set)
 
+    # Validate + load prior-substep context BEFORE deleting the existing novel:
+    # every prior substep must have a COMPLETED log (not just an artifact on
+    # disk), so a bad restart target raises here and leaves the candidate as-is.
+    prior_results = _load_validated_prior_substeps(
+        job, pack, substep_key, start_idx, candidate_index,
+    )
+
     # Drop only this candidate's novel (cascades its staged cloze). The promoted
     # pack cloze (novel=None) and sibling candidates are preserved.
     pack.graphic_novels.filter(candidate_index=candidate_index).delete()
@@ -282,16 +362,7 @@ def restart_graphic_novel_from_substep(job, pack_id, substep_key, words_data,
     lexi_context = {}
     router_lexi_context = {}
 
-    for idx in range(start_idx):
-        artifact_response = _load_substep_artifact(
-            job, pack, GRAPHIC_NOVEL_SUBSTEPS[idx], candidate_index
-        )
-        if artifact_response is None:
-            raise ValueError(
-                f"Cannot restart from '{substep_key}': missing artifact for prior substep "
-                f"'{GRAPHIC_NOVEL_SUBSTEPS[idx]['key']}' (candidate {candidate_index}). "
-                "Run from an earlier substep."
-            )
+    for idx, artifact_response in enumerate(prior_results):
         if idx == 0:
             team_result = artifact_response
         elif idx == 1:
@@ -531,78 +602,106 @@ def _build_team_contexts(team_result, content_lexile):
 
 def _persist_candidate_novel(pack, candidate_index, result, novel_metadata,
                              content_lexile, pack_words_data, cloze_result):
-    """Create the candidate's GraphicNovel, pages, review page, and staged cloze."""
-    novel = GraphicNovel.objects.create(
-        pack=pack,
-        candidate_index=candidate_index,
-        is_selected=False,
-        title=result.get('title', f'{pack.label} Graphic Novel'),
-        synopsis=result.get('synopsis', ''),
-        characters=result.get('characters', []),
-        metadata=novel_metadata,
-        style_prompt=result.get(
-            'style_prompt',
-            result.get('style_notes', 'Middle-grade graphic novel art with clear readable lettering.'),
-        ),
-        reading_level=result.get('reading_level', content_lexile),
-    )
+    """Create the candidate's GraphicNovel, pages, review page, and staged cloze.
 
-    for idx, page_data in enumerate(result.get('pages', []), 1):
-        panel_descriptions = page_data.get('panels', [])
+    Atomic: a mid-write failure rolls back the whole candidate instead of
+    stranding a half-persisted novel that the resume skip-check would treat as
+    complete (selectable but broken).
+    """
+    with transaction.atomic():
+        novel = GraphicNovel.objects.create(
+            pack=pack,
+            candidate_index=candidate_index,
+            is_selected=False,
+            title=result.get('title', f'{pack.label} Graphic Novel'),
+            synopsis=result.get('synopsis', ''),
+            characters=result.get('characters', []),
+            metadata=novel_metadata,
+            style_prompt=result.get(
+                'style_prompt',
+                result.get('style_notes', 'Middle-grade graphic novel art with clear readable lettering.'),
+            ),
+            reading_level=result.get('reading_level', content_lexile),
+        )
+
+        for idx, page_data in enumerate(result.get('pages', []), 1):
+            panel_descriptions = page_data.get('panels', [])
+            GraphicNovelPage.objects.create(
+                novel=novel,
+                page_number=page_data.get('page_number', idx),
+                panel_count=page_data.get('panel_count', len(panel_descriptions) or 1),
+                layout_description=page_data.get('layout_description', ''),
+                panel_descriptions=panel_descriptions,
+                characters_featured=page_data.get('characters_featured', []),
+                setting_key=page_data.get('setting_key', ''),
+                vault_zone=page_data.get('vault_zone', ''),
+                is_vault_page=page_data.get('is_vault_page', False),
+                vocab_words_used=_page_vocab_words(page_data),
+            )
+
+        review_page_number = len(result.get('pages', [])) + 1
+        all_vocab_words = [wd['term'] for wd in pack_words_data]
+        story_characters = []
+        for page_data in result.get('pages', []):
+            for char in page_data.get('characters_featured', []):
+                if char not in story_characters:
+                    story_characters.append(char)
+        review_characters = story_characters[:2] if story_characters else []
         GraphicNovelPage.objects.create(
             novel=novel,
-            page_number=page_data.get('page_number', idx),
-            panel_count=page_data.get('panel_count', len(panel_descriptions) or 1),
-            layout_description=page_data.get('layout_description', ''),
-            panel_descriptions=panel_descriptions,
-            characters_featured=page_data.get('characters_featured', []),
-            setting_key=page_data.get('setting_key', ''),
-            vault_zone=page_data.get('vault_zone', ''),
-            is_vault_page=page_data.get('is_vault_page', False),
-            vocab_words_used=_page_vocab_words(page_data),
+            page_number=review_page_number,
+            panel_count=1,
+            layout_description='Vocabulary review word cards spread',
+            panel_descriptions=[],
+            vocab_words_used=all_vocab_words,
+            characters_featured=review_characters,
+            setting_key='the_vault' if novel_metadata.get('vault_framing') else 'review',
+            vault_zone='review_artifact',
+            is_vault_page=novel_metadata.get('vault_framing', False),
+            is_review_page=True,
         )
 
-    review_page_number = len(result.get('pages', [])) + 1
-    all_vocab_words = [wd['term'] for wd in pack_words_data]
-    story_characters = []
-    for page_data in result.get('pages', []):
-        for char in page_data.get('characters_featured', []):
-            if char not in story_characters:
-                story_characters.append(char)
-    review_characters = story_characters[:2] if story_characters else []
-    GraphicNovelPage.objects.create(
-        novel=novel,
-        page_number=review_page_number,
-        panel_count=1,
-        layout_description='Vocabulary review word cards spread',
-        panel_descriptions=[],
-        vocab_words_used=all_vocab_words,
-        characters_featured=review_characters,
-        setting_key='the_vault' if novel_metadata.get('vault_framing') else 'review',
-        vault_zone='review_artifact',
-        is_vault_page=novel_metadata.get('vault_framing', False),
-        is_review_page=True,
-    )
-
-    # Cloze is staged against the novel (novel=<id>); it is promoted to the pack
-    # (novel=None) only when this candidate is selected.
-    word_map = {
-        item.word.text.lower(): item.word
-        for item in pack.items.select_related('word').all()
-    }
-    for idx, ci in enumerate((cloze_result or {}).get('cloze_items', [])):
-        term = ci.get('term', '').lower()
-        word = word_map.get(term)
-        if not word:
-            continue
-        ClozeItem.objects.create(
-            pack=pack,
-            novel=novel,
-            word=word,
-            sentence_text=ci.get('sentence_text', ''),
-            correct_answer=ci.get('correct_answer', ''),
-            distractors=ci.get('distractors', []),
-            order=idx,
-        )
+        # Cloze is staged against the novel (novel=<id>); it is promoted to the
+        # pack (novel=None) only when this candidate is selected. Items are
+        # joined to pack words via term OR correct_answer — the validator
+        # accepts either, so the persist must too. A pack word with no matching
+        # item fails the candidate: silently skipping it would leave the word
+        # without practice cloze forever once this candidate is published.
+        word_map = {
+            item.word.text.lower(): item.word
+            for item in pack.items.select_related('word').all()
+        }
+        covered_terms = set()
+        for idx, ci in enumerate((cloze_result or {}).get('cloze_items', [])):
+            word = (
+                word_map.get((ci.get('term') or '').lower())
+                or word_map.get((ci.get('correct_answer') or '').lower())
+            )
+            if not word:
+                # Items for non-pack words can't be stored (the FK needs a pack
+                # word) and would never be served; drop them loudly.
+                logger.warning(
+                    "Pack '%s' candidate %d: skipping cloze item for non-pack "
+                    "term %r.", pack.label, candidate_index, ci.get('term'),
+                )
+                continue
+            covered_terms.add(word.text.lower())
+            ClozeItem.objects.create(
+                pack=pack,
+                novel=novel,
+                word=word,
+                sentence_text=ci.get('sentence_text', ''),
+                correct_answer=ci.get('correct_answer', ''),
+                distractors=ci.get('distractors', []),
+                order=idx,
+            )
+        missing_cloze = set(word_map) - covered_terms
+        if missing_cloze:
+            raise ValueError(
+                f"Cloze persistence for pack '{pack.label}' candidate "
+                f"{candidate_index} matched no item for: "
+                f"{', '.join(sorted(missing_cloze))}. Every pack word needs a "
+                "staged cloze item (matched by term or correct_answer)."
+            )
 
     return novel

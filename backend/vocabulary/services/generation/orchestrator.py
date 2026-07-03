@@ -2,6 +2,7 @@
 import logging
 
 from django.contrib.contenttypes.models import ContentType
+from django.db import transaction
 from django.utils import timezone
 
 from vocabulary.models import (
@@ -85,6 +86,11 @@ def _clear_testing_outputs_for_step(job, step, words):
     word_ids = [word.id for word in words]
 
     if step == S.DEDUP:
+        # The wholesale clear is intentional: word_set.words is derived state
+        # owned by the pipeline. run_full_pipeline clears it the same way at
+        # the start of every run, and teacher word edits are locked out once
+        # generation starts (_is_word_set_locked in teacher_views). Restarting
+        # DEDUP rebuilds the M2M from this job's WORD_LOOKUP snapshot.
         job.word_set.words.clear()
         job.words_created = 0
         job.save(update_fields=['words_created'])
@@ -546,7 +552,34 @@ def restart_pipeline_from_step(job_id, start_step, include_subsequent=True):
         _close_old_connections_if_safe()
 
 
-def restart_graphic_novel_substep(job_id, pack_id, substep_key, candidate_index=0):
+def _claim_job_for_restart(job_id, already_claimed):
+    """Atomically claim a job for a restart thread; ``None`` if another run holds it.
+
+    The REST views claim the job (status → RUNNING) inside their own
+    ``select_for_update`` transaction *before* spawning the thread and pass
+    ``already_claimed=True``, so the 409 they return on a concurrent POST is
+    authoritative. Every other caller (tests, shell, future code) gets the same
+    check-and-set here: the row lock serializes concurrent claims, so two
+    restarts can never both proceed to mutate the same novels/cloze.
+    """
+    with transaction.atomic():
+        job = GenerationJob.objects.select_for_update().get(id=job_id)
+        if not already_claimed and job.status in (
+            GenerationJob.Status.PENDING, GenerationJob.Status.RUNNING,
+        ):
+            logger.warning(
+                "Restart of job %s skipped: job is already %s.",
+                job_id, job.status,
+            )
+            return None
+        job.status = GenerationJob.Status.RUNNING
+        job.error_message = ''
+        job.save(update_fields=['status', 'error_message'])
+    return GenerationJob.objects.select_related('word_set').get(id=job_id)
+
+
+def restart_graphic_novel_substep(job_id, pack_id, substep_key, candidate_index=0,
+                                  already_claimed=False):
     """Restart one candidate of a pack's graphic novel from a specific substep.
 
     After regenerating the targeted candidate, this also generates scripts for any
@@ -556,16 +589,23 @@ def restart_graphic_novel_substep(job_id, pack_id, substep_key, candidate_index=
     whole job COMPLETED while later packs/candidates silently had no novel at all
     (job #48). The script step's skip-guard leaves already-complete candidates
     untouched, so the common "regenerate one candidate of a finished job" case adds
-    no extra LLM calls.
+    no extra LLM calls (the skip-guard treats a candidate as complete only when
+    its pages, review page, page count, and staged cloze all check out, and it
+    never deletes a selected/published candidate).
+
+    ``already_claimed`` marks that the caller (the REST view) already flipped the
+    job to RUNNING under a row lock; otherwise the claim happens here and a job
+    that is already PENDING/RUNNING is left untouched. Returns ``True`` when the
+    restart ran to completion, ``False`` when it was skipped because another run
+    holds the job (falsy on failure — the job is marked FAILED instead).
     """
     _close_old_connections_if_safe()
     job = None
 
     try:
-        job = GenerationJob.objects.select_related('word_set').get(id=job_id)
-        job.status = GenerationJob.Status.RUNNING
-        job.error_message = ''
-        job.save(update_fields=['status', 'error_message'])
+        job = _claim_job_for_restart(job_id, already_claimed)
+        if job is None:
+            return False
 
         _, words_data, _ = _reconstruct_context(job)
 
@@ -610,6 +650,7 @@ def restart_graphic_novel_substep(job_id, pack_id, substep_key, candidate_index=
 
         job.word_set.generation_status = WordSet.GenerationStatus.GENERATED
         job.word_set.save(update_fields=['generation_status'])
+        return True
 
     except Exception as exc:
         logger.exception(
@@ -628,7 +669,8 @@ def restart_graphic_novel_substep(job_id, pack_id, substep_key, candidate_index=
         _close_old_connections_if_safe()
 
 
-def restart_infographic_substep(job_id, pack_id, substep_key, candidate_index=0):
+def restart_infographic_substep(job_id, pack_id, substep_key, candidate_index=0,
+                                already_claimed=False):
     """Restart one candidate of a pack's infographic from a specific substep.
 
     Mirrors ``restart_graphic_novel_substep``: after regenerating the targeted
@@ -643,15 +685,20 @@ def restart_infographic_substep(job_id, pack_id, substep_key, candidate_index=0)
     leaves image generation to the pipeline / a separate redraw): the design
     restart regenerates the candidate ``Infographic`` + its staged cloze, and the
     admin re-runs the image step if needed.
+
+    ``already_claimed`` marks that the caller (the REST view) already flipped the
+    job to RUNNING under a row lock; otherwise the claim happens here and a job
+    that is already PENDING/RUNNING is left untouched. Returns ``True`` when the
+    restart ran to completion, ``False`` when it was skipped because another run
+    holds the job (falsy on failure — the job is marked FAILED instead).
     """
     _close_old_connections_if_safe()
     job = None
 
     try:
-        job = GenerationJob.objects.select_related('word_set').get(id=job_id)
-        job.status = GenerationJob.Status.RUNNING
-        job.error_message = ''
-        job.save(update_fields=['status', 'error_message'])
+        job = _claim_job_for_restart(job_id, already_claimed)
+        if job is None:
+            return False
 
         _, words_data, _ = _reconstruct_context(job)
 
@@ -696,6 +743,7 @@ def restart_infographic_substep(job_id, pack_id, substep_key, candidate_index=0)
 
         job.word_set.generation_status = WordSet.GenerationStatus.GENERATED
         job.word_set.save(update_fields=['generation_status'])
+        return True
 
     except Exception as exc:
         logger.exception(

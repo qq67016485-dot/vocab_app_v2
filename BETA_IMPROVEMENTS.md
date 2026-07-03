@@ -1,6 +1,6 @@
 # Beta Readiness Improvements
 
-Status: Updated 2026-05-31
+Status: Updated 2026-07-03
 
 ## Critical
 
@@ -29,6 +29,7 @@ Status: Updated 2026-05-31
 | 11 | DRF exception handler | Pending | Error response format inconsistent across views. |
 | 12 | Docker setup | Pending | No Dockerfile or docker-compose for reproducible deploys. |
 | 13 | Frontend tests | Pending | Backend has ~3k lines of tests; frontend has zero. |
+| 17 | LLM log/artifact retention | Pending | 2026-07-03 security review: `temp/llm_logs/` (full prompt+response per LLM call) and `temp/generation_artifacts/` grow without bound — disk-exhaustion risk on the 3.6 GB production box. Needs an age-based cleanup cron or on-write pruning. |
 
 ## Low
 

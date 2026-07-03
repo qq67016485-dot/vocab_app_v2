@@ -2,6 +2,52 @@
 
 All notable changes to Vocab App V2 are documented in this file.
 
+## [Unreleased] - 2026-07-03 (generation-pipeline review round 2: remaining 4 HIGHs fixed)
+
+### Context
+- Second same-day pass closing the four HIGH findings left open by the review below. Same theme — resume/restart paths trusting incomplete state — this time in the graphic novel / infographic candidate machinery. One co-located MEDIUM (infographic cloze silent drop) was fixed in the same files; both content types got the fix since they mirror each other.
+
+### Fixed — Substep Restart Trusted Unvalidated Artifacts (GN + infographic)
+- `restart_graphic_novel_from_substep` reconstructed prior-substep context from on-disk artifacts by *presence* alone — but artifacts are written **before** validation, so a substep that failed validation leaves unvalidated output on disk. A manual admin restart from a later substep silently fed that garbage into the remaining workflow. Prior substeps now require their **COMPLETED log** (`_load_validated_prior_substeps`), matching the automatic resume path. The infographic engine (`restart_infographic_from_substep`) had the identical flaw for its design artifact and got the identical fix.
+- Both engines also deleted the candidate's existing novel/infographic **before** checking prior artifacts — a bad restart target destroyed the candidate and then errored. Validation now runs first; a rejected restart leaves the candidate untouched.
+
+### Fixed — Candidate Persistence Was Non-Atomic + Skip Check Too Weak (GN + infographic)
+- `_persist_candidate_novel` (novel → pages → review page → cloze) and `_persist_candidate_infographic` (row → cloze) were separate writes; a mid-write failure stranded a half-persisted candidate that the resume skip-check (`pages.exists()` / row-exists) treated as complete — selectable but broken. Both are now wrapped in `transaction.atomic()`.
+- The skip check itself was upgraded: GN completeness = story pages + review page + `metadata['page_count']` match + staged cloze exists (`_candidate_novel_is_complete`); infographic = staged cloze exists. Pre-atomic half-persisted candidates are regenerated instead of skipped. **Selected (published) candidates are never deleted by a resume**, even if they look incomplete — safe because selection *copies* staged cloze on promotion, so complete candidates always keep theirs.
+- Co-located MEDIUM fixed: cloze persist silently `continue`d on terms it couldn't join to a pack word, while the validator accepts an item via `term` OR `correct_answer` — a validated candidate could end up with zero servable cloze for a word, forever. Persist now joins by term OR correct_answer and **raises if any pack word gets no staged cloze row** (FAILED log → normal retry); items for non-pack words are dropped with a warning.
+
+### Fixed — Substep-Restart Race (status claim now atomic in the thread function)
+- `restart_graphic_novel_substep` / `restart_infographic_substep` unconditionally stomped `job.status = RUNNING`; the concurrency guard lived only in the REST views. New `_claim_job_for_restart()` does an atomic `select_for_update` check-and-set at the top of both thread functions: a job already PENDING/RUNNING is skipped with a warning (status untouched) instead of two runs mutating the same novels/cloze. The views — which already claim the job under their own row lock before spawning the thread (their 409 is authoritative) — pass `already_claimed=True`; every other caller (shell, tests, future code) gets the guard by default.
+
+### Verified — WordSet `words.clear()` on DEDUP Restart Is Correct As-Is
+- The "clears the ENTIRE WordSet M2M" finding resolved as a confirmed invariant, not a bug: `word_set.words` is pipeline-derived state — `run_full_pipeline` clears it wholesale at the start of every run, and teacher `add_word`/`remove_word` are locked out once generation starts (`_is_word_set_locked`). Restarting DEDUP rebuilds the M2M from the job's WORD_LOOKUP snapshot. Documented at the clear site; no behavior change.
+
+### Tests
+- 13 new tests: `TestRestartGuardsAndPersistIntegrity` (GN: restart rejects missing COMPLETED log without deleting the candidate; half-persisted candidate regenerated; selected candidate never deleted; persist rolls back on cloze coverage gap; correct_answer join), `TestInfographicRestartGuardsAndPersistIntegrity` (the same five for infographics, plus coverage), and orchestrator running-guard tests (direct call skipped on RUNNING job; `already_claimed=True` honors the view's claim).
+
+## [Unreleased] - 2026-07-03 (generation-pipeline code review: 2 critical + 2 high correctness fixes)
+
+### Context
+- Full multi-agent review of `vocabulary/services/generation/` (~5,300 lines, 16 files): 4 module-focused correctness passes + 1 security pass. Security came back clean (no injection/traversal/secret-leak issues; artifact paths slugified + integer IDs, keys resolved from env-var names at runtime and never persisted, all LLM-driven counts hard-capped). The correctness findings clustered around one theme: resume/restart paths trusting incomplete state. The four worst were fixed same-day; the rest are recorded below.
+
+### Fixed — Dedup Persist Was Non-Atomic (duplicate Word rows on crash + resume)
+- `_step_dedup_and_persist` created `Word` → `WordDefinition` → embedding (network call) → `DefinitionEmbedding` as separate writes. A crash mid-word left a Word without its embedding — invisible to embedding-based dedup (and `Word` has no unique text/POS constraint), so resume recreated it as a duplicate row. Now each word's writes commit in one `transaction.atomic()` block with the embedding fetched before the transaction opens.
+- Resume fast-path added: words already attached to the job's word set with an exact-text definition match are reused with zero embedding calls (previously every resume re-embedded every already-persisted word). A legacy half-written word (definition/embedding missing) is repaired in place with a warning instead of duplicated.
+
+### Fixed — Dedup Reuse Attached an Arbitrary Definition to the Snapshot
+- `find_duplicate_definition` matched on embedding similarity but returned only the `Word`; the snapshot then exact-string-matched the definition text (almost always a miss — the whole point of embedding dedup is the text differs) and fell back to `word.definitions.first()`, i.e. the **lowest-Lexile** definition by model ordering. A reused word could carry a definition the job never generated, at the wrong reading level, into translations/questions/primers. The function now returns the highest-similarity `WordDefinition` above threshold and the snapshot records exactly that definition.
+
+### Fixed — Silently Dropped Batch Words Never Got Questions (question gen + sentence-write)
+- Neither `_step_generate_questions` nor `_step_generate_sentence_write` verified that every word sent in a batch came back with output. A word the LLM dropped (truncation, JSON-mode quirk) got no questions, no error, and — because resume tracks per-word rows, not batch expectations — was never retried. Both steps now diff persisted terms against the batch and raise on a gap (FAILED log → normal retry regenerates just that batch), mirroring the `missing_terms` check translations already had.
+
+### Fixed — Unmapped `question_type` Created Permanently Invisible Questions
+- `_step_generate_questions` persisted whatever `question_type` the LLM emitted; a type not in `QUESTION_TYPE_LEVEL` (typo, trailing whitespace, or a model choice added without updating constants) created the row but attached no `suitable_levels` — never served to any student, counted as success. The type is now whitespace-normalized and resolved to a seeded `MasteryLevel` *before* the row is created; an unmapped type (or missing MasteryLevel row) fails the batch.
+- Tests: 8 new + 3 updated across `test_step_word_lookup` / `test_embedding_service` / `test_step_questions` / `test_sentence_write`; full suite 544 passing. A post-fix review pass confirmed no stale callers of the changed contracts (`find_duplicate_definition` now returns `WordDefinition`; `_definition_for_snapshot` no longer has the `.first()` fallback; `_persist_tasks` returns persisted terms).
+
+### Known Issues — Remaining Review Findings (not yet fixed)
+- The four HIGHs originally listed here (restart artifact trust, non-atomic candidate persist, WordSet-wide clear, substep-restart race) and the infographic-cloze silent drop were closed the same day — see the "round 2" entry above.
+- **MEDIUM** translation completeness is per-term not per-field; GN vocab-usage validator uses substring containment ("art" credited by "started" — should be `\b`-bounded); `LLMConfigError` bypasses the retry/observability machinery; `temp/llm_logs/` + `temp/generation_artifacts/` grow without bound (3.6 GB production box — needs a retention cron); ~35 duplicated lines between GN image first-attempt/retry blocks.
+
 ## [Unreleased] - 2026-07-03 (code review: sentence-write hardening + hot-path performance pass)
 
 ### Fixed — Sentence-Write Revision Loop Is Now Server-Tracked (was client-spoofable)

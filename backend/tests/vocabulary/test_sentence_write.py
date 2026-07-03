@@ -156,6 +156,28 @@ class TestSentenceWriteGeneration:
 
     @patch('vocabulary.services.llm_service.call_gemini')
     @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_dropped_word_fails_batch(self, mock_load, mock_llm):
+        """A word the LLM silently dropped must fail the batch — resume
+        tracks per-word rows, so it would otherwise never be retried."""
+        _seed_mastery_levels()
+        mock_load.return_value = 'template'
+        # Guided response covers only one of the two words in the batch.
+        mock_llm.side_effect = [_guided_response('meticulous')]
+        word_a = WordFactory(text='meticulous')
+        word_b = WordFactory(text='persist')
+        job = GenerationJobFactory(
+            input_words=['meticulous', 'persist'], target_lexile=800,
+        )
+        words_data = [
+            {'term': 'meticulous', 'definition': 'careful'},
+            {'term': 'persist', 'definition': 'keep going'},
+        ]
+
+        with pytest.raises(ValueError, match='persist'):
+            _step_generate_sentence_write(job, [word_a, word_b], words_data)
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
     def test_idempotent_resume_skips_completed_words(self, mock_load, mock_llm):
         _seed_mastery_levels()
         mock_load.return_value = 'template'

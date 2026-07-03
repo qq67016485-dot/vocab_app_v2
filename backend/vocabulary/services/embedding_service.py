@@ -71,7 +71,11 @@ def find_duplicate_definition(word_text, pos, definition_text):
     Check if a word definition already exists using vector similarity.
 
     Looks for existing Word records with the same text + POS, then compares
-    definition embeddings using cosine similarity.
+    definition embeddings using cosine similarity. Returns the best-matching
+    definition (not just the word) so callers snapshot the definition that
+    actually matched — a word can carry several definitions at different
+    Lexile levels, and picking any other one attaches the wrong definition,
+    example sentence, and Lexile score to the job.
 
     Args:
         word_text: The word text (e.g., "bright")
@@ -79,7 +83,9 @@ def find_duplicate_definition(word_text, pos, definition_text):
         definition_text: The incoming definition to check
 
     Returns:
-        Word | None: The existing Word if a duplicate is found, else None.
+        WordDefinition | None: The most similar existing definition at or
+        above the similarity threshold (its .word is the deduplicated Word),
+        else None.
     """
     existing_words = Word.objects.filter(text=word_text, part_of_speech=pos)
     if not existing_words.exists():
@@ -88,6 +94,8 @@ def find_duplicate_definition(word_text, pos, definition_text):
     incoming_embedding = get_embedding(definition_text)
     threshold = settings.EMBEDDING_SIMILARITY_THRESHOLD
 
+    best_defn = None
+    best_similarity = None
     for word in existing_words:
         for defn in word.definitions.all():
             try:
@@ -96,11 +104,15 @@ def find_duplicate_definition(word_text, pos, definition_text):
                 continue
 
             similarity = cosine_similarity(incoming_embedding, stored_embedding)
-            if similarity >= threshold:
-                logger.info(
-                    "Duplicate found: '%s' (%s) — similarity %.4f >= %.4f",
-                    word_text, pos, similarity, threshold,
-                )
-                return word
+            if similarity >= threshold and (
+                best_similarity is None or similarity > best_similarity
+            ):
+                best_similarity = similarity
+                best_defn = defn
 
-    return None
+    if best_defn is not None:
+        logger.info(
+            "Duplicate found: '%s' (%s) — definition id=%s similarity %.4f >= %.4f",
+            word_text, pos, best_defn.id, best_similarity, threshold,
+        )
+    return best_defn
