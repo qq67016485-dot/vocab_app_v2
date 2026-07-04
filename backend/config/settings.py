@@ -95,12 +95,18 @@ CSRF_TRUSTED_ORIGINS = [
 # Session cookie hardening. CsrfExemptSessionAuthentication bypasses DRF's CSRF
 # check, so the SameSite policy is the cross-site defense — set it explicitly
 # rather than relying on Django's implicit default. 'Lax' blocks the cookie on
-# cross-site POST/fetch while keeping top-level GET navigation working. Secure
-# cookies follow DEBUG (off locally over http, on in production behind TLS).
+# cross-site POST/fetch while keeping top-level GET navigation working.
+#
+# Secure cookies are ONLY sent by the browser over HTTPS. It must therefore be
+# driven by whether the deployment actually terminates TLS — NOT by DEBUG. The
+# production server currently runs over plain HTTP, so a DEBUG-derived Secure
+# flag silently dropped every session cookie (403 on all authenticated calls).
+# Defaults to off; set COOKIE_SECURE=True in .env once the site is behind TLS.
 SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'
-SESSION_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_SECURE = not DEBUG
+COOKIE_SECURE = env.bool('COOKIE_SECURE', default=False)
+SESSION_COOKIE_SECURE = COOKIE_SECURE
+CSRF_COOKIE_SECURE = COOKIE_SECURE
 SESSION_COOKIE_HTTPONLY = True
 
 AUTHENTICATION_BACKENDS = [
