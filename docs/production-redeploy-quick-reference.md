@@ -104,7 +104,8 @@ sudo systemctl restart vocab
 ## Server-specific gotchas
 
 - The gunicorn socket **must** live at `/run/vocab/vocab.sock` (not `/run/vocab.sock`).
-- gunicorn **must run threaded workers** — `--worker-class gthread --threads 8` in the unit's ExecStart (`sudo systemctl edit --full vocab`, then restart). The sentence-write judge holds a worker for a synchronous 2–10s LLM call; with the default sync workers, 3 concurrent judged submits stall every request on the box.
+- gunicorn **must run threaded workers** — current ExecStart is `--workers 4 --worker-class gthread --threads 8` (`sudo systemctl edit --full vocab`, then `daemon-reload` + restart). The sentence-write judge holds a worker for a synchronous 2–10s LLM call; with default **sync** workers, a handful of concurrent judged submits stall every request on the box. Verify after restart: `systemctl show vocab -p ExecStart | tr ' ' '\n' | grep -E "gthread|threads|workers"`.
 - nginx needs `chmod o+x /home/ubuntu` to traverse the home dir.
+- **`COOKIE_SECURE` must stay `False` while the site is HTTP-only.** A Secure cookie is only sent by the browser over HTTPS, so a `True` value over plain HTTP silently drops the session cookie and every authenticated request 403s (symptom: pages like the Command Center show "Failed to load dashboard"). It's an `.env` var (default `False`), decoupled from `DEBUG`. Flip to `True` in the server `.env` and restart only after Certbot/TLS is in place.
 - The box has **no ffmpeg** — audiobook encoding relies on `lameenc`; don't introduce ffmpeg/pydub deps.
 - Never delete `backend/media/` — generated images and audio are persistent there.

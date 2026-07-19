@@ -88,6 +88,7 @@ Backend requires `.env` (see `.env.example`):
 - `OPENAI_API_KEY` / `OPENAI_BASE_URL` — GPT-Image-2 images
 - `QWEN_API_KEY` — Qwen3 embeddings (SiliconFlow)
 - `SECRET_KEY`, `DEBUG`, `ALLOWED_HOSTS`
+- `COOKIE_SECURE` — marks session/CSRF cookies HTTPS-only. Default `False`; driven by this var, **not** `DEBUG` (a Secure cookie over plain HTTP is dropped by the browser → every authed request 403s). Set `True` only behind TLS. Prod at `106.52.164.47` runs HTTP, so it stays `False` there.
 
 Which keys are actually needed depends on sites configured in the LLM Config admin page (`LLMSite` stores env-var names, resolved at runtime). `requirements.txt`: `pymysql` + `anthropic` + `google-genai` + `lameenc` (WAV→MP3, pure wheel — no ffmpeg). Frontend dev server proxies `/api` and `/media` to `localhost:8001`.
 
@@ -96,7 +97,7 @@ Which keys are actually needed depends on sites configured in the LLM Config adm
 Live at **http://106.52.164.47** (Tencent Cloud, Ubuntu 24.04, 2 vCPU / 3.6 GB).
 
 - nginx → serves `frontend/dist/`, proxies `/api` + `/admin` to gunicorn, serves `/media` + `/static`
-- gunicorn (3 workers) via `unix:/run/vocab/vocab.sock`, systemd unit `vocab.service`. **Must run threaded workers** (`--worker-class gthread --threads 8`): the sentence-write judge does a 2–10s synchronous LLM round-trip in-request; sync workers would stall the box
+- gunicorn (4 workers) via `unix:/run/vocab/vocab.sock`, systemd unit `vocab.service`. **Must run threaded workers** (`--worker-class gthread --threads 8`, set in the unit's ExecStart): the sentence-write judge does a 2–10s synchronous LLM round-trip in-request; sync workers would stall the box
 - MySQL 8, database `vocab_app`, user `vocab`@localhost
 - Static: `backend/staticfiles/` (run `collectstatic` after changes). Media: `backend/media/` (persistent — do not delete)
 

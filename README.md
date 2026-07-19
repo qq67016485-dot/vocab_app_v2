@@ -130,7 +130,7 @@ The app is deployed on a bare Ubuntu 24.04 server (nginx + gunicorn + MySQL 8).
 | URL | http://106.52.164.47 |
 | Server | Tencent Cloud, 2 vCPU / 3.6 GB RAM |
 | Web server | nginx 1.24 — serves React `dist/`, proxies `/api` + `/admin`, serves `/media` + `/static` |
-| App server | gunicorn 3 workers, systemd unit `vocab.service`, socket at `/run/vocab/vocab.sock` |
+| App server | gunicorn 4 gthread workers (`--worker-class gthread --threads 8`), systemd unit `vocab.service`, socket at `/run/vocab/vocab.sock` |
 | Database | MySQL 8, database `vocab_app` |
 
 **Redeploy after code change (on server):**
