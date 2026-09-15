@@ -1,9 +1,10 @@
 # Architecture Decision Log (full detail)
 
-> Extracted verbatim from CLAUDE.md on 2026-07-03 to keep the per-session context lean.
-> CLAUDE.md carries the compressed summary; this file is the authoritative full detail
+> Extracted verbatim from the rules file (then CLAUDE.md, now AGENTS.md) on 2026-07-03
+> to keep the per-session context lean.
+> AGENTS.md carries the compressed summary; this file is the authoritative full detail
 > (endpoint payloads, field semantics, prompt-design rationale, migration history).
-> When changing a subsystem, update BOTH the summary bullet in CLAUDE.md and the entry here.
+> When changing a subsystem, update BOTH the summary bullet in AGENTS.md and the entry here.
 
 ## Key Architecture Decisions
 

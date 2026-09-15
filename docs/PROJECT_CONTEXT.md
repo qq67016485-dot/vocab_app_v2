@@ -2,7 +2,7 @@
 
 ## Overview
 
-A full-stack vocabulary learning application for ESL students ages 8–14. Teachers create word sets, an AI pipeline generates instructional content (definitions, questions, graphic novels, and cloze items), and students learn through a structured instructional flow (Primer → Graphic Novel → Cloze Quiz; legacy packs may still show Micro Story) followed by spaced-repetition practice.
+A full-stack vocabulary learning application for ESL students ages 7–14. Teachers create word sets, an AI pipeline generates instructional content (definitions, questions, graphic novels, and cloze items), and students learn through a structured instructional flow (Primer → Graphic Novel → Cloze Quiz; legacy packs may still show Micro Story) followed by spaced-repetition practice.
 
 **Tech stack:** Django 5.2 + Django REST Framework (backend), React 19 + Vite 7 (frontend), MySQL database, session-based auth with CSRF tokens.
 
@@ -28,6 +28,7 @@ vocab_app_v2/
 │  │  │  ├── practice_views.py  # SRS practice: next word, submit answer, session summary
 │  │  │  ├── dashboard_views.py # Student dashboard, teacher roster, student progress
 │  │  │  ├── instructional_views.py  # Pack data, pack completion
+│  │  │  ├── llm_config_views.py    # LLM sites / config sets / step-config matrix API
 │  │  │  ├── teacher_views.py   # Word/WordSet/Curriculum CRUD, student management
 │  │  │  ├── group_views.py     # Student group CRUD
 │  │  │  └── generation_views.py # AI pipeline: trigger, status, review

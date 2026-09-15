@@ -5,8 +5,8 @@ A grade 2–8 vocabulary learning platform with AI-generated instructional conte
 ## Features
 
 **AI Content Generation Pipeline**
-- Automated word lookup, deduplication, and translation (10+ languages)
-- Question generation (15 per word across 19 question types), including **productive, LLM-judged sentence-writing** questions (student writes an original sentence; an AI tutor verdicts it and coaches a revision) at mastery levels 4–5
+- Automated word lookup, deduplication, and translation (10 languages)
+- Question generation (15 per word — 3 per mastery level across 14 choice types), including **productive, LLM-judged sentence-writing** questions (student writes an original sentence; an AI tutor verdicts it and coaches a revision) at mastery levels 4–5
 - Thematic pack creation with primer cards
 - Graphic novel scripts (Gemini 6-call planning pipeline) and cinematic images (GPT-Image-2) — 3 candidate novels per pack, admin picks one to publish
 - Infographic content type — single-page explanatory poster (NotebookLM-style), an alternative to graphic novels; 3 candidates per pack, admin picks one. Per-job toggle for which formats to generate
