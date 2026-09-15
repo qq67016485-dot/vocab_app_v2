@@ -9,6 +9,8 @@ Provides:
 """
 import math
 import logging
+import time
+
 import requests
 
 from django.conf import settings
@@ -17,31 +19,59 @@ from vocabulary.models import Word, DefinitionEmbedding
 
 logger = logging.getLogger(__name__)
 
+# Pause before the single retry of a transient embedding API failure.
+RETRY_BACKOFF_SECONDS = 2
+
 
 def _call_embedding_api(text):
-    """Call the SiliconFlow embedding API and return the raw vector."""
-    response = requests.post(
-        settings.QWEN_BASE_URL,
-        headers={
-            "Authorization": f"Bearer {settings.QWEN_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": settings.QWEN_EMBEDDING_MODEL,
-            "input": text,
-            "encoding_format": "float",
-            "dimensions": settings.QWEN_EMBEDDING_DIMENSIONS,
-        },
-        timeout=30,
-    )
-    response.raise_for_status()
-    data = response.json()
-    return data["data"][0]["embedding"]
+    """Call the SiliconFlow embedding API and return the raw vector.
+
+    Retries once after a short backoff on transient failures (429, 5xx,
+    connection/timeout); a 4xx or other hard failure raises immediately.
+    """
+    for attempt in (0, 1):
+        try:
+            response = requests.post(
+                settings.QWEN_BASE_URL,
+                headers={
+                    "Authorization": f"Bearer {settings.QWEN_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": settings.QWEN_EMBEDDING_MODEL,
+                    "input": text,
+                    "encoding_format": "float",
+                    "dimensions": settings.QWEN_EMBEDDING_DIMENSIONS,
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            break
+        except requests.RequestException as exc:
+            status = getattr(exc.response, 'status_code', None)
+            transient = (
+                isinstance(exc, (requests.ConnectionError, requests.Timeout))
+                or status == 429
+                or (status is not None and status >= 500)
+            )
+            if attempt == 1 or not transient:
+                raise
+            logger.warning(
+                "Embedding API transient failure (%s); retrying in %ss",
+                exc, RETRY_BACKOFF_SECONDS,
+            )
+            time.sleep(RETRY_BACKOFF_SECONDS)
+    try:
+        data = response.json()
+        return data["data"][0]["embedding"]
+    except (ValueError, KeyError, IndexError, TypeError) as exc:
+        raise ValueError(f"Malformed embedding API response: {exc}") from exc
 
 
 def get_embedding(text):
     """
-    Generate a vector embedding for the given text via Qwen 2.5.
+    Generate a vector embedding for the given text via Qwen3
+    (settings.QWEN_EMBEDDING_MODEL, default Qwen/Qwen3-Embedding-8B).
 
     Returns:
         list[float]: The embedding vector.

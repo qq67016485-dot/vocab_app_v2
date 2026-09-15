@@ -1,7 +1,4 @@
-"""
-RED tests for llm_service.py — written BEFORE the service exists.
-Defines the API for low-level LLM wrappers (Anthropic + Gemini).
-"""
+"""Tests for llm_service low-level LLM wrappers (Anthropic + Gemini)."""
 import pytest
 from unittest.mock import patch, MagicMock, PropertyMock
 import json
@@ -66,6 +63,25 @@ class TestCallAnthropic:
         from vocabulary.services.llm_service import call_anthropic
         with pytest.raises(ValueError, match="Could not parse JSON"):
             call_anthropic('model', 'sys', 'usr')
+
+    @patch('vocabulary.services.llm_service.anthropic')
+    def test_raises_on_non_dict_json(self, mock_anthropic):
+        """A top-level JSON array parses fine but violates the always-dict
+        contract (callers use .get) — it must take the ValueError path."""
+        self._make_stream_mock(mock_anthropic, '[{"term": "vivid"}]')
+
+        from vocabulary.services.llm_service import call_anthropic
+        with pytest.raises(ValueError, match="Could not parse JSON"):
+            call_anthropic('model', 'sys', 'usr')
+
+    @patch('vocabulary.services.llm_service.anthropic')
+    def test_max_tokens_within_api_cap(self, mock_anthropic):
+        """64k is the standard Claude output cap; higher values 400 the request."""
+        mock_client = self._make_stream_mock(mock_anthropic, '{"ok": true}')
+
+        from vocabulary.services.llm_service import call_anthropic
+        call_anthropic('claude-sonnet-4-20250514', 'sys', 'usr')
+        assert mock_client.messages.stream.call_args.kwargs['max_tokens'] == 64000
 
     @patch('vocabulary.services.llm_service.anthropic')
     def test_uses_base_url_when_configured(self, mock_anthropic):

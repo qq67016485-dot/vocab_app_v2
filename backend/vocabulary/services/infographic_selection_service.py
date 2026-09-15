@@ -13,6 +13,21 @@ from vocabulary.models import ClozeItem, Infographic
 logger = logging.getLogger(__name__)
 
 
+class IncompleteCandidateError(Exception):
+    """Raised when an admin selects a candidate that is not fully generated."""
+
+
+def _candidate_infographic_is_complete(infographic):
+    """True when the candidate is publishable: rendered poster + staged cloze.
+
+    The pipeline treats an Infographic row with staged cloze as done; for
+    publishing, the candidate must also have its poster image — the one piece
+    of content a student actually sees. ``display_image`` respects the
+    original/edited variant pick.
+    """
+    return bool(infographic.display_image) and infographic.cloze_items.exists()
+
+
 @transaction.atomic
 def select_infographic_candidate(infographic_id):
     """Mark ``infographic_id`` as the selected candidate for its pack and publish it.
@@ -22,10 +37,20 @@ def select_infographic_candidate(infographic_id):
       pack's active set (both FKs NULL), deleting the prior active rows first.
 
     Idempotent and reversible. Returns the selected ``Infographic``.
+
+    Raises ``IncompleteCandidateError`` when the candidate has no rendered
+    poster image or no staged cloze — publishing one would delete the pack's
+    active cloze and promote nothing (silent data loss behind a 200).
     """
     infographic = (
         Infographic.objects.select_related('pack').get(id=infographic_id)
     )
+    if not _candidate_infographic_is_complete(infographic):
+        raise IncompleteCandidateError(
+            f'Candidate {infographic.candidate_index} is incomplete (missing '
+            'poster image or staged cloze) and cannot be published. '
+            'Regenerate it first.'
+        )
     pack = infographic.pack
 
     siblings = Infographic.objects.filter(pack=pack)

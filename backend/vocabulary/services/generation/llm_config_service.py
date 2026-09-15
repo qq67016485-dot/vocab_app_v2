@@ -37,12 +37,24 @@ def get_step_config(step_key: str) -> dict[str, Any]:
 
 
 def get_active_set():
-    """Return the active LLMConfigSet, or None if somehow none is active."""
+    """Return the active LLMConfigSet.
+
+    If none is marked active (a misconfiguration), fall back to the
+    lowest-position set and log a warning — availability matters more than
+    strictness here, but the fallback must not pass silently. Returns None
+    only when no config sets exist at all.
+    """
     from vocabulary.models import LLMConfigSet
-    return (
-        LLMConfigSet.objects.filter(is_active=True).order_by('position').first()
-        or LLMConfigSet.objects.order_by('position').first()
-    )
+    active = LLMConfigSet.objects.filter(is_active=True).order_by('position').first()
+    if active is None:
+        active = LLMConfigSet.objects.order_by('position').first()
+        if active is not None:
+            logger.warning(
+                "No active LLMConfigSet — falling back to '%s' (position %s). "
+                "Activate a set in the admin LLM Config page.",
+                active.name, active.position,
+            )
+    return active
 
 
 def invalidate_cache() -> None:

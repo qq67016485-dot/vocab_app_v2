@@ -1,4 +1,5 @@
 """LLM Configuration views — Admin-only endpoints for managing API sites and step configs."""
+from django.db import transaction
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -150,30 +151,36 @@ class LLMConfigSetDetailView(APIView):
     permission_classes = [IsAuthenticated, IsAdmin]
 
     def put(self, request, pk):
-        try:
-            config_set = LLMConfigSet.objects.get(pk=pk)
-        except LLMConfigSet.DoesNotExist:
-            return Response({'error': 'Config set not found.'}, status=status.HTTP_404_NOT_FOUND)
+        with transaction.atomic():
+            try:
+                config_set = LLMConfigSet.objects.select_for_update().get(pk=pk)
+            except LLMConfigSet.DoesNotExist:
+                return Response({'error': 'Config set not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-        # Rename (optional).
-        if 'name' in request.data:
-            name = (request.data.get('name') or '').strip()
-            if not name:
-                return Response({'error': 'name cannot be blank.'}, status=status.HTTP_400_BAD_REQUEST)
-            config_set.name = name
+            # Rename (optional).
+            if 'name' in request.data:
+                name = (request.data.get('name') or '').strip()
+                if not name:
+                    return Response({'error': 'name cannot be blank.'}, status=status.HTTP_400_BAD_REQUEST)
+                config_set.name = name
 
-        # Activate (optional) — activating one deactivates the others.
-        activate = request.data.get('is_active')
-        if activate is True:
-            LLMConfigSet.objects.exclude(pk=config_set.pk).update(is_active=False)
-            config_set.is_active = True
-        elif activate is False and config_set.is_active:
-            return Response(
-                {'error': 'Cannot deactivate the active set. Activate a different set instead.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            # Activate (optional) — activating one deactivates the others.
+            # None (key absent or JSON null) means rename-only; parse truthy
+            # strings ("true"/"1"/"yes") so a JSON or form POST both behave
+            # the same.
+            activate_raw = request.data.get('is_active')
+            if activate_raw is not None:
+                activate = str(activate_raw).strip().lower() in ('true', '1', 'yes')
+                if activate:
+                    LLMConfigSet.objects.select_for_update().exclude(pk=config_set.pk).update(is_active=False)
+                    config_set.is_active = True
+                elif config_set.is_active:
+                    return Response(
+                        {'error': 'Cannot deactivate the active set. Activate a different set instead.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
-        config_set.save()
+            config_set.save()
         invalidate_cache()
         return Response(_serialize_set(config_set))
 
@@ -224,15 +231,20 @@ class LLMStepConfigsView(APIView):
         if errors:
             return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
 
-        for item in configs_data:
-            LLMStepConfig.objects.filter(
-                config_set=config_set, step_key=item['step_key'],
-            ).update(
-                primary_site_id=item['primary_site'],
-                primary_model=item['primary_model'].strip(),
-                fallback_site_id=item['fallback_site'],
-                fallback_model=item['fallback_model'].strip(),
-            )
+        with transaction.atomic():
+            for item in configs_data:
+                # update_or_create so a missing seed row is created instead of
+                # silently no-op'ing (which made the response echo stale config
+                # as if it had been saved).
+                LLMStepConfig.objects.update_or_create(
+                    config_set=config_set, step_key=item['step_key'],
+                    defaults={
+                        'primary_site_id': item['primary_site'],
+                        'primary_model': item['primary_model'].strip(),
+                        'fallback_site_id': item['fallback_site'],
+                        'fallback_model': item['fallback_model'].strip(),
+                    },
+                )
 
         invalidate_cache()
         configs = _step_configs_in_pipeline_order(config_set)

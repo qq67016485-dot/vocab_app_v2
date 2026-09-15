@@ -24,16 +24,20 @@ export default function CommandCenter() {
       const response = await apiClient.get(url);
       const data = response.data;
       setDashboardData(data);
-      if (data.roster && data.roster.length > 0) {
-        const currentSelectionExists = data.roster.some(s => s.id === selectedStudentId);
-        if (!currentSelectionExists) setSelectedStudentId(data.roster[0].id);
-      } else { setSelectedStudentId(null); }
+      // Functional update keeps this callback free of the selectedStudentId
+      // dep — otherwise every roster-row click would retrigger a full refetch.
+      setSelectedStudentId(prev => {
+        if (data.roster && data.roster.length > 0) {
+          return data.roster.some(s => s.id === prev) ? prev : data.roster[0].id;
+        }
+        return null;
+      });
     } catch (e) {
       console.error("Failed to load Command Center data:", e);
       setError('Failed to load dashboard. Please try again.');
       setDashboardData({ groups: [], roster: [] });
     } finally { setIsLoading(false); }
-  }, [selectedStudentId]);
+  }, []);
 
   useEffect(() => { fetchDashboardData(selectedGroupId); }, [fetchDashboardData, selectedGroupId]);
 

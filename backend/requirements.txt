@@ -11,5 +11,5 @@ Pillow==12.2.0
 lameenc==1.8.2
 sqlparse==0.5.3
 tzdata==2025.2
-anthropic
-google-genai
+anthropic==0.84.0
+google-genai==1.65.0

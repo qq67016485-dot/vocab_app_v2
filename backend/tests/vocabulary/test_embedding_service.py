@@ -1,11 +1,83 @@
-"""
-RED tests for embedding_service.py — these tests are written BEFORE the service exists.
-They define the expected API for Qwen 2.5 vector embedding deduplication.
-"""
+"""Tests for embedding_service (Qwen vector embeddings used by dedup)."""
 import pytest
+import requests
 from unittest.mock import patch, MagicMock
 
 from tests.factories import WordFactory, WordDefinitionFactory, DefinitionEmbeddingFactory
+
+
+@pytest.mark.django_db
+class TestCallEmbeddingApi:
+    """Test embedding_service._call_embedding_api() retry/parsing behavior"""
+
+    @staticmethod
+    def _ok_response(vector):
+        resp = MagicMock()
+        resp.json.return_value = {'data': [{'embedding': vector}]}
+        return resp
+
+    @staticmethod
+    def _http_error(status_code):
+        err_resp = MagicMock(status_code=status_code)
+        return requests.HTTPError(response=err_resp)
+
+    @patch('vocabulary.services.embedding_service.time.sleep')
+    @patch('vocabulary.services.embedding_service.requests.post')
+    def test_retries_once_on_429(self, mock_post, mock_sleep):
+        fail = MagicMock()
+        fail.raise_for_status.side_effect = self._http_error(429)
+        mock_post.side_effect = [fail, self._ok_response([0.1] * 4)]
+
+        from vocabulary.services.embedding_service import _call_embedding_api
+        assert _call_embedding_api('a definition') == [0.1] * 4
+        assert mock_post.call_count == 2
+        mock_sleep.assert_called_once()
+
+    @patch('vocabulary.services.embedding_service.time.sleep')
+    @patch('vocabulary.services.embedding_service.requests.post')
+    def test_retries_once_on_timeout(self, mock_post, mock_sleep):
+        mock_post.side_effect = [
+            requests.Timeout('timed out'),
+            self._ok_response([0.2] * 4),
+        ]
+
+        from vocabulary.services.embedding_service import _call_embedding_api
+        assert _call_embedding_api('a definition') == [0.2] * 4
+        assert mock_post.call_count == 2
+
+    @patch('vocabulary.services.embedding_service.time.sleep')
+    @patch('vocabulary.services.embedding_service.requests.post')
+    def test_no_retry_on_400(self, mock_post, mock_sleep):
+        """A 4xx (bad request) is not transient — fail immediately."""
+        fail = MagicMock()
+        fail.raise_for_status.side_effect = self._http_error(400)
+        mock_post.return_value = fail
+
+        from vocabulary.services.embedding_service import _call_embedding_api
+        with pytest.raises(requests.HTTPError):
+            _call_embedding_api('a definition')
+        assert mock_post.call_count == 1
+        mock_sleep.assert_not_called()
+
+    @patch('vocabulary.services.embedding_service.time.sleep')
+    @patch('vocabulary.services.embedding_service.requests.post')
+    def test_second_transient_failure_raises(self, mock_post, mock_sleep):
+        mock_post.side_effect = requests.ConnectionError('down')
+
+        from vocabulary.services.embedding_service import _call_embedding_api
+        with pytest.raises(requests.ConnectionError):
+            _call_embedding_api('a definition')
+        assert mock_post.call_count == 2
+
+    @patch('vocabulary.services.embedding_service.requests.post')
+    def test_malformed_response_raises_value_error(self, mock_post):
+        mock_post.return_value = MagicMock(
+            json=MagicMock(return_value={'unexpected': 'shape'}),
+        )
+
+        from vocabulary.services.embedding_service import _call_embedding_api
+        with pytest.raises(ValueError, match='Malformed embedding API response'):
+            _call_embedding_api('a definition')
 
 
 @pytest.mark.django_db

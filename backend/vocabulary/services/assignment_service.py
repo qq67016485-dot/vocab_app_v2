@@ -9,6 +9,7 @@ V2 changes from v1:
 """
 import logging
 
+from django.db import transaction
 from django.utils import timezone
 
 from users.models import StudentGroup, CustomUser
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 class AssignmentService:
     @staticmethod
+    @transaction.atomic
     def assign_word_set(teacher, word_set, student_ids, group_ids, content_type=None):
         # Validate the requested content type; default to graphic novel.
         valid_types = set(StudentWordSetAssignment.ContentType.values)
@@ -48,9 +50,9 @@ class AssignmentService:
         )
         starting_level = MasteryLevel.objects.get(level_id=1)
 
-        words_in_set = word_set.words.all()
+        words_in_set = list(word_set.words.all())
 
-        if not words_in_set.exists():
+        if not words_in_set:
             return 0, students
 
         # Determine which words are in packs (should get PENDING status)
@@ -85,6 +87,18 @@ class AssignmentService:
                 ).values_list('word_id', flat=True)
             ) if completed_pack_ids else set()
 
+            # Fetch this student's existing progress rows in one query instead
+            # of a per-word get_or_create (~students × words queries before).
+            existing_progress = {
+                progress.word_id: progress
+                for progress in UserWordProgress.objects.filter(
+                    user=student,
+                    word_id__in=[word.id for word in words_in_set],
+                )
+            }
+
+            new_progress_rows = []
+            reset_progress_ids = []
             for word in words_in_set:
                 # Words in packs get PENDING; words not in packs get READY
                 # But words in already-completed packs stay READY
@@ -95,20 +109,29 @@ class AssignmentService:
                 else:
                     inst_status = 'READY'
 
-                mastery, created = UserWordProgress.objects.get_or_create(
-                    user=student,
-                    word=word,
-                    defaults={
-                        'level': starting_level,
-                        'next_review_at': timezone.now(),
-                        'instructional_status': inst_status,
-                    },
-                )
+                mastery = existing_progress.get(word.id)
+                if mastery is None:
+                    new_progress_rows.append(UserWordProgress(
+                        user=student,
+                        word=word,
+                        level=starting_level,
+                        next_review_at=timezone.now(),
+                        instructional_status=inst_status,
+                    ))
                 # If record exists and word is in an uncompleted pack, reset to PENDING
-                if not created and word.id in words_in_packs \
+                elif word.id in words_in_packs \
                         and word.id not in words_in_completed_packs \
                         and mastery.instructional_status == 'READY':
-                    mastery.instructional_status = 'PENDING'
-                    mastery.save(update_fields=['instructional_status'])
+                    reset_progress_ids.append(mastery.id)
+
+            # ignore_conflicts: unique_together (user, word) means a concurrent
+            # assign of the same set is a silent no-op rather than an error.
+            UserWordProgress.objects.bulk_create(
+                new_progress_rows, ignore_conflicts=True,
+            )
+            if reset_progress_ids:
+                UserWordProgress.objects.filter(id__in=reset_progress_ids).update(
+                    instructional_status='PENDING',
+                )
 
         return students.count(), students

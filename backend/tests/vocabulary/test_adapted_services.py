@@ -13,6 +13,7 @@ from django.utils import timezone
 from vocabulary.models import (
     UserWordProgress, MasteryLevel, UserAnswer, Question,
     MasteryLevelLog, Translation, WordDefinition,
+    TypoAttempt, SchedulingDecision,
     Word, WordPack, WordPackItem, PrimerCardContent,
     MicroStory, ClozeItem, StudentPackCompletion,
     StudentWordSetAssignment,
@@ -408,6 +409,189 @@ class TestAdaptiveIntervals:
         assert result['response_quality'] == 'slow_correct'
         assert actual_delta < 1.05
 
+
+@pytest.mark.django_db
+class TestPracticeInstrumentation:
+    """Step-0 instrumentation logs: TypoAttempt + SchedulingDecision."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self):
+        _seed_mastery_levels()
+        self.student = StudentUserFactory()
+        self.word = WordFactory(text='bright')
+        self.defn = WordDefinitionFactory(word=self.word)
+        # Type-to-spell question: the correct answer IS the target word.
+        self.spell_question = QuestionFactory(
+            word=self.word,
+            correct_answers=['bright'],
+        )
+        self.question = QuestionFactory(
+            word=self.word,
+            correct_answers=['shining'],
+            options=['shining', 'dark', 'quiet', 'slow'],
+        )
+        level1 = MasteryLevel.objects.get(level_id=1)
+        self.mastery = UserWordProgress.objects.create(
+            user=self.student,
+            word=self.word,
+            level=level1,
+            next_review_at=timezone.now(),
+        )
+
+    def _add_timing_history(self, durations):
+        for index, duration in enumerate(durations):
+            word = WordFactory(text=f'instrument_history_{index}')
+            question = QuestionFactory(
+                word=word,
+                question_type=self.question.question_type,
+                correct_answers=['answer'],
+            )
+            UserAnswer.objects.create(
+                user=self.student,
+                question=question,
+                user_answer='answer',
+                is_correct=True,
+                duration_seconds=duration,
+            )
+
+    def test_typo_submit_logs_typo_attempt_only(self):
+        result = PracticeService.process_answer(
+            self.student, self.spell_question.id, 'brigt', 5, 0,
+        )
+
+        # The response payload is exactly as before (no scoring side effects).
+        assert result == {
+            'is_typo': True,
+            'is_correct': False,
+            'message': 'Almost! Check your spelling and try again.',
+        }
+        # The log write commits even though process_answer returned early
+        # from inside its atomic block.
+        attempt = TypoAttempt.objects.get()
+        assert attempt.user == self.student
+        assert attempt.question == self.spell_question
+        assert attempt.attempted_text == 'brigt'  # raw answer, not normalized
+        assert UserAnswer.objects.count() == 0
+        assert SchedulingDecision.objects.count() == 0
+        self.mastery.refresh_from_db()
+        self.student.refresh_from_db()
+        assert self.mastery.mastery_points == 0
+        assert self.student.current_practice_streak == 0
+        assert self.student.xp_points == 0
+
+    def test_non_typo_wrong_answer_logs_no_typo_attempt(self):
+        result = PracticeService.process_answer(
+            self.student, self.question.id, 'wrong', 5, 0,
+        )
+
+        assert result['is_correct'] is False
+        assert TypoAttempt.objects.count() == 0
+        assert UserAnswer.objects.count() == 1
+
+    def test_correct_answer_logs_scheduling_decision(self):
+        # A second due READY word makes the backlog count non-trivial.
+        UserWordProgress.objects.create(
+            user=self.student,
+            word=WordFactory(text='luminous'),
+            level=MasteryLevel.objects.get(level_id=1),
+            next_review_at=timezone.now(),
+        )
+
+        result = PracticeService.process_answer(
+            self.student, self.question.id, 'shining', 5, 0,
+        )
+
+        assert result['is_correct'] is True
+        decision = SchedulingDecision.objects.get()
+        assert decision.user == self.student
+        assert decision.word == self.word
+        assert decision.question == self.question
+        assert decision.mastery_level_before == 1
+        assert decision.mastery_level_after == 1
+        assert decision.learning_speed_before == 1.0
+        expected_speed = 0.3 * 1.2 + 0.7 * 1.0  # unclassified_correct EMA
+        assert abs(decision.learning_speed_after - expected_speed) < 0.001
+        assert decision.response_quality_rule == 'insufficient_timing_baseline'
+        assert decision.intended_interval_days == result['review_interval_days']
+        self.mastery.refresh_from_db()
+        assert decision.next_review_at == self.mastery.next_review_at
+        assert decision.jitter_offset_days is None
+        assert decision.jitter_probability is None
+        # The just-answered word was pushed past today's cutoff; only the
+        # other due word counts.
+        assert decision.due_backlog_size == 1
+
+    def test_incorrect_answer_logs_scheduling_decision(self):
+        self.mastery.mastery_points = 2
+        self.mastery.save()
+
+        result = PracticeService.process_answer(
+            self.student, self.question.id, 'wrong', 5, 0,
+        )
+
+        assert result['is_correct'] is False
+        self.mastery.refresh_from_db()
+        assert self.mastery.mastery_points == 0  # -2 points, floored at 0
+        decision = SchedulingDecision.objects.get()
+        assert decision.response_quality_rule == 'incorrect'
+        assert decision.mastery_level_before == 1
+        assert decision.mastery_level_after == 1
+        expected_speed = 0.3 * 0.5 + 0.7 * 1.0
+        assert abs(decision.learning_speed_after - expected_speed) < 0.001
+        assert decision.intended_interval_days == result['review_interval_days']
+
+    def test_retry_logs_no_scheduling_decision(self):
+        PracticeService.process_answer(
+            self.student, self.question.id, 'wrong', 5, 0,
+        )
+        assert SchedulingDecision.objects.count() == 1
+
+        result = PracticeService.process_answer(
+            self.student, self.question.id, 'shining', 5, 0, is_retry=True,
+        )
+
+        assert result['is_correct'] is True
+        assert SchedulingDecision.objects.count() == 1
+        assert TypoAttempt.objects.count() == 0
+
+    def test_productive_judgment_logs_scheduling_decision(self):
+        judgment = {
+            'is_correct': True,
+            'quality_rule': 'productive_correct',
+            'judge_result': {'verdict': 'correct', 'attempts': 1},
+        }
+        result = PracticeService.process_answer(
+            self.student, self.question.id,
+            'The bright sun fills the room.', None, 0,
+            productive_judgment=judgment,
+        )
+
+        assert result['is_correct'] is True
+        decision = SchedulingDecision.objects.get()
+        assert decision.response_quality_rule == 'productive_correct'
+        assert decision.intended_interval_days == result['review_interval_days']
+
+    def test_fragile_promotion_records_capped_interval(self):
+        self.mastery.mastery_points = 2
+        self.mastery.save()
+        self._add_timing_history(range(2, 17))
+
+        result = PracticeService.process_answer(
+            self.student, self.question.id, 'shining', 16, 0,
+        )
+
+        # slow_correct + promotion caps the interval at the old level
+        # interval (level 1: 1 day x old learning speed 1.0).
+        assert result['response_quality'] == 'slow_correct'
+        assert result['did_level_up_word'] is True
+        assert result['review_interval_days'] == 1.0
+        decision = SchedulingDecision.objects.get()
+        assert decision.mastery_level_before == 1
+        assert decision.mastery_level_after == 2
+        assert decision.response_quality_rule == 'slow_correct'
+        assert decision.intended_interval_days == 1.0
+        self.mastery.refresh_from_db()
+        assert decision.next_review_at == self.mastery.next_review_at
 
 @pytest.mark.django_db
 class TestPracticeServiceStreak:

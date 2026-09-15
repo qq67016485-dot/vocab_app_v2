@@ -4,9 +4,13 @@ Covers the infographic counterpart of the graphic novel selection flow, the
 shared active-cloze read filter (both FKs NULL), per-assignment content-type
 serving in InstructionalService, and the design+cloze generation engine.
 """
+from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+from django.core.files.base import ContentFile
+from django.utils import timezone
+from rest_framework.test import APIClient
 
 from vocabulary.models import (
     ClozeItem, GenerationJob, GenerationJobLog, Infographic,
@@ -19,15 +23,23 @@ from vocabulary.services.graphic_novel_selection_service import (
     select_graphic_novel_candidate,
 )
 from vocabulary.services.instructional_service import InstructionalService
+from vocabulary.services.generation.constants import INFOGRAPHIC_SUBSTEPS
+from vocabulary.services.generation.graphic_novel_validators import (
+    _validate_graphic_novel_cloze_result,
+)
+from vocabulary.services.generation.orchestrator import (
+    _clear_testing_outputs_for_step,
+)
 from vocabulary.services.generation.step_infographic import (
     restart_infographic_from_substep, build_infographic_image_prompt,
     _clean_infographic_title, _persist_candidate_infographic,
-    _step_infographic_design,
+    _run_infographic_substep, _step_infographic_design,
+    _term_in_text, _validate_infographic_design_result,
 )
 from tests.factories import (
-    GraphicNovelFactory, GraphicNovelPageFactory, InfographicFactory,
-    WordPackFactory, WordFactory, WordPackItemFactory, StudentUserFactory,
-    GenerationJobFactory,
+    AdminUserFactory, GraphicNovelFactory, GraphicNovelPageFactory,
+    InfographicFactory, WordPackFactory, WordFactory, WordPackItemFactory,
+    StudentUserFactory, GenerationJobFactory,
 )
 
 
@@ -78,9 +90,12 @@ IG_CLOZE_RESPONSE = {
 
 
 def _make_ig_candidate(pack, idx, word, *, selected=False):
+    """Build a COMPLETE infographic candidate (selectable): poster image +
+    staged cloze."""
     ig = InfographicFactory(
         pack=pack, candidate_index=idx, is_selected=selected,
         title=f'Infographic {idx}',
+        image=f'infographics/poster_{idx}.png',
     )
     ClozeItem.objects.create(
         pack=pack, infographic=ig, word=word,
@@ -139,6 +154,59 @@ class TestSelectInfographicCandidate:
 
 
 @pytest.mark.django_db
+class TestSelectInfographicCandidateView:
+    def _admin_client(self):
+        client = APIClient()
+        client.force_authenticate(user=AdminUserFactory())
+        return client
+
+    def test_select_candidate_without_poster_image_returns_400(self):
+        """No rendered poster = not publishable: the image is the one piece of
+        content a student actually sees."""
+        pack = WordPackFactory()
+        word = WordFactory(text='bright')
+        WordPackItemFactory(pack=pack, word=word, order=0)
+        ig = InfographicFactory(pack=pack, candidate_index=0)
+        ClozeItem.objects.create(
+            pack=pack, infographic=ig, word=word,
+            sentence_text='Staged _______ row.', correct_answer='bright',
+            distractors=['a', 'b'], order=0,
+        )
+
+        response = self._admin_client().post(f'/api/infographics/{ig.id}/select/')
+
+        assert response.status_code == 400
+        ig.refresh_from_db()
+        assert ig.is_selected is False
+
+    def test_select_candidate_without_staged_cloze_returns_400(self):
+        pack = WordPackFactory()
+        word = WordFactory(text='bright')
+        WordPackItemFactory(pack=pack, word=word, order=0)
+        ig = InfographicFactory(
+            pack=pack, candidate_index=0, image='infographics/poster.png',
+        )
+
+        response = self._admin_client().post(f'/api/infographics/{ig.id}/select/')
+
+        assert response.status_code == 400
+        ig.refresh_from_db()
+        assert ig.is_selected is False
+
+    def test_select_complete_candidate_returns_200(self):
+        pack = WordPackFactory()
+        word = WordFactory(text='bright')
+        WordPackItemFactory(pack=pack, word=word, order=0)
+        ig = _make_ig_candidate(pack, 0, word)
+
+        response = self._admin_client().post(f'/api/infographics/{ig.id}/select/')
+
+        assert response.status_code == 200
+        ig.refresh_from_db()
+        assert ig.is_selected is True
+
+
+@pytest.mark.django_db
 class TestSharedActiveClozeFilter:
     def test_staged_infographic_cloze_is_not_active(self):
         """A staged infographic cloze (novel=None, infographic=<id>) must NOT count
@@ -168,7 +236,12 @@ class TestSharedActiveClozeFilter:
         word = WordFactory(text='bright')
         WordPackItemFactory(pack=pack, word=word, order=0)
 
-        novel = GraphicNovelFactory(pack=pack, candidate_index=0, is_selected=False)
+        novel = GraphicNovelFactory(
+            pack=pack, candidate_index=0, is_selected=False,
+            metadata={'page_count': 1},
+        )
+        GraphicNovelPageFactory(novel=novel, page_number=1)
+        GraphicNovelPageFactory(novel=novel, page_number=2, is_review_page=True)
         ClozeItem.objects.create(
             pack=pack, novel=novel, word=word,
             sentence_text='Novel _______ row.', correct_answer='bright',
@@ -350,9 +423,10 @@ class TestInfographicGeneration:
                 },
             ],
         }
-        # Design retries internally (max_retries=2) so all 3 attempts return the
-        # bad caption — the substep must ultimately fail rather than persist it.
-        mock_gemini.side_effect = [bad_design, bad_design, bad_design]
+        # Design retries internally (max_retries=2) plus one fallback-site
+        # attempt, so all 4 attempts return the bad caption — the substep must
+        # ultimately fail rather than persist it.
+        mock_gemini.side_effect = [bad_design, bad_design, bad_design, bad_design]
 
         job = GenerationJobFactory(input_words=['bright', 'discover'], content_types=['infographic'])
         word1 = WordFactory(text='bright')
@@ -379,7 +453,7 @@ class TestInfographicGeneration:
             **IG_DESIGN_RESPONSE,
             'intro_text': 'The bright summer sun lit up the whole forest.',
         }
-        mock_gemini.side_effect = [bad_design, bad_design, bad_design]
+        mock_gemini.side_effect = [bad_design, bad_design, bad_design, bad_design]
 
         job = GenerationJobFactory(input_words=['bright', 'discover'], content_types=['infographic'])
         word1 = WordFactory(text='bright')
@@ -395,6 +469,18 @@ class TestInfographicGeneration:
         with pytest.raises(ValueError, match='intro_text must use every target word'):
             restart_infographic_from_substep(job, pack.id, 'design', words_data, candidate_index=0)
         assert not Infographic.objects.filter(pack=pack).exists()
+
+    def test_rejects_invalid_layout_mode(self):
+        """layout_mode selects the image-prompt guidance block — an unknown
+        value must fail validation, not silently render as panorama."""
+        bad = {**IG_DESIGN_RESPONSE, 'layout_mode': 'grid'}
+        with pytest.raises(ValueError, match='layout_mode'):
+            _validate_infographic_design_result(bad)
+
+    def test_rejects_missing_layout_mode(self):
+        bad = {k: v for k, v in IG_DESIGN_RESPONSE.items() if k != 'layout_mode'}
+        with pytest.raises(ValueError, match='layout_mode'):
+            _validate_infographic_design_result(bad)
 
 
 @pytest.mark.django_db
@@ -448,6 +534,48 @@ class TestInfographicRestartGuardsAndPersistIntegrity:
         assert mock_gemini.call_count == 0
         assert Infographic.objects.filter(id=ig.id).exists()
         assert ClozeItem.objects.filter(infographic=ig).count() == 2
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_restart_refuses_selected_candidate(self, mock_load, mock_gemini):
+        """The manual restart path must never delete the published candidate —
+        the engine raises before touching anything."""
+        mock_load.return_value = 'Infographic template'
+        mock_gemini.side_effect = ValueError('no LLM call expected')
+        job, pack, words_data = self._make_job_and_pack()
+        ig = InfographicFactory(pack=pack, candidate_index=0, is_selected=True)
+
+        with pytest.raises(ValueError, match='is_selected'):
+            restart_infographic_from_substep(job, pack.id, 'design', words_data)
+
+        assert mock_gemini.call_count == 0
+        assert Infographic.objects.filter(id=ig.id, is_selected=True).exists()
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_restart_from_cloze_purges_only_cloze_logs(self, mock_load, mock_gemini):
+        """Substep logs are append-only: restarting from 'cloze' deletes the
+        stale cloze logs but keeps the design COMPLETED log that authorizes
+        the restart."""
+        mock_load.return_value = 'Infographic template'
+        mock_gemini.side_effect = [IG_DESIGN_RESPONSE, IG_CLOZE_RESPONSE]
+        job, pack, words_data = self._make_job_and_pack()
+        restart_infographic_from_substep(job, pack.id, 'design', words_data)
+
+        mock_gemini.reset_mock()
+        mock_gemini.side_effect = [IG_CLOZE_RESPONSE]
+        restart_infographic_from_substep(job, pack.id, 'cloze', words_data)
+
+        assert mock_gemini.call_count == 1
+        completed = GenerationJobLog.objects.filter(
+            job=job,
+            step=GenerationJobLog.Step.INFOGRAPHIC_DESIGN,
+            status=GenerationJob.Status.COMPLETED,
+        )
+        # The design log from the first run survived; the cloze log is exactly
+        # the new one (the stale first-run row was purged at engine start).
+        assert completed.filter(output_data__substep='design').count() == 1
+        assert completed.filter(output_data__substep='cloze').count() == 1
 
     @patch('vocabulary.services.generation.step_infographic.INFOGRAPHIC_CANDIDATE_COUNT', 1)
     @patch('vocabulary.services.llm_service.call_gemini')
@@ -521,6 +649,57 @@ class TestInfographicRestartGuardsAndPersistIntegrity:
         assert set(staged.values_list('word__text', flat=True)) == {'bright', 'discover'}
 
 
+class TestTermInText:
+    """Caption/intro term matching uses symmetric stemming: the term's stem is
+    compared against each text token's stem, both directions."""
+
+    def test_plural_term_matches_singular_token(self):
+        assert _term_in_text('batteries', 'Each battery powers a lamp.')
+
+    def test_singular_term_matches_plural_token(self):
+        assert _term_in_text('battery', 'Two batteries sit in the drawer.')
+
+    def test_inflections_still_match(self):
+        assert _term_in_text('discover', 'She discovered a hidden cave.')
+
+    def test_absent_term_does_not_match(self):
+        assert not _term_in_text('bright', 'The cave was dark and quiet.')
+
+
+class TestDesignValidatorGlossaryBoundary:
+    """The glossary-format check is word-boundary based: hyphenated compounds
+    must not false-fail, while real 'word: definition' captions are rejected."""
+
+    def _design(self, caption):
+        return {
+            **IG_DESIGN_RESPONSE,
+            'scene_elements': [
+                {
+                    'label': 'The Sun',
+                    'caption': caption,
+                    'vocab_terms': ['bright'],
+                    'illustration': 'A glowing sun.',
+                },
+                IG_DESIGN_RESPONSE['scene_elements'][1],
+            ],
+        }
+
+    def test_hyphenated_compound_is_not_glossary_format(self):
+        # 'bright-lit' previously false-failed the "term-" separator check.
+        _validate_infographic_design_result(
+            self._design('The bright-lit art-room glowed at dawn.')
+        )
+
+    def test_glossary_formats_still_rejected(self):
+        for caption in (
+            'bright: giving off a lot of light.',
+            'Bright — giving off a lot of light.',
+            'bright - giving off a lot of light.',
+        ):
+            with pytest.raises(ValueError, match='definition format'):
+                _validate_infographic_design_result(self._design(caption))
+
+
 class TestCleanInfographicTitle:
     def test_strips_generic_vocabulary_guide_subtitle(self):
         assert _clean_infographic_title(
@@ -550,3 +729,135 @@ class TestCleanInfographicTitle:
     def test_handles_none_and_blank(self):
         assert _clean_infographic_title(None) == ''
         assert _clean_infographic_title('   ') == ''
+
+
+
+@pytest.mark.django_db
+class TestInfographicSubstepFallback:
+    """Substep attempts mirror the word-level steps' [primary ×3, fallback ×1]
+    plan: a down primary must not hard-fail the step when a fallback site is
+    configured (previously the fallback was never used)."""
+
+    @patch('vocabulary.services.generation.step_infographic._call_llm_with_config')
+    def test_fallback_site_gets_one_final_attempt(self, mock_call):
+        primary = {'model': 'm-primary', 'provider_type': 'gemini_native'}
+        fallback = {'model': 'm-fallback', 'provider_type': 'gemini_native'}
+        mock_call.side_effect = [
+            RuntimeError('primary down'), RuntimeError('primary down'),
+            RuntimeError('primary down'), IG_CLOZE_RESPONSE,
+        ]
+        job = GenerationJobFactory(content_types=['infographic'])
+        pack = WordPackFactory(word_set=job.word_set, label='Pack 1', order=0)
+
+        result, _ = _run_infographic_substep(
+            job, pack, INFOGRAPHIC_SUBSTEPS[1], primary, 'template', '{}',
+            {'pack_label': 'Pack 1'},
+            validator=_validate_graphic_novel_cloze_result,
+            fallback_site_config=fallback,
+        )
+
+        assert result == IG_CLOZE_RESPONSE
+        assert mock_call.call_count == 4
+        assert [c.args[0] for c in mock_call.call_args_list] == [primary] * 3 + [fallback]
+
+    @patch('vocabulary.services.generation.step_infographic._call_llm_with_config')
+    def test_without_fallback_raises_after_primary_retries(self, mock_call):
+        primary = {'model': 'm-primary', 'provider_type': 'gemini_native'}
+        mock_call.side_effect = RuntimeError('primary down')
+        job = GenerationJobFactory(content_types=['infographic'])
+        pack = WordPackFactory(word_set=job.word_set, label='Pack 1', order=0)
+
+        with pytest.raises(RuntimeError, match='primary down'):
+            _run_infographic_substep(
+                job, pack, INFOGRAPHIC_SUBSTEPS[1], primary, 'template', '{}',
+                {'pack_label': 'Pack 1'},
+            )
+        assert mock_call.call_count == 3
+
+
+@pytest.mark.django_db
+class TestInfographicStepClears:
+    def test_design_clear_preserves_selected_candidate(self):
+        """A full-step INFOGRAPHIC_DESIGN restart clears only unpublished
+        candidates — the selected (live) candidate, its staged cloze, and the
+        pack's promoted cloze all survive. Mirrors the GN clear."""
+        job = GenerationJobFactory(content_types=['infographic'])
+        word = WordFactory(text='bright')
+        pack = WordPackFactory(word_set=job.word_set, label='Pack 1', order=0)
+        WordPackItemFactory(pack=pack, word=word, order=0)
+        selected = _make_ig_candidate(pack, 0, word, selected=True)
+        _make_ig_candidate(pack, 1, word, selected=False)
+        promoted = ClozeItem.objects.create(
+            pack=pack, word=word, sentence_text='The _______ sun.',
+            correct_answer='bright', distractors=['a', 'b'], order=1,
+        )
+
+        _clear_testing_outputs_for_step(
+            job, GenerationJobLog.Step.INFOGRAPHIC_DESIGN, [],
+        )
+
+        assert Infographic.objects.filter(id=selected.id, is_selected=True).exists()
+        assert not Infographic.objects.filter(pack=pack, is_selected=False).exists()
+        assert ClozeItem.objects.filter(infographic=selected).count() == 1
+        assert ClozeItem.objects.filter(
+            id=promoted.id, novel__isnull=True, infographic__isnull=True,
+        ).exists()
+        job.refresh_from_db()
+        assert job.infographics_created == 1
+        assert job.cloze_items_created == 2
+
+    def test_image_clear_resets_jpeg_companion(self):
+        """student_image prefers image_jpeg — a clear that resets only `image`
+        would keep serving the stale JPEG in the re-render window."""
+        job = GenerationJobFactory(content_types=['infographic'])
+        pack = WordPackFactory(word_set=job.word_set, label='Pack 1', order=0)
+        ig = InfographicFactory(pack=pack, candidate_index=0)
+        ig.image.save('poster.png', ContentFile(b'png'), save=False)
+        ig.image_jpeg.save('poster.jpg', ContentFile(b'jpg'), save=False)
+        ig.generation_status = Infographic.GenerationStatus.COMPLETED
+        ig.save()
+
+        _clear_testing_outputs_for_step(
+            job, GenerationJobLog.Step.INFOGRAPHIC_IMAGE, [],
+        )
+
+        ig.refresh_from_db()
+        assert not ig.image
+        assert not ig.image_jpeg
+        assert ig.generation_status == Infographic.GenerationStatus.PENDING
+
+
+@pytest.mark.django_db
+class TestInfographicStaleSweep:
+    def test_stale_running_infographic_marked_failed_on_job_status(self):
+        """A worker restart mid-render orphans a RUNNING row; the job-status
+        poll sweeps it to FAILED (mirroring the GN page sweep) instead of
+        displaying it as running forever."""
+        admin = AdminUserFactory()
+        job = GenerationJobFactory(
+            created_by=admin, status=GenerationJob.Status.RUNNING,
+            content_types=['infographic'],
+        )
+        pack = WordPackFactory(word_set=job.word_set, label='Pack 1', order=0)
+        ig = InfographicFactory(
+            pack=pack, candidate_index=0,
+            generation_status=Infographic.GenerationStatus.RUNNING,
+            generation_started_at=timezone.now() - timedelta(minutes=31),
+        )
+        old_log = GenerationJobLog.objects.create(
+            job=job,
+            step=GenerationJobLog.Step.INFOGRAPHIC_IMAGE,
+            status=GenerationJob.Status.RUNNING,
+        )
+        GenerationJobLog.objects.filter(id=old_log.id).update(
+            created_at=timezone.now() - timedelta(minutes=31),
+        )
+
+        client = APIClient()
+        client.force_authenticate(user=admin)
+        response = client.get(f'/api/generation-jobs/{job.id}/')
+
+        assert response.status_code == 200
+        ig.refresh_from_db()
+        assert ig.generation_status == Infographic.GenerationStatus.FAILED
+        assert 'stalled' in ig.generation_error

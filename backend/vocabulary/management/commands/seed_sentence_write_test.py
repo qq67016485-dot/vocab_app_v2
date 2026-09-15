@@ -5,7 +5,8 @@ SENTENCE_WRITE_OPEN at L5) are normally produced by the LLM pipeline. This
 command hand-builds a small, realistic set so the student-side flow can be
 exercised end-to-end WITHOUT running generation:
 
-  - creates/reuses a student account (known password),
+  - creates a student account (known password), or reclaims an existing one
+    with --reset,
   - creates a handful of Words + WordDefinitions + PrimerContent,
   - attaches guided + open sentence-write Questions with proper rubric
     ``options`` and a ``model_sentence`` (example_sentence),
@@ -17,13 +18,15 @@ student submits a sentence, ``sentence_judge`` (LLM config matrix) is called.
 Make sure your local Gemini config works, or the submit returns
 ``sentence_write_unavailable`` (graceful skip, no penalty).
 
-Idempotent: re-running reuses the same words/questions and resets the progress
-rows to due-now so you can practice again immediately.
+Idempotent: re-running WITH --reset reuses the same words/questions and resets
+the progress rows to due-now so you can practice again immediately. Without
+--reset the command REFUSES to touch an existing account — it overwrites the
+password/lexile/limit, so pointing it at a real username would be a takeover.
 
 Usage:
     python manage.py seed_sentence_write_test
     python manage.py seed_sentence_write_test --student swtest --password pass1234
-    python manage.py seed_sentence_write_test --reset   # also wipe today's answers/limit
+    python manage.py seed_sentence_write_test --reset   # reclaim account + wipe today's answers/limit
 """
 from django.core.management.base import BaseCommand
 from django.db import transaction
@@ -110,7 +113,9 @@ class Command(BaseCommand):
         parser.add_argument('--password', default='testpass123',
                             help='Password to set on the student. Default: testpass123')
         parser.add_argument('--reset', action='store_true',
-                            help="Also clear today's answers and raise the daily limit so you can practice freely.")
+                            help="Reclaim an existing account (overwrite password/lexile/limit) "
+                                 "and clear today's answers so you can practice freely. "
+                                 "Required when --student names an existing user.")
 
     @transaction.atomic
     def handle(self, *args, **opts):
@@ -132,10 +137,16 @@ class Command(BaseCommand):
                 "Mastery levels not seeded. Run `python manage.py migrate` first."))
             return
 
-        student, created = CustomUser.objects.get_or_create(
-            username=username,
-            defaults={'role': CustomUser.Role.STUDENT},
-        )
+        student = CustomUser.objects.filter(username=username).first()
+        if student is not None and not opts['reset']:
+            self.stderr.write(self.style.ERROR(
+                f"User '{username}' already exists. This command overwrites the "
+                "account's password/lexile/limit, so it refuses to modify an "
+                "existing user without --reset. Re-run with --reset to reclaim "
+                "the account, or pick a different --student name."))
+            return
+        if student is None:
+            student = CustomUser(username=username)
         student.role = CustomUser.Role.STUDENT
         student.set_password(password)
         # Widen lexile range so any question lexile passes (we also set null below).

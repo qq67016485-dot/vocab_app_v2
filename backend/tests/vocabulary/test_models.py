@@ -1,5 +1,6 @@
 import pytest
 from django.contrib.contenttypes.models import ContentType
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from vocabulary.models import (
@@ -86,7 +87,7 @@ class TestDefinitionEmbedding:
     def test_create_embedding(self):
         emb = DefinitionEmbeddingFactory()
         assert len(emb.embedding) == 768
-        assert emb.model_version == 'qwen2.5-embedding-v1'
+        assert emb.model_version == 'Qwen/Qwen3-Embedding-8B'
 
     def test_one_to_one_constraint(self):
         defn = WordDefinitionFactory()
@@ -320,13 +321,20 @@ class TestInstructionalModels:
         assert '**word**' in story.story_text
         assert story.reading_level == 500
 
-    def test_graphic_novel_one_to_one_pack(self):
+    def test_graphic_novel_unique_pack_candidate_index(self):
+        """The real constraint is (pack, candidate_index): same index clashes,
+        different candidate indices for the same pack coexist."""
         pack = WordPackFactory()
-        novel = GraphicNovelFactory(pack=pack, reading_level=500)
+        novel = GraphicNovelFactory(pack=pack, candidate_index=0, reading_level=500)
         assert novel.pack == pack
         assert novel.reading_level == 500
-        with pytest.raises(Exception):
-            GraphicNovelFactory(pack=pack)
+        # The inner atomic() contains the rollback so the test transaction
+        # stays usable for the assertions below.
+        with pytest.raises(IntegrityError):
+            with transaction.atomic():
+                GraphicNovelFactory(pack=pack, candidate_index=0)
+        sibling = GraphicNovelFactory(pack=pack, candidate_index=1)
+        assert sibling.pack == pack
 
     def test_graphic_novel_page_ordering(self):
         novel = GraphicNovelFactory()

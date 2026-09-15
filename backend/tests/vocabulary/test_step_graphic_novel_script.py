@@ -17,6 +17,11 @@ from vocabulary.models import (
 from vocabulary.services.generation_pipeline_service import (
     _step_graphic_novel_script,
     _validate_graphic_novel_router_result,
+    _validate_graphic_novel_team_result,
+)
+from vocabulary.services.generation.graphic_novel_validators import (
+    SubstepContext,
+    _validate_graphic_novel_script_result,
 )
 from vocabulary.services.generation.constants import (
     GRAPHIC_NOVEL_BEAT_SHEET_TEMPLATES,
@@ -53,6 +58,17 @@ def _single_candidate(monkeypatch):
     )
 
 
+# sample_team_options() coin-flips solo/dual and samples randomly, but the team
+# validator now rejects any selection outside the offered options — pin the
+# options so the fixed team fixture (Leo + Amara) is always offered.
+@pytest.fixture(autouse=True)
+def _fixed_team_options(monkeypatch):
+    monkeypatch.setattr(
+        'vocabulary.services.generation.graphic_novel_script.sample_team_options',
+        lambda: [['Leo', 'Amara'], ['Mei', 'Hugo']],
+    )
+
+
 @pytest.mark.django_db
 class TestStepGraphicNovelScript:
     @patch('vocabulary.services.llm_service.call_gemini')
@@ -82,6 +98,8 @@ class TestStepGraphicNovelScript:
         assert novel.metadata['age_band'] == '9yo'
         assert novel.metadata['vault_framing'] is True
         assert novel.metadata['review_artifact_type'] == 'Vault clue board'
+        # The beat sheet is persisted for per-page synopsis enrichment at image time.
+        assert novel.metadata['beat_sheet'] == GRAPHIC_NOVEL_BEAT_RESPONSE['beat_sheet']
         assert GraphicNovelPage.objects.filter(novel=novel).count() == 6
         story_page = GraphicNovelPage.objects.get(novel=novel, page_number=1)
         assert story_page.page_number == 1
@@ -365,7 +383,7 @@ class TestStepGraphicNovelScript:
 
 @pytest.mark.django_db
 class TestRouterValidatorPageCount:
-    """Tests for _validate_graphic_novel_router_result page_count enforcement."""
+    """Tests for _validate_graphic_novel_router_result page_count handling."""
 
     def _router_with_first_premise(self, first_premise):
         """Build a router response that fully replaces the first premise."""
@@ -384,21 +402,22 @@ class TestRouterValidatorPageCount:
         _validate_graphic_novel_router_result(GRAPHIC_NOVEL_ROUTER_RESPONSE)
 
     def test_rejects_premise_missing_page_count(self):
+        """Presence is still required (prompt schema completeness)."""
         bad_premise = {**GRAPHIC_NOVEL_ROUTER_RESPONSE['premises'][0]}
         bad_premise.pop('page_count')
         bad_router = self._router_with_first_premise(bad_premise)
         with pytest.raises(ValueError, match='page_count'):
             _validate_graphic_novel_router_result(bad_router)
 
-    def test_rejects_premise_with_invalid_page_count(self):
-        bad_router = self._router_with_premise_override({'page_count': 7})
-        with pytest.raises(ValueError, match='page_count'):
-            _validate_graphic_novel_router_result(bad_router)
+    def test_tolerates_page_count_outside_allowed_set(self):
+        """The pipeline forces the deterministic page count, so a
+        non-compliant value must not fail validation (and burn attempts)."""
+        router = self._router_with_premise_override({'page_count': 7})
+        _validate_graphic_novel_router_result(router)
 
-    def test_rejects_premise_with_string_page_count(self):
-        bad_router = self._router_with_premise_override({'page_count': '5'})
-        with pytest.raises(ValueError, match='page_count'):
-            _validate_graphic_novel_router_result(bad_router)
+    def test_tolerates_string_page_count(self):
+        router = self._router_with_premise_override({'page_count': '5'})
+        _validate_graphic_novel_router_result(router)
 
     def test_rejects_premise_missing_page_count_rationale(self):
         bad_premise = {**GRAPHIC_NOVEL_ROUTER_RESPONSE['premises'][0]}
@@ -411,6 +430,98 @@ class TestRouterValidatorPageCount:
         bad_router = self._router_with_premise_override({'page_count_rationale': '   '})
         with pytest.raises(ValueError, match='page_count_rationale'):
             _validate_graphic_novel_router_result(bad_router)
+
+
+class TestTeamValidatorOptions:
+    """The team selector must pick one of the offered team options."""
+
+    def test_accepts_offered_team(self):
+        _validate_graphic_novel_team_result(
+            {'selected_away_team': ['Leo', 'Amara'], 'vault_framing': True},
+            SubstepContext(team_options=[['Leo', 'Amara'], ['Mei', 'Hugo']]),
+        )
+
+    def test_rejects_unoffered_team(self):
+        with pytest.raises(ValueError, match='not one of the offered'):
+            _validate_graphic_novel_team_result(
+                {'selected_away_team': ['Hugo'], 'vault_framing': False},
+                SubstepContext(team_options=[['Leo', 'Amara'], ['Mei', 'Hugo']]),
+            )
+
+    def test_rejects_unoffered_pairing(self):
+        """Two individually-offered heroes are not an offered *pairing*."""
+        with pytest.raises(ValueError, match='not one of the offered'):
+            _validate_graphic_novel_team_result(
+                {'selected_away_team': ['Leo', 'Hugo'], 'vault_framing': False},
+                SubstepContext(team_options=[['Leo', 'Amara'], ['Mei', 'Hugo']]),
+            )
+
+    def test_accepts_any_team_when_no_options_in_ctx(self):
+        _validate_graphic_novel_team_result(
+            {'selected_away_team': ['Hugo'], 'vault_framing': False},
+        )
+
+
+class TestFinalScriptValidatorPageNumbering:
+    """The final-script validator must reject duplicated/gapped page numbers."""
+
+    def _ctx(self):
+        return SubstepContext(winning_premise={'page_count': 5})
+
+    def test_accepts_sequential_page_numbers(self):
+        _validate_graphic_novel_script_result(GRAPHIC_NOVEL_RESPONSE, self._ctx())
+
+    def test_rejects_duplicated_page_number(self):
+        pages = [dict(page) for page in GRAPHIC_NOVEL_RESPONSE['pages']]
+        pages[4] = {**pages[4], 'page_number': 4}
+        result = {**GRAPHIC_NOVEL_RESPONSE, 'pages': pages}
+        with pytest.raises(ValueError, match='numbered 1 through 5'):
+            _validate_graphic_novel_script_result(result, self._ctx())
+
+    def test_rejects_page_number_gap(self):
+        pages = [dict(page) for page in GRAPHIC_NOVEL_RESPONSE['pages']]
+        pages[2] = {**pages[2], 'page_number': 4}
+        result = {**GRAPHIC_NOVEL_RESPONSE, 'pages': pages}
+        with pytest.raises(ValueError, match='numbered 1 through 5'):
+            _validate_graphic_novel_script_result(result, self._ctx())
+
+
+class TestScriptCoverageWordBoundary:
+    """Script coverage matching is word-boundary based: 'art' inside 'start'
+    must not count as covering the target word."""
+
+    def _result_with_narration(self, narration):
+        pages = []
+        for idx in range(1, 6):
+            pages.append({
+                'page_number': idx,
+                'panels': [{
+                    'panel_number': 1,
+                    'narration': narration if idx == 1 else 'Nothing to see.',
+                    'dialogue': [],
+                    'vocab_words': [],
+                }],
+                'characters_featured': [],
+                'setting_key': 'story_realm',
+                'vault_zone': '',
+                'is_vault_page': False,
+            })
+        return {'title': 'T', 'pages': pages}
+
+    def test_substring_does_not_count_as_coverage(self):
+        ctx = SubstepContext(target_terms={'art'}, winning_premise={'page_count': 5})
+        with pytest.raises(ValueError, match='missing'):
+            _validate_graphic_novel_script_result(
+                self._result_with_narration('The race is about to start.'), ctx,
+            )
+
+    def test_whole_word_counts_as_coverage(self):
+        ctx = SubstepContext(target_terms={'art'}, winning_premise={'page_count': 5})
+        result = self._result_with_narration('This mural is true art.')
+        result['vocab_anchors'] = {
+            'art': {'anchor_type': 'visible_referent', 'anchor_text': 'A mural labeled ART.'},
+        }
+        _validate_graphic_novel_script_result(result, ctx)
 
 
 class TestPageCountForWordCount:
@@ -964,6 +1075,70 @@ class TestRestartGuardsAndPersistIntegrity:
         # Validation ran before the delete: the candidate is untouched.
         assert GraphicNovel.objects.filter(id=novel.id).exists()
         assert ClozeItem.objects.filter(novel=novel).count() == 2
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_restart_refuses_selected_candidate(self, mock_load, mock_anthropic):
+        """The manual restart path must never delete the published candidate —
+        the engine raises before touching anything."""
+        from vocabulary.services.generation.graphic_novel_script import (
+            restart_graphic_novel_from_substep,
+        )
+        mock_load.return_value = "Graphic novel template {input_json}"
+        mock_anthropic.side_effect = ValueError('no LLM call expected')
+        job = GenerationJobFactory(input_words=['bright', 'discover'])
+        pack, _, _ = self._make_pack(job)
+        novel = GraphicNovel.objects.create(
+            pack=pack, candidate_index=0, is_selected=True,
+            title='Published', synopsis='s', style_prompt='x', reading_level=600,
+        )
+
+        with pytest.raises(ValueError, match='is_selected'):
+            restart_graphic_novel_from_substep(
+                job, pack.id, 'team_selection', WORD_LOOKUP_RESPONSE['words'],
+            )
+
+        assert mock_anthropic.call_count == 0
+        assert GraphicNovel.objects.filter(id=novel.id, is_selected=True).exists()
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_restart_purges_stale_substep_logs(self, mock_load, mock_anthropic):
+        """Substep logs are append-only: restarting from cloze_generation must
+        delete the first run's COMPLETED rows for the rerun substeps (else a
+        later failure would look complete on resume), while the prior
+        substeps' logs survive to authorize the restart."""
+        from vocabulary.services.generation.graphic_novel_script import (
+            restart_graphic_novel_from_substep,
+        )
+        mock_load.return_value = "Graphic novel template {input_json}"
+        job = GenerationJobFactory(input_words=['bright', 'discover'])
+        pack, _, _ = self._make_pack(job)
+        self._full_run(mock_anthropic, job, pack)
+
+        mock_anthropic.reset_mock()
+        mock_anthropic.side_effect = [
+            GRAPHIC_NOVEL_CLOZE_RESPONSE,
+            GRAPHIC_NOVEL_BEAT_RESPONSE,
+            GRAPHIC_NOVEL_RESPONSE,
+        ]
+        restart_graphic_novel_from_substep(
+            job, pack.id, 'cloze_generation', WORD_LOOKUP_RESPONSE['words'],
+        )
+
+        assert mock_anthropic.call_count == 3
+        completed_substep_logs = GenerationJobLog.objects.filter(
+            job=job,
+            step=GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
+            status=GenerationJob.Status.COMPLETED,
+            output_data__substep__isnull=False,
+        )
+        # Every rerun substep has exactly one COMPLETED log — the new one.
+        for key in ('cloze_generation', 'beat_sheet_vocab_roles', 'final_script_self_check'):
+            assert completed_substep_logs.filter(output_data__substep=key).count() == 1
+        # Prior substeps kept their single first-run COMPLETED log.
+        for key in ('team_selection', 'router_premises', 'premise_scoring'):
+            assert completed_substep_logs.filter(output_data__substep=key).count() == 1
 
     @patch('vocabulary.services.llm_service.call_gemini')
     @patch('vocabulary.services.llm_service.load_prompt_template')

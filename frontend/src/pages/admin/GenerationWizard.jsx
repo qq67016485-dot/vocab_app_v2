@@ -197,9 +197,16 @@ export default function GenerationWizard() {
               <div key={q.id} style={{ marginBottom: 10, paddingLeft: 12, borderLeft: '3px solid var(--t-border)' }}>
                 <p className="t-hint" style={{ margin: '0 0 2px', fontSize: '0.78rem' }}>{q.question_type}</p>
                 <p style={{ margin: '0 0 4px' }}>{q.question_text}</p>
-                {q.options && <ul style={{ margin: '4px 0', paddingLeft: 20, fontSize: '0.9rem' }}>
+                {Array.isArray(q.options) && q.options.length > 0 && <ul style={{ margin: '4px 0', paddingLeft: 20, fontSize: '0.9rem' }}>
                   {q.options.map((opt, i) => (<li key={i} style={{ color: q.correct_answers?.includes(opt) ? 'var(--t-success)' : 'inherit', fontWeight: q.correct_answers?.includes(opt) ? 600 : 400, background: 'none', border: 'none', padding: '2px 0' }}>{opt}</li>))}
                 </ul>}
+                {q.options && !Array.isArray(q.options) && (
+                  <dl style={{ margin: '4px 0', fontSize: '0.85rem' }}>
+                    {q.options.sentence_starter && <><dt className="t-hint" style={{ fontSize: '0.75rem' }}>Sentence starter</dt><dd style={{ margin: '0 0 4px' }}>{q.options.sentence_starter}</dd></>}
+                    {q.options.intended_sense && <><dt className="t-hint" style={{ fontSize: '0.75rem' }}>Intended sense</dt><dd style={{ margin: '0 0 4px' }}>{q.options.intended_sense}</dd></>}
+                    {q.options.acceptable_use_notes && <><dt className="t-hint" style={{ fontSize: '0.75rem' }}>Acceptable use</dt><dd style={{ margin: '0 0 4px' }}>{q.options.acceptable_use_notes}</dd></>}
+                  </dl>
+                )}
               </div>
             ))}
           </div>

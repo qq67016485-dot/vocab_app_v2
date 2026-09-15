@@ -8,6 +8,9 @@ from vocabulary.models import (
 from vocabulary.services.generation_pipeline_service import (
     _step_generate_questions,
 )
+from vocabulary.services.generation.step_questions import (
+    QUESTION_BATCH_MAX_ATTEMPTS, _first_invalid_question,
+)
 from tests.factories import (
     WordFactory, WordDefinitionFactory, GenerationJobFactory,
     MasteryLevelFactory,
@@ -239,6 +242,72 @@ class TestStepGenerateQuestions:
             question.suitable_levels.values_list('level_id', flat=True)
         ) == [1]
 
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_answer_not_among_options_triggers_regeneration(
+        self, mock_load, mock_gemini,
+    ):
+        """A correct answer missing from the options can never be graded
+        correct (grading is exact-match), so the batch is regenerated
+        instead of persisted."""
+        mock_load.return_value = "Question gen template"
+        words, words_data = self._make_words(['alpha'])
+        bad = _question_response_for('alpha')
+        bad['generated_question_sets'][0]['questions'][0]['correct_answers'] = (
+            ['Not an option']
+        )
+        mock_gemini.side_effect = [bad, _question_response_for('alpha')]
+        job = GenerationJobFactory(input_words=['alpha'])
+
+        _step_generate_questions(job, words, words_data)
+
+        assert mock_gemini.call_count == 2
+        assert Question.objects.get(generation_job=job).correct_answers == ['A']
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_duplicate_options_trigger_regeneration(self, mock_load, mock_gemini):
+        """Duplicated option texts make the choice ambiguous; regenerate."""
+        mock_load.return_value = "Question gen template"
+        words, words_data = self._make_words(['alpha'])
+        bad = _question_response_for('alpha')
+        bad['generated_question_sets'][0]['questions'][0]['options'] = (
+            ['A', 'a', 'C', 'D']
+        )
+        mock_gemini.side_effect = [bad, _question_response_for('alpha')]
+        job = GenerationJobFactory(input_words=['alpha'])
+
+        _step_generate_questions(job, words, words_data)
+
+        assert mock_gemini.call_count == 2
+        assert Question.objects.get(generation_job=job).options == ['A', 'B', 'C', 'D']
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_persistently_invalid_batch_fails_step_without_rows(
+        self, mock_load, mock_gemini,
+    ):
+        """Once the in-step regeneration attempts are exhausted the step
+        fails loud instead of persisting ungradeable items."""
+        mock_load.return_value = "Question gen template"
+        words, words_data = self._make_words(['alpha'])
+        bad = _question_response_for('alpha')
+        bad['generated_question_sets'][0]['questions'][0]['correct_answers'] = (
+            ['Not an option']
+        )
+        mock_gemini.return_value = bad
+        job = GenerationJobFactory(input_words=['alpha'])
+
+        with pytest.raises(ValueError, match='not among'):
+            _step_generate_questions(job, words, words_data)
+
+        assert mock_gemini.call_count == QUESTION_BATCH_MAX_ATTEMPTS
+        assert Question.objects.filter(generation_job=job).count() == 0
+        log = GenerationJobLog.objects.get(
+            job=job, step=GenerationJobLog.Step.QUESTION_GEN,
+        )
+        assert log.status == GenerationJob.Status.FAILED
+
     def _make_words(self, terms):
         """Create Word + WordDefinition rows and the matching words_data list."""
         words = []
@@ -254,3 +323,36 @@ class TestStepGenerateQuestions:
                 'example_sentence': f'{term} is used in a sentence.',
             })
         return words, words_data
+
+
+class TestFirstInvalidQuestion:
+    """Unit tests for the structural QC helper (no DB needed)."""
+
+    def _valid_sets(self):
+        return _question_response_for('alpha')['generated_question_sets']
+
+    def test_valid_batch_passes(self):
+        assert _first_invalid_question(self._valid_sets()) is None
+
+    def test_punctuation_difference_still_passes(self):
+        """Validation mirrors grading normalization: an answer differing only
+        by case/punctuation from an option is gradeable and must pass."""
+        sets = self._valid_sets()
+        sets[0]['questions'][0]['correct_answers'] = ['a!']
+        assert _first_invalid_question(sets) is None
+
+    def test_missing_answer_reported(self):
+        sets = self._valid_sets()
+        sets[0]['questions'][0]['correct_answers'] = ['Z']
+        assert 'not among' in _first_invalid_question(sets)
+
+    def test_duplicate_options_reported(self):
+        sets = self._valid_sets()
+        sets[0]['questions'][0]['options'] = ['A', 'a', 'C', 'D']
+        assert 'duplicate' in _first_invalid_question(sets)
+
+    def test_dict_options_unwrapped(self):
+        """The {'choices': [...]} options envelope is validated like a list."""
+        sets = self._valid_sets()
+        sets[0]['questions'][0]['options'] = {'choices': ['A', 'B', 'C', 'D']}
+        assert _first_invalid_question(sets) is None

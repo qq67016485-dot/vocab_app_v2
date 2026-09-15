@@ -6,6 +6,14 @@ import { useTheme } from '../../context/ThemeContext.jsx';
 import MasteryLevelAccordion from '../../components/MasteryLevelAccordion.jsx';
 import StudentNavbar from '../../components/StudentNavbar.jsx';
 
+const WELCOME_MESSAGES = [
+  "Every word you learn opens a new door.",
+  "Your effort yesterday is today's progress.",
+  "Small steps, big growth. Let's go!",
+  "You're building something amazing, one word at a time.",
+  "Showing up is the hardest part — and you're here.",
+];
+
 export default function StudentDashboard() {
   const navigate = useNavigate();
   const { user, logoutUser } = useUser();
@@ -17,6 +25,11 @@ export default function StudentDashboard() {
   const [showFreezeInfo, setShowFreezeInfo] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [welcomeHasGoalAdjust, setWelcomeHasGoalAdjust] = useState(false);
+  // Picked once per mount — picking at render time swaps the text on every
+  // re-render while the overlay is open.
+  const [welcomeMessage] = useState(
+    () => WELCOME_MESSAGES[Math.floor(Math.random() * WELCOME_MESSAGES.length)],
+  );
 
   useEffect(() => {
     const fetchData = async () => {
@@ -47,14 +60,6 @@ export default function StudentDashboard() {
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
   }, []);
-
-  const welcomeMessages = [
-    "Every word you learn opens a new door.",
-    "Your effort yesterday is today's progress.",
-    "Small steps, big growth. Let's go!",
-    "You're building something amazing, one word at a time.",
-    "Showing up is the hardest part — and you're here.",
-  ];
 
   useEffect(() => {
     if (!dashboardData) return;
@@ -345,7 +350,7 @@ export default function StudentDashboard() {
         >
           <div className="welcome-panel" role="document">
             <p className="welcome-message">
-              {welcomeMessages[Math.floor(Math.random() * welcomeMessages.length)]}
+              {welcomeMessage}
             </p>
             {welcomeHasGoalAdjust ? (
               <>

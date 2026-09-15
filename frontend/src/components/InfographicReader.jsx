@@ -10,7 +10,21 @@ import TextToSpeechButton from './TextToSpeechButton.jsx';
  */
 export default function InfographicReader({ story, primerCards, onDone }) {
   const [zoomed, setZoomed] = useState(false);
+  // Per-word L1 translation reveals in the word list (off by default).
+  const [shownTranslations, setShownTranslations] = useState({});
   const entries = story?.entries || [];
+
+  // The pack payload already carries L1 translations on primer cards; the
+  // structured entries don't, so join by normalized term.
+  const translationsByTerm = useMemo(() => {
+    const map = {};
+    for (const c of primerCards || []) {
+      if (c.definition_translation) {
+        map[c.term_text.toLowerCase().trim()] = c.definition_translation;
+      }
+    }
+    return map;
+  }, [primerCards]);
 
   // Prefer the structured entries; fall back to primer cards if the design
   // didn't carry per-word entries (defensive — older/partial content).
@@ -20,14 +34,16 @@ export default function InfographicReader({ story, primerCards, onDone }) {
         term: e.term,
         definition: e.kid_friendly_definition || '',
         example: e.example_sentence || '',
+        translation: translationsByTerm[(e.term || '').toLowerCase().trim()] || '',
       }));
     }
     return (primerCards || []).map((c) => ({
       term: c.term_text,
       definition: c.kid_friendly_definition || '',
       example: c.example_sentence || '',
+      translation: c.definition_translation || '',
     }));
-  }, [entries, primerCards]);
+  }, [entries, primerCards, translationsByTerm]);
 
   return (
     <div className="infographic-reader">
@@ -68,6 +84,21 @@ export default function InfographicReader({ story, primerCards, onDone }) {
               )}
               {w.example && (
                 <span className="infographic-reader-example">{w.example}</span>
+              )}
+              {w.translation && (
+                shownTranslations[w.term] ? (
+                  <span className="primer-translation-text">{w.translation}</span>
+                ) : (
+                  <button
+                    className="primer-translation-btn"
+                    onClick={() =>
+                      setShownTranslations((prev) => ({ ...prev, [w.term]: true }))
+                    }
+                    type="button"
+                  >
+                    Show Translation
+                  </button>
+                )
               )}
             </li>
           ))}

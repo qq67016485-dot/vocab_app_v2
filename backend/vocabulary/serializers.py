@@ -11,6 +11,8 @@ Changes from v1:
 """
 from rest_framework import serializers
 from django.conf import settings
+from django.contrib.auth import password_validation
+from django.db import IntegrityError
 
 from users.models import CustomUser, StudentGroup
 from .models import (
@@ -187,6 +189,15 @@ class QuestionSerializer(serializers.ModelSerializer):
         if instance.question_type in self._SENTENCE_WRITE_TYPES:
             data['options'] = None
             data['example_sentence'] = ''
+        if self.context.get('for_serve'):
+            # The pre-answer payload must not give the answer away: for
+            # word-answer MC types the explanation and example sentence often
+            # quote it, and correct_answer_is_term reveals whether the answer
+            # is the term itself. The submit response returns
+            # explanation/example_sentence post-answer.
+            data['explanation'] = ''
+            data['example_sentence'] = ''
+            data.pop('correct_answer_is_term', None)
         return data
 
 
@@ -229,6 +240,11 @@ class WordSetSerializer(serializers.ModelSerializer):
         ]
 
     def get_word_count(self, obj):
+        # List views annotate the count to avoid a per-row query; fall back to
+        # the count query when the annotation isn't there (e.g. detail views).
+        annotated = getattr(obj, 'word_count', None)
+        if annotated is not None:
+            return annotated
         return obj.words.count()
 
 
@@ -275,8 +291,19 @@ class WordSetFormSerializer(serializers.ModelSerializer):
     def _resolve_level(self, validated_data: dict) -> None:
         name = validated_data.pop('level_name', None)
         if name:
-            curriculum = validated_data.get('curriculum')
-            obj, _ = Level.objects.get_or_create(name=name, curriculum=curriculum)
+            # On update, fall back to the instance's curriculum when the
+            # request didn't supply one — editing only level_name must not
+            # create/find a curriculum-less Level.
+            curriculum = validated_data.get(
+                'curriculum', self.instance.curriculum if self.instance else None,
+            )
+            try:
+                obj, _ = Level.objects.get_or_create(name=name, curriculum=curriculum)
+            except (Level.MultipleObjectsReturned, IntegrityError):
+                # unique_together can't enforce rows with a NULL curriculum in
+                # MySQL, so concurrent creates can leave duplicate (NULL, name)
+                # rows — after which get_or_create raises. Take the first match.
+                obj = Level.objects.filter(name=name, curriculum=curriculum).first()
             validated_data['level'] = obj
 
     def create(self, validated_data: dict) -> WordSet:
@@ -326,6 +353,17 @@ class StudentGroupFormSerializer(serializers.ModelSerializer):
         model = StudentGroup
         fields = ['name', 'description', 'students']
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Scope the form queryset to the requesting teacher's own students so
+        # the DRF browsable-API form doesn't enumerate every student account.
+        # Admins keep the full queryset. (Write-side enforcement stays in
+        # validate_students below.)
+        request = self.context.get('request')
+        user = getattr(request, 'user', None) if request else None
+        if user is not None and user.is_authenticated and user.role != CustomUser.Role.ADMIN:
+            self.fields['students'].queryset = user.students.all()
+
     def validate_students(self, students):
         teacher = self.context['request'].user
         for student in students:
@@ -365,6 +403,12 @@ class StudentCreateUpdateSerializer(serializers.ModelSerializer):
             'lexile_min', 'lexile_max',
         ]
         read_only_fields = ['id']
+
+    def validate_password(self, value: str) -> str:
+        # Only runs when a password is actually supplied — the field is
+        # required=False, so partial updates that omit it skip this hook.
+        password_validation.validate_password(value, self.instance)
+        return value
 
     def validate(self, data: dict) -> dict:
         min_score = data.get('lexile_min')

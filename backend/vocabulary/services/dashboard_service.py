@@ -14,7 +14,8 @@ from collections import defaultdict, Counter
 from itertools import groupby
 import logging
 
-from django.db.models import Count, Q, FloatField, Avg, Case, When
+from django.db.models import Count, F, Q, FloatField, Avg, Case, When, Window
+from django.db.models.functions import RowNumber
 from django.utils import timezone
 
 from users.models import CustomUser, StudentGroup
@@ -94,13 +95,24 @@ class DashboardService:
         }
 
         # Section 4: Words with 2+ Consecutive Mistakes
-        all_student_answers = UserAnswer.objects.filter(
+        # The check only ever looks at the two most recent answers per word,
+        # so bound the SQL to those rows with a window function instead of
+        # loading the student's entire answer history (unbounded growth).
+        recent_answers_per_word = UserAnswer.objects.filter(
             user=student,
+        ).annotate(
+            answer_rank=Window(
+                expression=RowNumber(),
+                partition_by=F('question__word_id'),
+                order_by=F('answered_at').desc(),
+            ),
+        ).filter(
+            answer_rank__lte=2,
         ).select_related('question').order_by('question__word_id', '-answered_at')
 
         consecutive_mistakes_map = {}
         for word_id, answers_group in groupby(
-            all_student_answers, key=lambda x: x.question.word_id,
+            recent_answers_per_word, key=lambda x: x.question.word_id,
         ):
             answers_list = list(answers_group)
             if len(answers_list) >= 2:
@@ -128,21 +140,25 @@ class DashboardService:
                 })
 
         # Section 5: Most Frequent Mistakes
-        frequent_mistakes_qs = UserAnswer.objects.filter(
+        frequent_mistakes_qs = list(UserAnswer.objects.filter(
             user=student, is_correct=False,
         ).values(
             'question__word_id',
             'question__word__text',
         ).annotate(
             mistake_count=Count('id'),
-        ).order_by('-mistake_count')[:10]
+        ).order_by('-mistake_count')[:10])
+
+        # One query for all words (+ one for definitions) instead of a
+        # per-item .get() loop.
+        words_by_id = Word.objects.filter(
+            id__in=[item['question__word_id'] for item in frequent_mistakes_qs],
+        ).prefetch_related('definitions').in_bulk()
 
         frequent_mistakes_data = []
         for item in frequent_mistakes_qs:
-            word = Word.objects.prefetch_related('definitions').get(
-                id=item['question__word_id'],
-            )
-            defn = word.definitions.first()
+            word = words_by_id.get(item['question__word_id'])
+            defn = word.definitions.first() if word else None
             frequent_mistakes_data.append({
                 'id': item['question__word_id'],
                 'term': item['question__word__text'],
@@ -207,22 +223,27 @@ class DashboardService:
                     item['question__word__text'],
                 )
 
+        # Keep only the latest 30 incorrect answers per student, in SQL via a
+        # window function — loading every incorrect answer ever and truncating
+        # in Python grows unbounded with answer history.
         skills_qs = UserAnswer.objects.filter(
             user_id__in=student_ids, is_correct=False,
+        ).annotate(
+            recent_rank=Window(
+                expression=RowNumber(),
+                partition_by=F('user_id'),
+                order_by=F('answered_at').desc(),
+            ),
+        ).filter(
+            recent_rank__lte=30,
         ).select_related('question')
 
         skills_map = defaultdict(Counter)
-        temp_answer_map = defaultdict(list)
-        for answer in skills_qs.order_by('user_id', '-answered_at'):
-            if len(temp_answer_map[answer.user_id]) < 30:
-                temp_answer_map[answer.user_id].append(answer)
-
-        for user_id, answers in temp_answer_map.items():
-            for answer in answers:
-                pattern = QUESTION_TYPE_TO_PATTERN.get(
-                    answer.question.question_type, 'Other',
-                )
-                skills_map[user_id][pattern] += 1
+        for answer in skills_qs:
+            pattern = QUESTION_TYPE_TO_PATTERN.get(
+                answer.question.question_type, 'Other',
+            )
+            skills_map[answer.user_id][pattern] += 1
 
         due_cutoff = end_of_local_day()
         due_counts_qs = UserWordProgress.objects.filter(

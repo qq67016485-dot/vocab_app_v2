@@ -18,8 +18,6 @@ export default function ChoiceQuestion({
   setTypoHint,
   answerSwitchCount,
   handleSubmit,
-  fetchNextQuestion,
-  nextLabel,
   retryHintBlock,
   correctFeedbackBlock,
 }) {
@@ -89,16 +87,12 @@ export default function ChoiceQuestion({
       {retryHintBlock}
       {correctDone ? correctFeedbackBlock : (
         <>
-          {retryMode && wrongOptions.length >= choices.length && (
-            <button
-              type="button"
-              className="btn btn-secondary"
-              style={{ marginTop: '20px', width: '100%' }}
-              onClick={fetchNextQuestion}
-            >
-              {nextLabel}
-            </button>
-          )}
+          {/* No reveal-and-move-on escape by design: wrong options are disabled
+              when struck out, so elimination always ends at the correct answer,
+              and type-to-spell shows the answer among the read-only reference
+              options. (Removed 2026-08-27: the old condition
+              `wrongOptions.length >= choices.length` was unreachable — a correct
+              option is never in wrongOptions.) */}
           {userAnswer && (
             <button type="submit" className="btn btn-primary" style={{ marginTop: '20px', width: '100%' }}>
               {retryMode ? 'Try Again' : 'Submit'}

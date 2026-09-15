@@ -43,7 +43,9 @@ SENTENCE_WRITE_TYPES = (
 )
 
 # Circuit breaker: N consecutive failures within the window marks the judge
-# unhealthy for UNHEALTHY_TTL seconds.
+# unhealthy for UNHEALTHY_TTL seconds. Under LocMemCache the breaker (like the
+# judge-call budget in practice_views) is per-worker — an accepted
+# approximation across the 4 gunicorn workers.
 _FAIL_COUNT_KEY = 'sentence_judge:consecutive_failures'
 _UNHEALTHY_KEY = 'sentence_judge:unhealthy'
 _FAIL_THRESHOLD = 3
@@ -66,8 +68,15 @@ def is_sentence_write_type(question_type) -> bool:
 
 def _record_failure() -> None:
     try:
-        count = cache.get(_FAIL_COUNT_KEY, 0) + 1
-        cache.set(_FAIL_COUNT_KEY, count, _FAIL_COUNT_TTL)
+        # add-seed-then-incr (atomic on shared caches) — a get+set pair loses
+        # concurrent increments and delays the trip. Same pattern as the
+        # sw_judge_calls budget counter in practice_views.
+        cache.add(_FAIL_COUNT_KEY, 0, _FAIL_COUNT_TTL)
+        try:
+            count = cache.incr(_FAIL_COUNT_KEY)
+        except ValueError:
+            cache.set(_FAIL_COUNT_KEY, 1, _FAIL_COUNT_TTL)
+            count = 1
         if count >= _FAIL_THRESHOLD:
             cache.set(_UNHEALTHY_KEY, True, _UNHEALTHY_TTL)
             logger.warning(
@@ -158,8 +167,12 @@ def _normalize_verdict(result: dict) -> dict:
         verdict = 'incorrect'
 
     error_type = str(result.get('error_type', '')).strip().lower()
-    if error_type not in VALID_ERROR_TYPES:
-        error_type = 'none' if verdict == 'correct' else 'wrong_meaning'
+    if verdict == 'correct':
+        # A correct verdict can't carry an error classification — force none
+        # even if the model emitted a valid-looking one.
+        error_type = 'none'
+    elif error_type not in VALID_ERROR_TYPES:
+        error_type = 'wrong_meaning'
 
     # Coaching is a list of 1–3 short bullets. Accept the new `hints` array;
     # fall back to a legacy single `hint` string. Clamp each bullet, drop
@@ -171,6 +184,11 @@ def _normalize_verdict(result: dict) -> dict:
     else:
         single = _clamp_str(result.get('hint', ''), 500)
         hints = [single] if single else []
+
+    if verdict == 'correct' and not hints:
+        # Success still gets coaching text — an empty hint would render as a
+        # blank bubble, so default one short confirmation bullet.
+        hints = ['Nice work!']
 
     return {
         'verdict': verdict,

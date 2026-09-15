@@ -9,7 +9,7 @@ Changes from v1:
 """
 from datetime import timedelta
 
-from django.db.models import Count, Exists, OuterRef, Q
+from django.db.models import Count, Exists, F, OuterRef, Q
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -68,10 +68,20 @@ class StudentDashboardView(APIView):
 
         # Streak logic
         if student.last_practice_date and student.last_practice_date < (today - timedelta(days=1)):
-            if student.streak_freezes_available > 0:
+            yesterday = today - timedelta(days=1)
+            # Atomic conditional decrement: the > 0 guard lives in the filter
+            # and the F() update runs in one statement, so concurrent GETs
+            # can't consume the same freeze twice.
+            freeze_consumed = CustomUser.objects.filter(
+                pk=student.pk,
+                streak_freezes_available__gt=0,
+            ).update(
+                streak_freezes_available=F('streak_freezes_available') - 1,
+                last_practice_date=yesterday,
+            )
+            if freeze_consumed:
                 student.streak_freezes_available -= 1
-                student.last_practice_date = today - timedelta(days=1)
-                student.save(update_fields=['streak_freezes_available', 'last_practice_date'])
+                student.last_practice_date = yesterday
             else:
                 student.current_practice_streak = 0
                 student.save(update_fields=['current_practice_streak'])

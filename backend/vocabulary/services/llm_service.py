@@ -35,7 +35,8 @@ def _log_llm_call(label, system_prompt, user_prompt, raw_response, error=None):
     """Write the full input/output of an LLM call to a timestamped log file."""
     try:
         os.makedirs(LLM_LOG_DIR, exist_ok=True)
-        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        # Microseconds so same-second calls don't overwrite each other's logs.
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
         status = 'ERROR' if error else 'OK'
         filename = f'{ts}_{label}_{status}.txt'
         filepath = os.path.join(LLM_LOG_DIR, filename)
@@ -119,7 +120,10 @@ def call_anthropic(model, system_prompt, user_prompt, api_key=None, base_url=Non
 
     create_kwargs = {
         'model': model,
-        'max_tokens': 128000 if is_thinking_model else 600000,
+        # 64k is the standard output cap for every Claude model; anything
+        # higher (or the 128k beta, which needs a header we don't set) makes
+        # the API reject the request with a 400.
+        'max_tokens': 64000,
         'messages': [{"role": "user", "content": usr_text}],
     }
 
@@ -172,9 +176,18 @@ def _extract_json(raw):
 
     # Try direct parse
     try:
-        return json.loads(stripped)
+        parsed = json.loads(stripped)
     except json.JSONDecodeError:
         pass
+    else:
+        # call_gemini/call_anthropic promise dicts (callers use .get) — a
+        # top-level array/scalar parses fine but would break that contract.
+        if not isinstance(parsed, dict):
+            raise ValueError(
+                f"Could not parse JSON object from LLM response (got "
+                f"{type(parsed).__name__}). Raw (first 500 chars): {raw[:500]}"
+            )
+        return parsed
 
     # Try to find JSON object in the text
     match = re.search(r'\{[\s\S]*\}', stripped)
@@ -274,7 +287,13 @@ def _call_gemini_via_openai_proxy(model, system_prompt, user_prompt, base_url, a
 
 def _call_gemini_native(model, system_prompt, user_prompt, api_key):
     """Call Gemini directly via Google's google.genai SDK."""
-    client = genai.Client(api_key=api_key)
+    # HttpOptions.timeout is in milliseconds; without it the SDK passes
+    # timeout=None to httpx and a stalled request hangs forever. Matches the
+    # proxy path's 600s.
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(timeout=600_000),
+    )
 
     combined_prompt = f"{system_prompt}\n\n{user_prompt}".strip()
 
@@ -350,11 +369,14 @@ def call_openai_image(prompt: str, size: str = "1024x1024", reference_image: byt
         import httpx
         img_response = httpx.get(image_item.url, follow_redirects=True, timeout=60)
         img_response.raise_for_status()
+        # The signed URL carries credentials in its query string — keep them
+        # out of the on-disk logs.
+        safe_url = image_item.url.split('?', 1)[0]
         _log_llm_call(
             f'{model}_image',
             'OpenAI image generation',
             prompt,
-            f'Image generated successfully from URL: {image_item.url}',
+            f'Image generated successfully from URL: {safe_url}',
         )
         return img_response.content
     except Exception as e:

@@ -356,18 +356,27 @@ class TestTeacherStudentSerializer:
 class TestStudentCreateUpdateSerializer:
     def test_creates_student(self):
         serializer = StudentCreateUpdateSerializer(
-            data={'username': 'new_student', 'password': 'pass123'},
+            data={'username': 'new_student', 'password': 'Str0ng!Passw0rd'},
         )
         assert serializer.is_valid(), serializer.errors
         user = serializer.save()
         assert user.role == 'STUDENT'
-        assert user.check_password('pass123')
+        assert user.check_password('Str0ng!Passw0rd')
+
+    def test_rejects_weak_password(self):
+        # Passwords go through Django's validate_password — a 3-char password
+        # must be rejected rather than hashed straight in.
+        serializer = StudentCreateUpdateSerializer(
+            data={'username': 'weak_pw_student', 'password': 'abc'},
+        )
+        assert not serializer.is_valid()
+        assert 'password' in serializer.errors
 
     def test_validates_lexile_range(self):
         serializer = StudentCreateUpdateSerializer(
             data={
                 'username': 'test',
-                'password': 'pass123',
+                'password': 'Str0ng!Passw0rd',
                 'lexile_min': 800,
                 'lexile_max': 400,
             },
@@ -397,7 +406,7 @@ class TestStudentCreateUpdateSerializer:
     def test_creates_with_goal_bounds(self):
         serializer = StudentCreateUpdateSerializer(
             data={
-                'username': 'goal_student', 'password': 'pass123',
+                'username': 'goal_student', 'password': 'Str0ng!Passw0rd',
                 'daily_goal_min': 15, 'daily_question_limit': 25, 'daily_goal_max': 40,
             },
         )
@@ -410,7 +419,7 @@ class TestStudentCreateUpdateSerializer:
     def test_validates_goal_min_less_than_max(self):
         serializer = StudentCreateUpdateSerializer(
             data={
-                'username': 'test', 'password': 'pass123',
+                'username': 'test', 'password': 'Str0ng!Passw0rd',
                 'daily_goal_min': 40, 'daily_goal_max': 20,
             },
         )
@@ -419,7 +428,7 @@ class TestStudentCreateUpdateSerializer:
     def test_validates_limit_within_bounds(self):
         serializer = StudentCreateUpdateSerializer(
             data={
-                'username': 'test', 'password': 'pass123',
+                'username': 'test', 'password': 'Str0ng!Passw0rd',
                 'daily_goal_min': 20, 'daily_question_limit': 60, 'daily_goal_max': 50,
             },
         )
@@ -428,7 +437,7 @@ class TestStudentCreateUpdateSerializer:
     def test_validates_goal_min_floor(self):
         serializer = StudentCreateUpdateSerializer(
             data={
-                'username': 'test', 'password': 'pass123',
+                'username': 'test', 'password': 'Str0ng!Passw0rd',
                 'daily_goal_min': 5,
             },
         )

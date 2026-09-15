@@ -2,10 +2,13 @@
 
 Reads every story page's speech events, sends them to an LLM configured under
 the 'audiobook_director' step key, and returns per-character Audio Profile
-blocks plus inline-tagged transcript lines. The result is cached in
+blocks plus inline-tagged transcript lines. The result — together with a hash
+of the events payload it was computed from — is cached in
 novel.metadata['voice_director'] so individual page reruns don't re-call the
-LLM.
+LLM; a script edit/regeneration changes the hash and forces a fresh call
+(the positional directed_index keys would otherwise misalign to the new lines).
 """
+import hashlib
 import json
 import logging
 import os
@@ -135,6 +138,17 @@ def _index_directed_events(directed_events):
     }
 
 
+def _events_hash(events_payload):
+    """Stable fingerprint of the events payload a director call was made from.
+
+    The cached direction is keyed by position (page_number, event_index), so
+    it is only valid for the exact script it was computed from — a regenerated
+    or edited script must miss the cache instead of misaligning tags to lines.
+    """
+    canonical = json.dumps(events_payload, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha1(canonical.encode('utf-8')).hexdigest()
+
+
 def direct_novel(novel, pages):
     """Call the voice director LLM for a novel and cache the result.
 
@@ -144,27 +158,36 @@ def direct_novel(novel, pages):
             'directed_index': {(page_number, event_index): directed_text, ...},
         }
 
-    Falls back gracefully: if the LLM call fails or the cache is present,
-    no call is made. Callers should treat a missing directed_text as meaning
-    "use original text".
+    The cache in novel.metadata['voice_director'] carries the sha1 of the
+    events payload it was computed from; a mismatch (script edited or
+    regenerated after caching) re-runs the LLM. Falls back gracefully: if the
+    LLM call fails, an empty direction is returned. Callers should treat a
+    missing directed_text as meaning "use original text".
     """
-    cached = (novel.metadata or {}).get('voice_director')
-    if cached:
-        logger.info('Voice director: using cached result for novel %s', novel.pk)
-        return {
-            'character_profiles': cached.get('character_profiles', {}),
-            'directed_index': _index_directed_events(cached.get('directed_events', [])),
-        }
-
     age_band = (novel.metadata or {}).get('age_band', C.DEFAULT_AGE_BAND)
     events_payload = _build_events_payload(pages, novel)
     if not events_payload:
         return {'character_profiles': {}, 'directed_index': {}}
+    events_hash = _events_hash(events_payload)
 
-    system_prompt = _load_system_prompt(age_band)
+    cached = (novel.metadata or {}).get('voice_director')
+    if cached and cached.get('events_hash') == events_hash:
+        logger.info('Voice director: using cached result for novel %s', novel.pk)
+        result = cached.get('result', {})
+        return {
+            'character_profiles': result.get('character_profiles', {}),
+            'directed_index': _index_directed_events(result.get('directed_events', [])),
+        }
+    if cached:
+        logger.info(
+            'Voice director: cached result stale for novel %s (script changed); '
+            're-directing', novel.pk,
+        )
+
     user_prompt = json.dumps({'speech_events': events_payload}, ensure_ascii=False)
 
     try:
+        system_prompt = _load_system_prompt(age_band)
         step_cfg = get_step_config(STEP_KEY)
         result = _call_llm_with_config(step_cfg['primary'], system_prompt, user_prompt)
     except Exception as exc:  # noqa: BLE001
@@ -176,7 +199,10 @@ def direct_novel(novel, pages):
         return {'character_profiles': {}, 'directed_index': {}}
 
     # Persist to novel metadata so reruns skip the LLM call.
-    novel.metadata = {**(novel.metadata or {}), 'voice_director': result}
+    novel.metadata = {
+        **(novel.metadata or {}),
+        'voice_director': {'events_hash': events_hash, 'result': result},
+    }
     novel.save(update_fields=['metadata'])
 
     return {

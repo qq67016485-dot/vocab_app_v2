@@ -37,6 +37,9 @@ const INFOGRAPHIC_SUBSTEPS = [
 ];
 
 const POLL_INTERVAL = 30000;
+// Consecutive poll failures tolerated before the UI gives up and shows an
+// error — one transient network blip must not freeze a running job's status.
+const MAX_POLL_FAILURES = 6;
 
 export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
   const [job, setJob] = useState(null);
@@ -51,21 +54,60 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
 
   useEffect(() => {
     if (!jobId) return;
+    let consecutiveFailures = 0;
     const poll = async () => {
       try {
         const [jobRes, logsRes] = await Promise.all([
           apiClient.get(`/generation-jobs/${jobId}/`),
           apiClient.get(`/generation-jobs/${jobId}/logs/`),
         ]);
+        consecutiveFailures = 0;
         setJob(jobRes.data); setLogs(logsRes.data);
         if (jobRes.data.status === 'COMPLETED' || jobRes.data.status === 'PARTIALLY_COMPLETED') { clearInterval(intervalRef.current); onComplete?.(jobRes.data); }
         else if (jobRes.data.status === 'FAILED') { clearInterval(intervalRef.current); onFail?.(jobRes.data); }
-      } catch (err) { console.error('Error polling job status:', err); setError('Failed to fetch job status.'); clearInterval(intervalRef.current); }
+      } catch (err) {
+        consecutiveFailures += 1;
+        console.error('Error polling job status:', err);
+        if (consecutiveFailures >= MAX_POLL_FAILURES) {
+          setError('Failed to fetch job status.');
+          clearInterval(intervalRef.current);
+        }
+      }
     };
     poll();
     intervalRef.current = setInterval(poll, POLL_INTERVAL);
     return () => clearInterval(intervalRef.current);
   }, [jobId, onComplete, onFail]);
+
+  // Shared watch loop started after a restart/resume POST succeeds. Polls job +
+  // logs, keeps going through transient errors, and only gives up after several
+  // consecutive failures — clearing the pending flag so buttons don't stick on
+  // "Restarting..."/"Resuming..." forever.
+  const watchJob = (clearPending) => {
+    let consecutiveFailures = 0;
+    const poll = async () => {
+      try {
+        const [jobRes, logsRes] = await Promise.all([
+          apiClient.get(`/generation-jobs/${jobId}/`),
+          apiClient.get(`/generation-jobs/${jobId}/logs/`),
+        ]);
+        consecutiveFailures = 0;
+        setJob(jobRes.data); setLogs(logsRes.data);
+        if (jobRes.data.status === 'COMPLETED' || jobRes.data.status === 'PARTIALLY_COMPLETED') { clearInterval(intervalRef.current); clearPending?.(); onComplete?.(jobRes.data); }
+        else if (jobRes.data.status === 'FAILED') { clearInterval(intervalRef.current); clearPending?.(); onFail?.(jobRes.data); }
+      } catch (err) {
+        consecutiveFailures += 1;
+        console.error('Error polling job status:', err);
+        if (consecutiveFailures >= MAX_POLL_FAILURES) {
+          clearInterval(intervalRef.current);
+          clearPending?.();
+          setError('Lost connection while watching the job. Refresh to check its status.');
+        }
+      }
+    };
+    poll();
+    intervalRef.current = setInterval(poll, POLL_INTERVAL);
+  };
 
   if (error) return <p style={{ color: 'var(--t-danger)' }}>{error}</p>;
   if (!job) return <p>Loading job status...</p>;
@@ -129,13 +171,7 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
       });
       setJob(prev => prev ? { ...prev, ...res.data, status: 'RUNNING', error_message: '' } : res.data);
       clearInterval(intervalRef.current);
-      const poll = async () => {
-        const [jobRes, logsRes] = await Promise.all([apiClient.get(`/generation-jobs/${jobId}/`), apiClient.get(`/generation-jobs/${jobId}/logs/`)]);
-        setJob(jobRes.data); setLogs(logsRes.data);
-        if (jobRes.data.status === 'COMPLETED' || jobRes.data.status === 'PARTIALLY_COMPLETED') { clearInterval(intervalRef.current); setRestartingSubstep(null); onComplete?.(jobRes.data); }
-        else if (jobRes.data.status === 'FAILED') { clearInterval(intervalRef.current); setRestartingSubstep(null); onFail?.(jobRes.data); }
-      };
-      poll(); intervalRef.current = setInterval(poll, POLL_INTERVAL);
+      watchJob(() => setRestartingSubstep(null));
     } catch (err) { setError(err.response?.data?.error || 'Failed to restart substep.'); setRestartingSubstep(null); }
   };
 
@@ -330,13 +366,7 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
                   });
                   setJob(prev => prev ? { ...prev, ...restartRes.data, status: 'RUNNING', error_message: '' } : restartRes.data);
                   clearInterval(intervalRef.current);
-                  const poll = async () => {
-                    const [jobRes, logsRes] = await Promise.all([apiClient.get(`/generation-jobs/${jobId}/`), apiClient.get(`/generation-jobs/${jobId}/logs/`)]);
-                    setJob(jobRes.data); setLogs(logsRes.data);
-                    if (jobRes.data.status === 'COMPLETED' || jobRes.data.status === 'PARTIALLY_COMPLETED') { clearInterval(intervalRef.current); setIsRestartingStep(false); onComplete?.(jobRes.data); }
-                    else if (jobRes.data.status === 'FAILED') { clearInterval(intervalRef.current); setIsRestartingStep(false); onFail?.(jobRes.data); }
-                  };
-                  poll(); intervalRef.current = setInterval(poll, POLL_INTERVAL);
+                  watchJob(() => setIsRestartingStep(false));
                 } catch (err) { setError(err.response?.data?.error || 'Failed to restart pipeline step.'); setIsRestartingStep(false); }
               }}
               disabled={isRestartingStep}
@@ -355,13 +385,7 @@ export default function GenerationJobStatus({ jobId, onComplete, onFail }) {
               const resumeRes = await apiClient.post(`/generation-jobs/${jobId}/resume/`);
               setJob(prev => prev ? { ...prev, ...resumeRes.data, status: 'RUNNING', error_message: '' } : resumeRes.data);
               clearInterval(intervalRef.current);
-              const poll = async () => {
-                const [jobRes, logsRes] = await Promise.all([apiClient.get(`/generation-jobs/${jobId}/`), apiClient.get(`/generation-jobs/${jobId}/logs/`)]);
-                setJob(jobRes.data); setLogs(logsRes.data);
-                if (jobRes.data.status === 'COMPLETED' || jobRes.data.status === 'PARTIALLY_COMPLETED') { clearInterval(intervalRef.current); onComplete?.(jobRes.data); }
-                else if (jobRes.data.status === 'FAILED') { clearInterval(intervalRef.current); setIsResuming(false); onFail?.(jobRes.data); }
-              };
-              poll(); intervalRef.current = setInterval(poll, POLL_INTERVAL);
+              watchJob(() => setIsResuming(false));
             } catch (err) { setError(err.response?.data?.error || 'Failed to resume pipeline.'); setIsResuming(false); }
           }} disabled={isResuming}>
           {isResuming ? 'Resuming...' : 'Resume Pipeline'}

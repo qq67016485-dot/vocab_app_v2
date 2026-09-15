@@ -233,6 +233,22 @@ class Question(models.Model):
         null=True, blank=True,
         help_text='How well the question differentiates high/low-performing users.',
     )
+    # Item-quality QA (compute_item_stats): stat-flags (too_easy / too_hard /
+    # low_discrimination) plus any foreign strings other tools wrote. Flags are
+    # review signals only — hiding a question from practice is the separate,
+    # admin-driven is_serve_excluded toggle (never set by the stats command).
+    qa_flags = models.JSONField(
+        default=list, blank=True,
+        help_text='Item-quality flags, e.g. too_easy, too_hard, low_discrimination.',
+    )
+    qa_checked_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='When item stats were last recomputed for this question.',
+    )
+    is_serve_excluded = models.BooleanField(
+        default=False,
+        help_text='Admin flag-to-hide: never serve this question in practice.',
+    )
     suitable_levels = models.ManyToManyField(MasteryLevel, related_name='questions', blank=True)
     generation_job = models.ForeignKey(
         'GenerationJob', on_delete=models.SET_NULL, null=True, blank=True,
@@ -309,6 +325,91 @@ class UserAnswer(models.Model):
     def __str__(self):
         status = 'Correct' if self.is_correct else 'Incorrect'
         return f"Answer by {self.user.username} for question {self.question_id} ({status})"
+
+
+class TypoAttempt(models.Model):
+    """Append-only analytics log of near-miss typo attempts on type-to-spell
+    questions.
+
+    Intentionally separate from UserAnswer: a typo submit returns early from
+    PracticeService.process_answer before any scoring, and an is_correct=False
+    UserAnswer row would pollute daily-limit counts, session dedup, dashboards,
+    learning patterns, and timing baselines.
+    """
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='typo_attempts',
+    )
+    question = models.ForeignKey(
+        Question, on_delete=models.CASCADE, related_name='typo_attempts',
+    )
+    attempted_text = models.TextField(null=True, blank=True)
+    answered_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['user', 'answered_at']),
+        ]
+
+    def __str__(self):
+        return f"Typo attempt by {self.user.username} on question {self.question_id}"
+
+
+class SchedulingDecision(models.Model):
+    """Append-only log of every SRS scheduling decision (non-retry scored
+    answers, including sentence-write terminal outcomes).
+
+    ``learning_speed``/``next_review_at`` are mutated in place on the progress
+    row on every answer, so this table is the only way to reconstruct
+    "scheduled day 3, answered day 9" after the fact for offline decay-model
+    analysis. The ``jitter_*`` fields are reserved for a future
+    randomized-jitter feature and stay NULL until it ships.
+    """
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='scheduling_decisions',
+    )
+    word = models.ForeignKey(
+        Word, on_delete=models.CASCADE, related_name='scheduling_decisions',
+    )
+    question = models.ForeignKey(
+        Question, on_delete=models.CASCADE, related_name='scheduling_decisions',
+    )
+    answered_at = models.DateTimeField(auto_now_add=True)
+    mastery_level_before = models.IntegerField()
+    mastery_level_after = models.IntegerField()
+    learning_speed_before = models.FloatField()
+    learning_speed_after = models.FloatField()
+    response_quality_rule = models.CharField(
+        max_length=50,
+        help_text='The schedule_reason string from RESPONSE_QUALITY_RULES classification.',
+    )
+    intended_interval_days = models.FloatField(
+        help_text='The final post-fragile-cap interval (days) actually used.',
+    )
+    next_review_at = models.DateTimeField(
+        help_text='The value just written to the progress row.',
+    )
+    jitter_offset_days = models.IntegerField(
+        null=True, blank=True,
+        help_text='Reserved for a future randomized-jitter feature; NULL for now.',
+    )
+    jitter_probability = models.FloatField(
+        null=True, blank=True,
+        help_text='Reserved for a future randomized-jitter feature; NULL for now.',
+    )
+    due_backlog_size = models.IntegerField(
+        help_text="Count of the user's currently-due READY words at answer time.",
+    )
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['user', 'word', 'answered_at']),
+        ]
+
+    def __str__(self):
+        return (
+            f"SchedulingDecision {self.user.username}/{self.word.text} "
+            f"({self.response_quality_rule})"
+        )
 
 
 # =============================================================================
@@ -480,6 +581,12 @@ class PrimerCardContent(models.Model):
     audio_url = models.URLField(blank=True, default='')
     kid_friendly_definition = models.TextField()
     example_sentence = models.TextField()
+    generated_content_lexile = models.IntegerField(
+        null=True, blank=True,
+        help_text='Content Lexile (job target_lexile x 0.85) this primer was authored '
+                  'at. Rows authored within the reuse window of a later job are kept; '
+                  'NULL predates provenance tracking and is always regenerated.',
+    )
 
     def __str__(self):
         return f"Primer for '{self.word.text}'"

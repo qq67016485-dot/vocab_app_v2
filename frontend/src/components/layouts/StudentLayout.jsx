@@ -32,7 +32,6 @@ export default function StudentLayout() {
           xpCurrent={xpCurrent}
           xpNeeded={xpNeeded}
           xpPercent={xpPercent}
-          onSettingsClick={null}
         />
       ) : (
         <Navbar />

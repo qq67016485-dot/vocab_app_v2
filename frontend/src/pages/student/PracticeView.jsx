@@ -101,6 +101,9 @@ export default function PracticeView() {
   const [feedback, setFeedback] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [finishMessage, setFinishMessage] = useState('');
+  // Load failure on /practice/next/ — kept apart from finishMessage so an
+  // error never routes into the celebratory session summary.
+  const [finishError, setFinishError] = useState('');
   const [sessionSummary, setSessionSummary] = useState(null);
   const [scrambledAttempt, setScrambledAttempt] = useState([]);
 
@@ -222,6 +225,7 @@ export default function PracticeView() {
     setSwLastSentence('');
     setSwAttempts(0);
     setSubmitError('');
+    setFinishError('');
     answerSwitchCount.current = 0;
 
     try {
@@ -236,7 +240,7 @@ export default function PracticeView() {
       }
     } catch (error) {
       console.error('Error fetching next question:', error);
-      setFinishMessage('An error occurred while fetching a question.');
+      setFinishError('We had trouble getting your next question. Check your connection and try again.');
     } finally {
       setIsLoading(false);
     }
@@ -373,6 +377,7 @@ export default function PracticeView() {
   const handleRetrySubmission = async (answerToSubmit) => {
     if (!question || !answerToSubmit || isSubmittingRetry.current) return;
     isSubmittingRetry.current = true;
+    setSubmitError('');
 
     try {
       const response = await apiClient.post('/practice/submit/', {
@@ -406,6 +411,9 @@ export default function PracticeView() {
       }
     } catch (error) {
       console.error('Error submitting retry:', error);
+      // Same treatment as the first-submit path: a visible banner, and the
+      // form stays usable so the student can try again.
+      setSubmitError("We couldn't submit that answer. Check your connection and try again.");
     } finally {
       isSubmittingRetry.current = false;
     }
@@ -578,6 +586,24 @@ export default function PracticeView() {
     'NUANCE_CONTRAST_MC',
   ];
 
+  // MC types whose correct answer is always the target term itself (per the
+  // question-generation prompts: "the target word is the correct answer /
+  // the blank"). These become type-to-spell when the content is hard enough.
+  // Derived from question_type because the serve payload no longer exposes
+  // correct_answer_is_term (it leaked the answer pre-submit). WORD_FORM_MC is
+  // deliberately excluded: its answer is a same-root form that only sometimes
+  // equals the bare term, so a type-level rule can't reproduce the old
+  // per-instance behavior — and the old behavior for inflected answers was
+  // already clickable MC.
+  const TERM_ANSWER_MC_TYPES = [
+    'REVERSE_DEFINITION_MC',
+    'REVERSE_SYNONYM_IN_CONTEXT_MC',
+    'CONTEXT_MC_SINGLE',
+    'REVERSE_ASSOCIATION_MC',
+    'REVERSE_COLLOCATION_MC',
+    'NUANCE_CONTRAST_MC',
+  ];
+
   const renderQuestionInput = () => {
     if (!question) return null;
 
@@ -600,12 +626,12 @@ export default function PracticeView() {
       />
     ) : null;
 
-    // Type-to-spell: when answer is the target word and Lexile > 600,
-    // show options as read-only reference and require typing the answer
+    // Type-to-spell: when the answer is the target word (term-answer MC types)
+    // and Lexile > 600, show options as read-only reference and require typing
+    // the answer.
     const isTypeToSpell =
-      question.correct_answer_is_term &&
-      question.lexile_score > 600 &&
-      question.question_type !== 'DEFINITION_TRUE_FALSE';
+      TERM_ANSWER_MC_TYPES.includes(question.question_type) &&
+      question.lexile_score > 600;
 
     const retryHintBlock = retryMode ? (
       <>
@@ -827,6 +853,30 @@ export default function PracticeView() {
           <button className="back-home" onClick={() => navigate('/student/dashboard')}>
             Back to Home
           </button>
+        </div>
+      );
+    }
+
+    if (finishError) {
+      return (
+        <div style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+          <p role="alert">{finishError}</p>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 16 }}>
+            <button
+              className="btn btn-primary"
+              type="button"
+              onClick={() => { setFinishError(''); fetchNextQuestion(); }}
+            >
+              Try Again
+            </button>
+            <button
+              className="btn btn-secondary"
+              type="button"
+              onClick={() => navigate('/student/dashboard')}
+            >
+              Back to Home
+            </button>
+          </div>
         </div>
       );
     }

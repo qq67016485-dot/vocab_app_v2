@@ -45,14 +45,16 @@ export default function StudentNavbar({
           </div>
         </div>
       </div>
-      <button
-        className="student-settings-btn"
-        onClick={onSettingsClick}
-        type="button"
-        aria-label="Settings"
-      >
-        ⚙
-      </button>
+      {onSettingsClick && (
+        <button
+          className="student-settings-btn"
+          onClick={onSettingsClick}
+          type="button"
+          aria-label="Settings"
+        >
+          ⚙
+        </button>
+      )}
     </div>
   );
 }

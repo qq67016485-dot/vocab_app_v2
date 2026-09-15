@@ -1,8 +1,16 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 
 const SpeakerIcon = () => <span role="img" aria-label="speak word">&#x1f50a;</span>;
 
 function TextToSpeechButton({ textToSpeak }) {
+  // Cut off any in-flight utterance when this button unmounts (e.g. navigating
+  // away mid-speech) so the voice doesn't keep talking on the next page.
+  useEffect(() => () => {
+    if (typeof window.speechSynthesis !== 'undefined') {
+      window.speechSynthesis.cancel();
+    }
+  }, []);
+
   const handleSpeak = (event) => {
     event.stopPropagation();
 

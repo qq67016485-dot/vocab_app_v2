@@ -1,6 +1,48 @@
-﻿# Changelog
+# Changelog
 
 All notable changes to Vocab App V2 are documented in this file.
+
+> **Archived 2026-07-20** — this file is kept as read-only history. New entries
+> go to [`changelog_after_July_20.md`](changelog_after_July_20.md).
+
+## [Unreleased] - 2026-07-19 (full-project code review + hardening pass)
+
+### Context
+- Full-project code review (report: `docs/code-review-2026-07-19.md`, ~90 findings) followed by a fix sweep across backend services/views/serializers/settings, frontend `src`, and tests. Verified: `pytest tests/` 623 passed ×2, `npm run lint` 0 errors (8 pre-existing warnings), `npm run build` OK.
+
+### Fixed — security
+- `REST_FRAMEWORK['NUM_PROXIES'] = 1` — the login throttle now keys on the nginx-provided client IP (last XFF hop); without it DRF keys on the full client-supplied XFF chain and the throttle is spoofable.
+- `apply-bonuses/` requires `session_id`, claims it atomically (`cache.add`), and caps bonus XP at 30/user/day (was an unbounded replayable faucet).
+- Answer-replay guard: a non-retry submit for a word whose `next_review_at` is beyond the serve cutoff is masked-404'd (closes same-day mastery farming).
+- `NextPracticeWordView` serve payload strips `explanation`/`example_sentence`/`correct_answer_is_term` (`for_serve` serializer context — the answer was readable pre-answer in the raw response); submit still returns them post-answer; type-to-spell derived client-side from `question_type`.
+- Student passwords validated with Django's `validate_password` on create/reset/bulk (was unvalidated); `request_generation` enforces ownership (403); group-create role check; teacher roster scoping.
+
+### Fixed — pipeline restart integrity
+- `restart_pipeline_from_step` resets `last_completed_step` to the step before `start_step` when clearing (a failed restart no longer leaves a stale value that resume reads as COMPLETED); its QUESTION_GEN clear preserves sentence-write questions, and the GN-script clear preserves selected novels + promoted cloze.
+- GN + infographic substep-restart engines purge the candidate's substep logs ≥ the start substep before re-running — stale append-only COMPLETED logs let unvalidated artifacts pass as authoritative.
+- `is_selected` guards: substep-restart views 409 on `is_selected=True` (engines raise ValueError as backstop).
+- Selection completeness-gated: `select/` 400s unless the candidate is complete (GN: story pages + review page + page_count match + staged cloze; infographic: poster image + staged cloze) — an empty staged cloze can no longer wipe the pack's active cloze.
+
+### Fixed — async job lifecycle
+- Busy check-and-set is atomic (`select_for_update`); the RUNNING/busy claim is set synchronously before the worker thread spawns; worker bodies mark the page FAILED on ANY exception (previously only provider errors were caught).
+- `image-status/` + `audio-status/` polls sweep RUNNING rows older than 30 min → FAILED (daemon threads die with the gunicorn worker on every redeploy).
+- Native Gemini + TTS clients get explicit HttpOptions timeouts (600 s text / 120 s TTS — the SDK default is no timeout); Anthropic `max_tokens` capped at 64000 (600000/128000 400'd against every current Claude model — the fallback path was dead).
+- TTS: shared module-level native `genai.Client`; retries only transient 429/5xx/timeout errors; `stitch_pcm` validates uniform rate/channels/16-bit across clips (a mismatch silently corrupted the whole page's audio); regeneration deletes old files before saving (no orphan accumulation); voice-director cache carries an events-payload sha1 (a script edit/regeneration re-directs instead of misaligning tags).
+
+### Fixed — practice/SRS correctness
+- Daily-limit count runs under the user-row lock; durations ≤ 1 s fall into the neutral 'solid' bucket (0s was classified fast_correct); sentence-write revision cap keyed by `question_id` in session (interleaving questions no longer resets it); typo flag restored on 429; pure-typo submits no longer maintain the streak; judge verdict normalization polish; atomic circuit-breaker counter.
+
+### Fixed — data/query
+- Level curriculum fallback + duplicate-row guard; roster dashboard window-function bound (was a full-history scan); consecutive-mistakes bound; word-set list count annotation + detail prefetch; bulk atomic assignment; `complete_pack` backfills progress rows.
+
+### Fixed — frontend
+- Wizard object-options crash; GN reader audio leak + swipe/vocab toggle; 401/403 interceptor; poll resilience (job status + editor + audio grace); roster refetch loop; assign-form load error; review cloze refresh; retry-submit error banner; finish-error vs summary; misc state fixes.
+
+### Changed — tests
+- `tmp_path` isolation for the GN/infographic artifact dirs, `MEDIA_ROOT`, and `LLM_LOG_DIR` via autouse `tests/conftest.py` fixtures (a test run destroyed the real job_1 artifacts); factory defaults (`GraphicNovelFactory.is_selected=False`, qwen3 string); stale-test rewrites; ~20 new regression tests (lexile-NULL, login throttle 429, assign guards, bonus caps, replay guard, selection gates, serve strip, back-to-back sentence-write, weak password, request_generation 403, selected-restart 409).
+
+### Files
+- See `git diff --stat` — backend services/views/serializers/settings, frontend `src`, tests, docs.
 
 ## [Unreleased] - 2026-07-04 (student practice view visual polish)
 

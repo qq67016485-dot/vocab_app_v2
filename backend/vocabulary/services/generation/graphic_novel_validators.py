@@ -5,6 +5,7 @@ the structure or business rules are violated. Validators are pure functions
 and depend only on small helpers from `graphic_novel_helpers`.
 """
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -33,6 +34,7 @@ class SubstepContext:
     winning_premise: dict = field(default_factory=dict)
     selected_away_team: list = field(default_factory=list)
     router_result: dict = field(default_factory=dict)
+    team_options: list = field(default_factory=list)
 
     @classmethod
     def from_input_summary(cls, input_summary: dict, **kwargs) -> 'SubstepContext':
@@ -75,6 +77,20 @@ def _validate_graphic_novel_team_result(result, ctx=None):
         raise ValueError("Graphic novel team selector must return selected_away_team as a non-empty list.")
     if not isinstance(result.get('vault_framing'), bool):
         raise ValueError("Graphic novel team selector must return boolean vault_framing.")
+    offered = (ctx.team_options if ctx else []) or []
+    if offered:
+        # The selector must pick one of the offered options — a team outside
+        # the offered set has no pairing dynamics / hero summaries loaded.
+        offered_sets = [
+            {str(name).strip().lower() for name in option} for option in offered
+        ]
+        selected = {str(name).strip().lower() for name in selected_away_team}
+        if selected not in offered_sets:
+            raise ValueError(
+                f"Graphic novel team selector picked {sorted(selected)}, which is "
+                f"not one of the offered team options: "
+                f"{[sorted(option) for option in offered_sets]}."
+            )
 
 
 def _validate_vocab_integration_plan(premise):
@@ -201,11 +217,12 @@ def _validate_graphic_novel_router_result(result, ctx=None):
                 raise ValueError(f"Graphic novel router premise {premise_id} is missing {field}.")
         if not (premise.get('central_thread') or premise.get('central_problem')):
             raise ValueError(f"Graphic novel router premise {premise_id} is missing central_thread.")
-        page_count = premise.get('page_count')
-        if page_count not in GRAPHIC_NOVEL_ALLOWED_PAGE_COUNTS:
+        # page_count must be present, but its value is not enforced: the
+        # pipeline forces the deterministic count from the pack's word count,
+        # so a non-compliant value must not burn the substep's attempts.
+        if premise.get('page_count') is None:
             raise ValueError(
-                f"Graphic novel router premise {premise_id} must include page_count in "
-                f"{list(GRAPHIC_NOVEL_ALLOWED_PAGE_COUNTS)}; got {page_count!r}."
+                f"Graphic novel router premise {premise_id} is missing page_count."
             )
         rationale = premise.get('page_count_rationale')
         if not isinstance(rationale, str) or not rationale.strip():
@@ -429,6 +446,16 @@ def _validate_graphic_novel_script_result(result, ctx=None):
             f"Graphic novel final script must contain exactly {expected_page_count} story pages; "
             f"got {len(pages)}."
         )
+    # Pages must be numbered 1..N with no duplicates or gaps (missing
+    # page_number defaults to the page's position, as persistence does).
+    page_numbers = [
+        page_data.get('page_number', idx) for idx, page_data in enumerate(pages, 1)
+    ]
+    if page_numbers != list(range(1, expected_page_count + 1)):
+        raise ValueError(
+            f"Graphic novel final script pages must be numbered 1 through "
+            f"{expected_page_count} with no duplicates or gaps; got {page_numbers}."
+        )
     for idx, page_data in enumerate(pages, 1):
         panels = page_data.get('panels', [])
         if not panels:
@@ -446,7 +473,12 @@ def _validate_graphic_novel_script_result(result, ctx=None):
         for page_data in pages:
             used_terms.update(word.lower() for word in _page_vocab_words(page_data))
             page_text = _text_terms_from_graphic_novel_page(page_data)
-            used_terms.update(term for term in target_terms if term in page_text)
+            # Word-boundary match: a substring test would count "art" inside
+            # "start" as covering the target word.
+            used_terms.update(
+                term for term in target_terms
+                if re.search(rf'\b{re.escape(term)}\b', page_text)
+            )
         missing_terms = target_terms - used_terms
         if missing_terms:
             raise ValueError(

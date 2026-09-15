@@ -4,7 +4,7 @@ from unittest.mock import patch, MagicMock
 
 from vocabulary.models import (
     Question, WordPackItem,
-    GraphicNovel, Infographic,
+    ClozeItem, GraphicNovel, Infographic,
     GenerationJob, GenerationJobLog,
 )
 from vocabulary.services.generation_pipeline_service import (
@@ -328,6 +328,134 @@ class TestRestartPipelineFromStep:
         job.refresh_from_db()
         assert job.status == GenerationJob.Status.COMPLETED
         assert job.last_completed_step == GenerationJobLog.Step.INFOGRAPHIC_IMAGE
+
+    @patch('vocabulary.services.generation.orchestrator._run_step')
+    def test_failed_restart_rolls_back_last_completed_step(self, mock_run_step):
+        """If the first restarted step fails, resume must not compute the
+        remaining steps from the stale pre-restart last_completed_step (often
+        INFOGRAPHIC_IMAGE) and mark the gutted job COMPLETED."""
+        admin = AdminUserFactory()
+        word_set = WordSetFactory(creator=admin)
+        word = WordFactory(text='bright')
+        WordDefinitionFactory(word=word)
+        word_set.words.add(word)
+        job = GenerationJobFactory(
+            word_set=word_set,
+            created_by=admin,
+            input_words=['bright'],
+            status=GenerationJob.Status.COMPLETED,
+            last_completed_step=GenerationJobLog.Step.INFOGRAPHIC_IMAGE,
+        )
+        mock_run_step.side_effect = RuntimeError('step failed')
+
+        with patch('vocabulary.services.generation.helpers.close_old_connections'):
+            restart_pipeline_from_step(
+                job.id,
+                GenerationJobLog.Step.QUESTION_GEN,
+                include_subsequent=False,
+            )
+
+        job.refresh_from_db()
+        assert job.status == GenerationJob.Status.FAILED
+        # Rolled back to the step before QUESTION_GEN in PIPELINE_STEP_ORDER.
+        assert job.last_completed_step == GenerationJobLog.Step.TRANSLATION
+
+    @patch('vocabulary.services.generation.orchestrator._run_step')
+    def test_question_gen_restart_preserves_sentence_write_questions(self, mock_run_step):
+        """A solo QUESTION_GEN rerun must not wipe sentence-write questions —
+        they belong to SENTENCE_WRITE_GEN and would be gone for good."""
+        admin = AdminUserFactory()
+        word_set = WordSetFactory(creator=admin)
+        word = WordFactory(text='bright')
+        WordDefinitionFactory(word=word)
+        word_set.words.add(word)
+        job = GenerationJobFactory(
+            word_set=word_set,
+            created_by=admin,
+            input_words=['bright'],
+            status=GenerationJob.Status.COMPLETED,
+        )
+        QuestionFactory(
+            word=word, generation_job=job,
+            question_type=Question.QuestionType.DEFINITION_MC_SINGLE,
+        )
+        QuestionFactory(
+            word=word, generation_job=job,
+            question_type=Question.QuestionType.SENTENCE_WRITE_GUIDED,
+        )
+        QuestionFactory(
+            word=word, generation_job=job,
+            question_type=Question.QuestionType.SENTENCE_WRITE_OPEN,
+        )
+        mock_run_step.return_value = ([word], [{'term': 'bright'}], [])
+
+        with patch('vocabulary.services.generation.helpers.close_old_connections'):
+            restart_pipeline_from_step(
+                job.id,
+                GenerationJobLog.Step.QUESTION_GEN,
+                include_subsequent=False,
+            )
+
+        assert not Question.objects.filter(
+            generation_job=job,
+            question_type=Question.QuestionType.DEFINITION_MC_SINGLE,
+        ).exists()
+        assert Question.objects.filter(
+            generation_job=job,
+            question_type=Question.QuestionType.SENTENCE_WRITE_GUIDED,
+        ).exists()
+        assert Question.objects.filter(
+            generation_job=job,
+            question_type=Question.QuestionType.SENTENCE_WRITE_OPEN,
+        ).exists()
+
+    @patch('vocabulary.services.generation.orchestrator._run_step')
+    def test_graphic_novel_clear_preserves_selected_and_promoted_cloze(self, mock_run_step):
+        """The GN-script clear must not delete a published candidate nor the
+        pack's promoted cloze — only unselected candidates (and their staged
+        cloze, via cascade)."""
+        admin = AdminUserFactory()
+        word_set = WordSetFactory(creator=admin)
+        word = WordFactory(text='bright')
+        WordDefinitionFactory(word=word)
+        word_set.words.add(word)
+        pack = WordPackFactory(word_set=word_set)
+        WordPackItem.objects.create(pack=pack, word=word, order=0)
+        selected = GraphicNovel.objects.create(
+            pack=pack, candidate_index=0, is_selected=True,
+            title='Published', synopsis='s', style_prompt='x', reading_level=600,
+        )
+        unselected = GraphicNovel.objects.create(
+            pack=pack, candidate_index=1, is_selected=False,
+            title='Draft', synopsis='s', style_prompt='x', reading_level=600,
+        )
+        promoted = ClozeItem.objects.create(
+            pack=pack, word=word, sentence_text='Promoted _______.',
+            correct_answer='bright', distractors=['a', 'b'], order=0,
+        )
+        staged = ClozeItem.objects.create(
+            pack=pack, novel=unselected, word=word, sentence_text='Staged _______.',
+            correct_answer='bright', distractors=['a', 'b'], order=1,
+        )
+        job = GenerationJobFactory(
+            word_set=word_set,
+            created_by=admin,
+            input_words=['bright'],
+            status=GenerationJob.Status.COMPLETED,
+        )
+        mock_run_step.return_value = ([word], [{'term': 'bright'}], [pack])
+
+        with patch('vocabulary.services.generation.helpers.close_old_connections'):
+            restart_pipeline_from_step(
+                job.id,
+                GenerationJobLog.Step.GRAPHIC_NOVEL_SCRIPT,
+                include_subsequent=False,
+            )
+
+        assert GraphicNovel.objects.filter(id=selected.id).exists()
+        assert not GraphicNovel.objects.filter(id=unselected.id).exists()
+        assert ClozeItem.objects.filter(id=promoted.id).exists()
+        assert not ClozeItem.objects.filter(id=staged.id).exists()
 
 
 @pytest.mark.django_db

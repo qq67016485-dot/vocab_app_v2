@@ -20,11 +20,12 @@ from django.utils import timezone
 from users.models import CustomUser
 from vocabulary.models import (
     UserWordProgress, MasteryLevel, UserAnswer, Question,
-    MasteryLevelLog,
+    MasteryLevelLog, TypoAttempt, SchedulingDecision,
 )
 from vocabulary.constants import QUESTION_TYPE_TO_SKILL_TAG
 from vocabulary.utils import (
     get_tier_info, get_definition_translation, start_of_local_day,
+    end_of_local_day,
 )
 
 logger = logging.getLogger(__name__)
@@ -259,6 +260,17 @@ class PracticeService:
         except (TypeError, ValueError):
             duration_value = None
 
+        # Durations at or below the baseline sampler's minimum carry no timing
+        # signal (the view defaults an omitted duration to 0, and the sampler
+        # excludes them via MIN_VALID_DURATION_SECONDS). Treat them as missing
+        # so a 0 can't satisfy "fast"; missing durations fall through to the
+        # neutral solid bucket below.
+        if (
+            duration_value is not None
+            and duration_value <= cls.MIN_VALID_DURATION_SECONDS
+        ):
+            duration_value = None
+
         if (
             duration_value is not None
             and baseline['fast_threshold'] is not None
@@ -341,6 +353,22 @@ class PracticeService:
                 raise ValueError("Question or mastery record not found.")
 
             if not is_retry:
+                # Replay guard: the serve view only offers words due by end of
+                # local day, so a non-retry submit for a word already pushed
+                # past that cutoff (e.g. answered earlier today) is a replayed
+                # question_id re-scoring its way through mastery levels. Mask
+                # it exactly like the READY gate above. Retries are exempt:
+                # they legitimately follow the scored submit that set the new
+                # next_review_at.
+                if mastery_record.next_review_at > end_of_local_day():
+                    raise ValueError("Question or mastery record not found.")
+
+                # Lock the user row BEFORE counting today's answers, or two
+                # concurrent submits both read a count under the cap and both
+                # score. Reuse the locked instance for all subsequent user
+                # mutations (streak + XP read-modify-write).
+                user = CustomUser.objects.select_for_update().get(pk=user.pk)
+
                 # Enforce the daily limit here (not just on the serve side) so a
                 # replayed question_id can't farm XP/mastery past the cap.
                 answers_today = UserAnswer.objects.filter(
@@ -348,12 +376,6 @@ class PracticeService:
                 ).count()
                 if answers_today >= user.daily_question_limit:
                     raise DailyLimitReached()
-
-                # Lock the user row before the streak + XP read-modify-write, for
-                # the same reason as the mastery lock above. Reuse the locked
-                # instance for all subsequent user mutations.
-                user = CustomUser.objects.select_for_update().get(pk=user.pk)
-                cls.update_practice_streak(user)
 
             level_before = mastery_record.level
 
@@ -372,7 +394,11 @@ class PracticeService:
                 )
 
                 # Typo detection: only for type-to-spell questions (answer == target word)
-                # If near-miss, return early without recording the attempt
+                # If near-miss, return early without scoring. The raw attempt is
+                # logged to TypoAttempt (NOT UserAnswer — an is_correct=False row
+                # there would pollute daily-limit counts, session dedup,
+                # dashboards, and timing baselines). This exits the atomic block
+                # normally, so the log row commits with the early return.
                 if not is_correct and normalized_user_answer:
                     term_normalized = cls.normalize_answer(question.word.text)
                     is_type_to_spell = any(
@@ -385,11 +411,21 @@ class PracticeService:
                         )
                         ratio = distance / len(term_normalized)
                         if ratio <= 0.25:
+                            TypoAttempt.objects.create(
+                                user=user,
+                                question=question,
+                                attempted_text=user_answer,
+                            )
                             return {
                                 'is_typo': True,
                                 'is_correct': False,
                                 'message': 'Almost! Check your spelling and try again.',
                             }
+
+            # Only a real scored answer maintains the practice streak — a
+            # pure-typo interaction returned early above without one.
+            if not is_retry:
+                cls.update_practice_streak(user)
 
             current_mastery_level_before_update = mastery_record.level
             old_learning_speed = mastery_record.learning_speed
@@ -490,6 +526,30 @@ class PracticeService:
                 )
                 mastery_record.last_reviewed_at = timezone.now()
                 mastery_record.save()
+
+                # Append-only scheduling log: the progress row is mutated in
+                # place, so this is the only record of the before/after state
+                # for offline decay-model analysis. The due-backlog count
+                # mirrors NextPracticeWordView's due filter (due by end of
+                # local day, READY only) and runs after the save, so the
+                # just-answered word no longer counts itself.
+                SchedulingDecision.objects.create(
+                    user=user,
+                    word=question.word,
+                    question=question,
+                    mastery_level_before=level_before.level_id,
+                    mastery_level_after=mastery_record.level.level_id,
+                    learning_speed_before=old_learning_speed,
+                    learning_speed_after=mastery_record.learning_speed,
+                    response_quality_rule=response_quality['schedule_reason'],
+                    intended_interval_days=review_interval_days,
+                    next_review_at=mastery_record.next_review_at,
+                    due_backlog_size=UserWordProgress.objects.filter(
+                        user=user,
+                        next_review_at__lte=end_of_local_day(),
+                        instructional_status='READY',
+                    ).count(),
+                )
                 schedule_info = {
                     'response_quality': response_quality['schedule_reason'],
                     'is_fragile': response_quality['is_fragile'],

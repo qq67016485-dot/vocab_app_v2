@@ -5,6 +5,8 @@ in PracticeService, the submit-view revision loop, the selection guard, and the
 student serializer's anchor/model-sentence hiding.
 See docs/feature_plan/design-sentence-writing-questions.md.
 """
+import json
+
 import pytest
 from unittest.mock import patch
 
@@ -194,6 +196,64 @@ class TestSentenceWriteGeneration:
         mock_llm.side_effect = AssertionError("should not call LLM on full resume")
         _step_generate_sentence_write(job, [word], words_data)
         assert set(Question.objects.filter(word=word).values_list('id', flat=True)) == first_ids
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_open_call_receives_guided_scenario(self, mock_load, mock_llm):
+        """The open variant's input JSON carries the word's guided scenario so
+        the LLM can design a non-duplicate open task."""
+        _seed_mastery_levels()
+        mock_load.return_value = 'template'
+        mock_llm.side_effect = [
+            _guided_response('meticulous'), _open_response('meticulous'),
+        ]
+        word = WordFactory(text='meticulous')
+        WordDefinitionFactory(word=word)
+        job = GenerationJobFactory(input_words=['meticulous'], target_lexile=800)
+
+        _step_generate_sentence_write(
+            job, [word], [{'term': 'meticulous', 'definition': 'careful'}],
+        )
+
+        # Calls run guided-then-open; the user prompt (3rd positional arg) is
+        # the input JSON.
+        guided_words = json.loads(mock_llm.call_args_list[0][0][2])['words']
+        open_words = json.loads(mock_llm.call_args_list[1][0][2])['words']
+        assert 'guided_scenario' not in guided_words[0]
+        assert open_words[0]['guided_scenario'] == (
+            'Write about cleaning, using "meticulous".'
+        )
+
+    @patch('vocabulary.services.llm_service.call_gemini')
+    @patch('vocabulary.services.llm_service.load_prompt_template')
+    def test_open_call_uses_existing_guided_row_on_resume(
+        self, mock_load, mock_llm,
+    ):
+        """Guided done in a prior run (no new guided call): the open input
+        still carries the existing guided scenario."""
+        _seed_mastery_levels()
+        mock_load.return_value = 'template'
+        word = WordFactory(text='meticulous')
+        WordDefinitionFactory(word=word)
+        job = GenerationJobFactory(input_words=['meticulous'], target_lexile=800)
+        Question.objects.create(
+            word=word, question_type=GUIDED,
+            question_text='Guided scenario from an earlier run.',
+            options={}, correct_answers=[], lexile_score=620,
+            generation_job=job,
+        )
+        # Only the open variant remains → exactly one LLM call.
+        mock_llm.side_effect = [_open_response('meticulous')]
+
+        _step_generate_sentence_write(
+            job, [word], [{'term': 'meticulous', 'definition': 'careful'}],
+        )
+
+        assert mock_llm.call_count == 1
+        open_words = json.loads(mock_llm.call_args_list[0][0][2])['words']
+        assert open_words[0]['guided_scenario'] == (
+            'Guided scenario from an earlier run.'
+        )
 
 
 @pytest.mark.django_db

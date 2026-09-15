@@ -10,10 +10,13 @@ Changes from v1:
 """
 from datetime import date, timedelta
 
+from django.contrib.auth import password_validation
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework import viewsets, status, serializers
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -155,13 +158,19 @@ class WordSetViewSet(viewsets.ModelViewSet):
             qs = WordSet.objects.filter(
                 Q(creator=user) | Q(is_public=True),
             ).distinct()
-        return qs.annotate(
+        qs = qs.annotate(
             is_bookmarked=models.Exists(
                 WordSetBookmark.objects.filter(
                     user=user, word_set=models.OuterRef('pk'),
                 )
             ),
-        ).order_by('-created_at')
+            # Feeds WordSetSerializer.word_count without a per-row count query.
+            word_count=models.Count('words', distinct=True),
+        )
+        if self.action == 'retrieve':
+            # The detail serializer renders nested words + definitions.
+            qs = qs.prefetch_related('words__definitions')
+        return qs.order_by('-created_at')
 
     def perform_create(self, serializer):
         instance = serializer.save(creator=self.request.user)
@@ -171,7 +180,7 @@ class WordSetViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         if not _can_edit_word_set(self.request.user, serializer.instance):
-            raise serializers.ValidationError(
+            raise PermissionDenied(
                 "You do not have permission to edit this Word Set.",
             )
         if _is_word_set_locked(serializer.instance):
@@ -185,7 +194,7 @@ class WordSetViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         if not _can_delete_word_set(self.request.user, instance):
-            raise serializers.ValidationError(
+            raise PermissionDenied(
                 "You do not have permission to delete this Word Set.",
             )
         if (
@@ -231,8 +240,10 @@ class WordSetViewSet(viewsets.ModelViewSet):
                 content_type=content_type,
             )
             if count == 0 and not students.exists():
+                # No supplied student/group id resolved to one of this
+                # teacher's students — the word set may well have words.
                 return Response({
-                    'message': 'This Word Set is empty. No words were assigned.',
+                    'message': 'No valid students selected. No words were assigned.',
                 })
             student_names = ", ".join(s.username for s in students)
             return Response({
@@ -247,6 +258,10 @@ class WordSetViewSet(viewsets.ModelViewSet):
         assigned = StudentWordSetAssignment.objects.filter(
             word_set=word_set,
         ).select_related('user')
+        # A public set can be assigned by other teachers to their students;
+        # teachers only see their own students' assignment rows. Admins see all.
+        if request.user.role != CustomUser.Role.ADMIN:
+            assigned = assigned.filter(user__in=request.user.students.all())
         student_ids = list(assigned.values_list('user_id', flat=True))
         group_ids = list(
             StudentGroup.objects.filter(
@@ -285,6 +300,11 @@ class WordSetViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='request-generation')
     def request_generation(self, request, pk=None):
         word_set = self.get_object()
+        if not _can_edit_word_set(request.user, word_set):
+            return Response(
+                {'error': 'You do not have permission to edit this Word Set.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         allowed = {
             WordSet.GenerationStatus.DRAFT,
             WordSet.GenerationStatus.TO_GENERATE,
@@ -387,11 +407,23 @@ class WordSetViewSet(viewsets.ModelViewSet):
             return _locked_response()
 
         # POST: create a new pack
-        label = request.data.get('label', '').strip()
+        label = request.data.get('label', '')
+        if not isinstance(label, str):
+            return Response(
+                {'error': 'Pack label must be a string.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        label = label.strip()
         word_ids = request.data.get('word_ids', [])
         if not label:
             return Response(
                 {'error': 'Pack label is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        max_label_length = WordPack._meta.get_field('label').max_length
+        if len(label) > max_label_length:
+            return Response(
+                {'error': f'Pack label must be {max_label_length} characters or fewer.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         max_order = word_set.packs.count()
@@ -435,9 +467,39 @@ class WordSetViewSet(viewsets.ModelViewSet):
             return Response(status=status.HTTP_204_NO_CONTENT)
 
         if 'label' in request.data:
-            pack.label = request.data['label']
+            label = request.data['label']
+            if not isinstance(label, str):
+                return Response(
+                    {'error': 'Pack label must be a string.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            label = label.strip()
+            if not label:
+                return Response(
+                    {'error': 'Pack label is required.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            max_label_length = WordPack._meta.get_field('label').max_length
+            if len(label) > max_label_length:
+                return Response(
+                    {'error': f'Pack label must be {max_label_length} characters or fewer.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            pack.label = label
         if 'order' in request.data:
-            pack.order = request.data['order']
+            order = request.data['order']
+            # bool is an int subclass; reject it explicitly.
+            if isinstance(order, bool) or not isinstance(order, int):
+                return Response(
+                    {'error': 'Pack order must be an integer.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not -(2 ** 31) <= order < 2 ** 31:
+                return Response(
+                    {'error': 'Pack order is out of range.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            pack.order = order
         pack.save()
 
         if 'word_ids' in request.data:
@@ -485,9 +547,18 @@ class BulkCreateStudentsView(APIView):
                 {'error': 'Request body must be a list of student objects.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # The bulk-create UI documents a limit of 10 students per batch.
+        if len(students_data) > 10:
+            return Response(
+                {'error': 'Cannot create more than 10 students at once.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         report = {'success_count': 0, 'errors': []}
-        all_usernames = [s.get('username', '').strip() for s in students_data]
+        all_usernames = [
+            s.get('username', '').strip() if isinstance(s, dict) else ''
+            for s in students_data
+        ]
 
         if len(all_usernames) != len(set(all_usernames)):
             return Response(
@@ -506,6 +577,9 @@ class BulkCreateStudentsView(APIView):
 
         teacher = request.user
         for i, student_data in enumerate(students_data, 1):
+            if not isinstance(student_data, dict):
+                report['errors'].append(f"Row {i}: Entry must be an object.")
+                continue
             username = student_data.get('username', '').strip()
             password = student_data.get('password', '').strip()
             first_name = student_data.get('first_name', '').strip()
@@ -514,6 +588,12 @@ class BulkCreateStudentsView(APIView):
 
             if not username or not password:
                 report['errors'].append(f"Row {i}: Missing username or password.")
+                continue
+
+            try:
+                password_validation.validate_password(password)
+            except DjangoValidationError as exc:
+                report['errors'].append(f"Row {i}: {'; '.join(exc.messages)}")
                 continue
 
             student = CustomUser.objects.create_user(

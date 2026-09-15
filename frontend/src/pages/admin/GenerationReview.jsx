@@ -6,6 +6,17 @@ import GenerationJobStatus from '../../components/generation/GenerationJobStatus
 import GraphicNovelPageEditor from '../../components/generation/GraphicNovelPageEditor.jsx';
 
 const AUDIO_POLL_INTERVAL = 5000;
+// After triggering generation, the voice-director step runs before any page
+// flips to RUNNING — don't treat an all-idle status inside this window as done.
+const AUDIO_POLL_GRACE_MS = 30000;
+
+// Item-quality flag chips in the questions tab (compute_item_stats output);
+// any other flag string falls back to the neutral draft badge.
+const QUESTION_FLAG_BADGE = {
+  too_easy: 't-badge--generating',
+  too_hard: 't-badge--failed',
+  low_discrimination: 't-badge--requested',
+};
 
 export default function GenerationReview() {
   const { jobId } = useParams();
@@ -74,6 +85,20 @@ export default function GenerationReview() {
   }, [seedAudioFromContent]);
   const handleJobFail = useCallback((jobData) => { setJob(jobData); }, []);
 
+  // Flag-to-hide toggle (admin): flips is_serve_excluded so the question is
+  // never served in practice. Metadata only — content stays immutable.
+  const toggleQuestionFlag = useCallback(async (q) => {
+    try {
+      const res = await apiClient.post(`/questions/${q.id}/flag/`, { flagged: !q.is_serve_excluded });
+      setContent(prev => prev && ({
+        ...prev,
+        questions: prev.questions.map(item => (
+          item.id === q.id ? { ...item, is_serve_excluded: res.data.is_serve_excluded } : item
+        )),
+      }));
+    } catch { setError('Failed to update the question flag.'); }
+  }, []);
+
   const handlePageUpdated = useCallback((packId, updatedPage) => {
     setContent(prev => {
       if (!prev) return prev;
@@ -85,7 +110,9 @@ export default function GenerationReview() {
             ...pack,
             graphic_novels: pack.graphic_novels.map(novel => ({
               ...novel,
-              pages: novel.pages.map(p => p.id === updatedPage.id ? updatedPage : p),
+              // Merge onto the latest page object — the editor's async polls
+              // can resolve after other updates landed on the same page.
+              pages: novel.pages.map(p => (p.id === updatedPage.id ? { ...p, ...updatedPage } : p)),
             })),
           };
         }),
@@ -96,50 +123,26 @@ export default function GenerationReview() {
   const handleSelectCandidate = useCallback(async (packId, novelId) => {
     try {
       await apiClient.post(`/graphic-novels/${novelId}/select/`);
-      setContent(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          packs: prev.packs.map(pack => {
-            if (pack.id !== packId || !pack.graphic_novels) return pack;
-            return {
-              ...pack,
-              graphic_novels: pack.graphic_novels.map(novel => ({
-                ...novel,
-                is_selected: novel.id === novelId,
-              })),
-            };
-          }),
-        };
-      });
+      // Refetch so the pack-level promoted cloze reflects the new selection,
+      // not just the per-candidate is_selected flags.
+      const res = await apiClient.get(`/generation-jobs/${jobId}/content/`);
+      setContent(res.data);
+      seedAudioFromContent(res.data);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to select candidate.');
     }
-  }, []);
+  }, [jobId, seedAudioFromContent]);
 
   const handleSelectInfographic = useCallback(async (packId, infographicId) => {
     try {
       await apiClient.post(`/infographics/${infographicId}/select/`);
-      setContent(prev => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          packs: prev.packs.map(pack => {
-            if (pack.id !== packId || !pack.infographics) return pack;
-            return {
-              ...pack,
-              infographics: pack.infographics.map(ig => ({
-                ...ig,
-                is_selected: ig.id === infographicId,
-              })),
-            };
-          }),
-        };
-      });
+      const res = await apiClient.get(`/generation-jobs/${jobId}/content/`);
+      setContent(res.data);
+      seedAudioFromContent(res.data);
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to select infographic.');
     }
-  }, []);
+  }, [jobId, seedAudioFromContent]);
 
   const stopAudioPoll = (novelId) => {
     if (audioPolls.current[novelId]) {
@@ -150,16 +153,24 @@ export default function GenerationReview() {
 
   const startAudioPoll = useCallback((novelId) => {
     stopAudioPoll(novelId);
+    const startedAt = Date.now();
+    let seenRunning = false;
     audioPolls.current[novelId] = setInterval(async () => {
       try {
         const res = await apiClient.get(`/graphic-novels/${novelId}/audio-status/`);
         const pages = res.data.pages || [];
         const anyRunning = pages.some(p => p.status === 'RUNNING');
+        seenRunning = seenRunning || anyRunning;
+        // Keep watching while work is running, or until the post-trigger grace
+        // window elapses without any activity (voice-director phase shows an
+        // all-idle status before the first page is marked RUNNING).
+        const stillWatching = anyRunning
+          || (!seenRunning && Date.now() - startedAt < AUDIO_POLL_GRACE_MS);
         setAudioState(prev => ({
           ...prev,
-          [novelId]: { ...prev[novelId], pages, busy: anyRunning },
+          [novelId]: { ...prev[novelId], pages, busy: stillWatching },
         }));
-        if (!anyRunning) stopAudioPoll(novelId);
+        if (!stillWatching) stopAudioPoll(novelId);
       } catch {
         stopAudioPoll(novelId);
         setAudioState(prev => ({
@@ -270,8 +281,22 @@ export default function GenerationReview() {
               <div key={word} className="t-card">
                 <h4 style={{ margin: '0 0 8px', color: 'var(--t-primary)' }}>{word}</h4>
                 {questions.map(q => (
-                  <div key={q.id} style={{ marginBottom: 10, paddingLeft: 12, borderLeft: '3px solid var(--t-border)' }}>
+                  <div key={q.id} style={{ marginBottom: 10, paddingLeft: 12, borderLeft: `3px solid ${q.is_serve_excluded ? 'var(--t-danger)' : 'var(--t-border)'}` }}>
                     <p className="t-hint" style={{ margin: '0 0 2px', fontSize: '0.78rem' }}>{q.question_type}</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', margin: '0 0 4px' }}>
+                      <span className="t-hint" style={{ fontSize: '0.75rem' }}>
+                        p: {q.difficulty_index != null ? q.difficulty_index.toFixed(2) : '—'} · d: {q.discrimination_index != null ? q.discrimination_index.toFixed(2) : '—'}
+                      </span>
+                      {(q.qa_flags || []).map(f => (
+                        <span key={f} className={`t-badge ${QUESTION_FLAG_BADGE[f] || 't-badge--draft'}`} style={{ fontSize: '0.65rem', padding: '1px 6px' }}>{f}</span>
+                      ))}
+                      {q.is_serve_excluded && <span className="t-badge t-badge--to-generate" style={{ fontSize: '0.65rem', padding: '1px 6px' }}>Excluded</span>}
+                      <button
+                        className="t-btn t-btn--secondary t-btn--sm"
+                        style={{ marginLeft: 'auto', padding: '1px 8px', fontSize: '0.72rem' }}
+                        onClick={() => toggleQuestionFlag(q)}
+                      >{q.is_serve_excluded ? 'Unflag' : 'Flag'}</button>
+                    </div>
                     <p style={{ margin: '0 0 4px' }}>{q.question_text}</p>
                     {Array.isArray(q.options) && q.options.length > 0 && <ul style={{ margin: '4px 0', paddingLeft: 20, fontSize: '0.9rem' }}>
                       {q.options.map((opt, i) => (<li key={i} style={{ color: q.correct_answers?.includes(opt) ? 'var(--t-success)' : 'inherit', fontWeight: q.correct_answers?.includes(opt) ? 600 : 400, background: 'none', border: 'none', padding: '2px 0' }}>{opt}</li>))}
@@ -566,7 +591,10 @@ function CandidateDetail({ packId, novel, audioState, onGenerate, onRegenAudio, 
         <span className="t-hint" style={{ fontSize: '0.8rem' }}>
           (Lexile: {novel.reading_level}, Pages: {novel.pages.length})
         </span>
-        <AudioControls novelId={novel.id} audioState={audioState} onGenerate={onGenerate} />
+        {/* The backend rejects generate-audio for non-selected novels (400). */}
+        {novel.is_selected && (
+          <AudioControls novelId={novel.id} audioState={audioState} onGenerate={onGenerate} />
+        )}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12, marginTop: 6 }}>
         {novel.pages.map(page => {

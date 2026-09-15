@@ -40,7 +40,7 @@ sudo systemctl status vocab --no-pager
 
 | If you changed…                | You must run…                                  |
 | ------------------------------ | ---------------------------------------------- |
-| Backend `.py` only             | restart `vocab`                                |
+| Backend `.py` only             | restart `vocab`; also restart `vocab-generation` **if the batch queue service is deployed** — it loads the same pipeline code (in-flight jobs self-heal via `--resume-stale`) |
 | Models / migrations            | `migrate` → restart                            |
 | Django static assets / admin   | `collectstatic --noinput` → restart            |
 | `requirements.txt`             | `pip install -r requirements.txt` → restart    |
@@ -109,3 +109,4 @@ sudo systemctl restart vocab
 - **`COOKIE_SECURE` must stay `False` while the site is HTTP-only.** A Secure cookie is only sent by the browser over HTTPS, so a `True` value over plain HTTP silently drops the session cookie and every authenticated request 403s (symptom: pages like the Command Center show "Failed to load dashboard"). It's an `.env` var (default `False`), decoupled from `DEBUG`. Flip to `True` in the server `.env` and restart only after Certbot/TLS is in place.
 - The box has **no ffmpeg** — audiobook encoding relies on `lameenc`; don't introduce ffmpeg/pydub deps.
 - Never delete `backend/media/` — generated images and audio are persistent there.
+- **Batch generation queue**: `vocab-generation.service` (if deployed) runs `manage.py run_generation_queue --concurrency 2 --resume-stale` as its own process for unattended bulk generation — unit definition + ops in `docs/PLAN_batch_generation_queue.md`. It claims any PENDING `GenerationJob` and counts web-triggered RUNNING jobs toward its concurrency, so don't start generation from the admin UI while a batch is running. Retry state lives in `backend/data/generation_queue_state.json` (delete it only when no FAILED jobs matter).

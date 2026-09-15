@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import (
     Tag, Word, WordDefinition, DefinitionEmbedding, Translation,
     MasteryLevel, UserWordProgress, MasteryLevelLog,
-    Question, PracticeSession, UserAnswer,
+    Question, PracticeSession, UserAnswer, TypoAttempt, SchedulingDecision,
     Curriculum, Level, WordSet, StudentWordSetAssignment,
     WordPack, WordPackItem, PrimerCardContent, MicroStory,
     GraphicNovel, GraphicNovelPage, ClozeItem, StudentPackCompletion,
@@ -93,6 +93,30 @@ class UserAnswerAdmin(admin.ModelAdmin):
     list_display = ('user', 'question', 'is_correct', 'duration_seconds', 'answered_at')
     list_filter = ('is_correct',)
 
+
+@admin.register(TypoAttempt)
+class TypoAttemptAdmin(admin.ModelAdmin):
+    # Append-only analytics log — read-only-ish on purpose.
+    list_display = ('user', 'question', 'attempted_text', 'answered_at')
+    readonly_fields = ('user', 'question', 'attempted_text', 'answered_at')
+
+
+@admin.register(SchedulingDecision)
+class SchedulingDecisionAdmin(admin.ModelAdmin):
+    # Append-only analytics log — read-only-ish on purpose.
+    list_display = (
+        'user', 'word', 'question', 'response_quality_rule',
+        'mastery_level_before', 'mastery_level_after',
+        'intended_interval_days', 'next_review_at', 'answered_at',
+    )
+    list_filter = ('response_quality_rule',)
+    readonly_fields = (
+        'user', 'word', 'question', 'answered_at',
+        'mastery_level_before', 'mastery_level_after',
+        'learning_speed_before', 'learning_speed_after',
+        'response_quality_rule', 'intended_interval_days', 'next_review_at',
+        'jitter_offset_days', 'jitter_probability', 'due_backlog_size',
+    )
 
 @admin.register(Curriculum)
 class CurriculumAdmin(admin.ModelAdmin):

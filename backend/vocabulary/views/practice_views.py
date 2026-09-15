@@ -81,9 +81,11 @@ class NextPracticeWordView(APIView):
 
         # EXISTS subquery instead of a join + DISTINCT: the join multiplies each
         # progress row by its ~30-60 questions and forces a dedup-sort; EXISTS
-        # probes the questions index per candidate row only.
+        # probes the questions index per candidate row only. Admin-flagged
+        # questions (is_serve_excluded) never count — a word whose questions
+        # are all excluded is not due-eligible (it would 404 at pick time).
         has_suitable_question = Question.objects.filter(
-            lexile_q, word=OuterRef('word_id'),
+            lexile_q, word=OuterRef('word_id'), is_serve_excluded=False,
         )
 
         due_records = UserWordProgress.objects.select_related(
@@ -129,7 +131,10 @@ class NextPracticeWordView(APIView):
         def _pick_question(base_qs):
             # select_related covers the serializer's word.text and
             # word.primer_content reads (avoids two lazy queries per response).
-            qs = base_qs.filter(lexile_q).select_related(
+            # is_serve_excluded applies to every pick path (level-specific and
+            # the any-question fallback): an admin-flagged question is never
+            # served.
+            qs = base_qs.filter(lexile_q, is_serve_excluded=False).select_related(
                 'word', 'word__primer_content',
             )
             if exclude_sentence_write:
@@ -166,7 +171,10 @@ class NextPracticeWordView(APIView):
                 elif random.randint(1, 3) == 1:
                     reason_category = "STANDARD_REVIEW"
 
-        serializer = QuestionSerializer(question)
+        # for_serve strips answer-revealing fields (explanation, example
+        # sentence, correct_answer_is_term) from the pre-answer payload; the
+        # submit response returns explanation/example_sentence post-answer.
+        serializer = QuestionSerializer(question, context={'for_serve': True})
         response_data = serializer.data
         response_data['reason_category'] = reason_category
         return Response(response_data)
@@ -175,11 +183,14 @@ class NextPracticeWordView(APIView):
 class SubmitAnswerView(APIView):
     permission_classes = [IsAuthenticated]
 
-    # Session key holding the server-side sentence-write attempt state:
-    # {'question_id': int, 'attempts': [{sentence, hint, verdict}, ...]}.
-    # Only one sentence-write loop is active at a time, so a single key that
-    # resets when the question changes is enough (and self-prunes).
+    # Session key holding the server-side sentence-write attempt state, keyed
+    # by question id: {str(question_id): {'attempts': [{sentence, hint,
+    # verdict}, ...]}, ...}. Keying per question means interleaving a different
+    # sentence-write question no longer resets the first one's revision count;
+    # the map is bounded to the most recent few questions so it can't grow
+    # without limit in the session.
     _SW_SESSION_KEY = 'sw_attempts'
+    _SW_STATE_KEEP = 10
 
     # Non-terminal sentence-write misses call the judge LLM but record no
     # UserAnswer, so they escape the daily-answer counter. This per-day cache
@@ -200,7 +211,8 @@ class SubmitAnswerView(APIView):
     # Client-reported timing/switch telemetry feeds the response-quality
     # classifier (fast/slow/switched → review interval). Clamp to sane bounds so
     # a crafted payload can't push the scheduler outside its intended range;
-    # out-of-range durations already fall through to the neutral 'solid' bucket.
+    # sub-threshold or missing durations (the default 0 included) are treated
+    # as no signal by the classifier and fall to the neutral 'solid' bucket.
     _MAX_DURATION_SECONDS = 3600
     _MAX_ANSWER_SWITCHES = 100
 
@@ -234,8 +246,10 @@ class SubmitAnswerView(APIView):
         # Sentence-writing questions are LLM-judged with a multi-turn revision
         # loop; they take a different submit path.
         try:
+            # A non-numeric question_id raises ValueError on id coercion —
+            # mask it exactly like an unknown id.
             question = Question.objects.select_related('word').get(id=question_id)
-        except Question.DoesNotExist:
+        except (Question.DoesNotExist, ValueError, TypeError):
             return Response({'error': 'Question not found.'}, status=status.HTTP_404_NOT_FOUND)
 
         if question.question_type in SENTENCE_WRITE_TYPES:
@@ -245,6 +259,13 @@ class SubmitAnswerView(APIView):
         had_typo_retry = False
         if not is_retry:
             had_typo_retry = bool(request.session.pop(typo_retry_key, False))
+            # A typo-retry flag is only meaningful for the question that raised
+            # it: drop flags left over from other questions so a stale one
+            # can't misclassify a later submit as a typo-retry.
+            stale_prefix = self._typo_retry_key(request.user.id, '')
+            for stale_key in [k for k in request.session.keys()
+                              if k.startswith(stale_prefix)]:
+                del request.session[stale_key]
 
         try:
             response_data = PracticeService.process_answer(
@@ -259,6 +280,12 @@ class SubmitAnswerView(APIView):
                 request.session.modified = True
             return Response(response_data)
         except DailyLimitReached:
+            if had_typo_retry:
+                # Don't drop the typo-retry flag on a blocked submit — the
+                # student may still legitimately fix the typo afterwards
+                # (same restore as the ValueError branch below).
+                request.session[typo_retry_key] = True
+                request.session.modified = True
             return Response({
                 'daily_limit_reached': True,
                 'message': f"You have reached your daily practice limit of {request.user.daily_question_limit} questions. Great work!",
@@ -321,10 +348,13 @@ class SubmitAnswerView(APIView):
                 'message': "Let's come back to this one — try a different question.",
             })
 
-        state = request.session.get(self._SW_SESSION_KEY) or {}
-        if state.get('question_id') != question.id:
-            state = {'question_id': question.id, 'attempts': []}
-        prior_attempts = state.get('attempts') or []
+        state = dict(request.session.get(self._SW_SESSION_KEY) or {})
+        state_key = str(question.id)
+        # Pop this question's entry now and re-insert it on write, so the
+        # touched question becomes the most recent entry (the map is trimmed
+        # to _SW_STATE_KEEP below).
+        entry = state.pop(state_key, None) or {}
+        prior_attempts = entry.get('attempts') or []
 
         max_revisions = _MAX_REVISIONS.get(question.question_type, 2)
         revisions_used = len(prior_attempts)  # each prior attempt was one submit
@@ -332,7 +362,7 @@ class SubmitAnswerView(APIView):
 
         # Give-up path: terminal miss, no judge call needed.
         if gave_up:
-            self._clear_sw_state(request)
+            self._clear_sw_state(request, question.id)
             judgment = {
                 'is_correct': False,
                 'quality_rule': 'productive_missed',
@@ -363,8 +393,8 @@ class SubmitAnswerView(APIView):
             )
         except sentence_evaluation_service.SentenceJudgeUnavailable:
             # Discard, don't penalize — the student gets a different question.
-            # Attempt state is kept: it resumes if the judge recovers on this
-            # question, and resets automatically on any other question.
+            # This question's attempt state is kept (it resumes if the judge
+            # recovers); other questions' loops are unaffected.
             return Response({
                 'sentence_write_unavailable': True,
                 'message': "Let's come back to this one — try a different question.",
@@ -375,15 +405,19 @@ class SubmitAnswerView(APIView):
 
         if not is_terminal_correct and not no_revisions_left:
             # Non-terminal miss: coach a revision, do not score yet. Record the
-            # attempt server-side (new list, no in-place mutation).
-            request.session[self._SW_SESSION_KEY] = {
-                'question_id': question.id,
+            # attempt server-side under this question's key (new list, no
+            # in-place mutation). The touched key was popped above and
+            # re-inserts last, so trimming drops the least recent questions.
+            state[state_key] = {
                 'attempts': prior_attempts + [{
                     'sentence': str(user_answer or '')[:2000],
                     'hint': verdict['hint'],
                     'verdict': verdict['verdict'],
                 }],
             }
+            while len(state) > self._SW_STATE_KEEP:
+                state.pop(next(iter(state)))
+            request.session[self._SW_SESSION_KEY] = state
             request.session.modified = True
             return Response({
                 'sentence_write_pending': True,
@@ -396,7 +430,7 @@ class SubmitAnswerView(APIView):
             })
 
         # Terminal outcome — decide the quality rule from server-held attempts.
-        self._clear_sw_state(request)
+        self._clear_sw_state(request, question.id)
         if is_terminal_correct:
             # Fragile only if a genuine (incorrect) miss preceded this fix; an
             # attempt-1 "almost" that gets fixed stays solid.
@@ -425,10 +459,19 @@ class SubmitAnswerView(APIView):
             verdict=verdict,
         )
 
-    def _clear_sw_state(self, request):
-        if self._SW_SESSION_KEY in request.session:
+    def _clear_sw_state(self, request, question_id):
+        """Drop one question's sentence-write attempt state (terminal/give-up)."""
+        state = request.session.get(self._SW_SESSION_KEY)
+        if not state:
+            return
+        state = dict(state)
+        if state.pop(str(question_id), None) is None:
+            return
+        if state:
+            request.session[self._SW_SESSION_KEY] = state
+        else:
             del request.session[self._SW_SESSION_KEY]
-            request.session.modified = True
+        request.session.modified = True
 
     def _score_sentence_write(self, request, question, user_answer, judgment,
                               model_sentence=None, verdict=None):
@@ -442,7 +485,7 @@ class SubmitAnswerView(APIView):
         except DailyLimitReached:
             # Raced past the cap between the top-of-handler check and here; the
             # judge already ran, so drop this attempt without scoring or penalty.
-            self._clear_sw_state(request)
+            self._clear_sw_state(request, question.id)
             return Response({
                 'sentence_write_unavailable': True,
                 'message': "You've reached today's practice limit — great work!",
@@ -475,8 +518,9 @@ class SessionSummaryView(APIView):
             )
 
         try:
+            # fromisoformat raises TypeError (not ValueError) on a non-string.
             start_time = datetime.fromisoformat(start_time_str)
-        except ValueError:
+        except (ValueError, TypeError):
             return Response(
                 {"error": "Invalid start_time format."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -546,6 +590,12 @@ class ApplySessionBonusesView(APIView):
     # Bounded to the most recent few so it can't grow unbounded in the session.
     _APPLIED_KEY = 'session_bonus_applied'
     _APPLIED_KEEP = 20
+    # Once-per-session claim and the daily bonus-XP counter live in the cache,
+    # keyed like the judge-call counter; TTLs outlive one local day, then
+    # self-prune. The cap is two normal sessions' worth of focus-streak bonus.
+    _CLAIM_TTL = 25 * 3600
+    _DAILY_BONUS_XP_CAP = 30
+    _BONUS_XP_TTL = 25 * 3600
 
     def post(self, request, *args, **kwargs):
         max_focus_streak = request.data.get('max_focus_streak', 0)
@@ -562,29 +612,52 @@ class ApplySessionBonusesView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Idempotency: the streak bonus is a once-per-session award. Without this
-        # a client could replay the call to stack +10 XP repeatedly. session_id
-        # is the client's session start timestamp (unique per practice session).
-        session_id = str(request.data.get('session_id') or '')
+        # session_id (the client's session start timestamp, unique per practice
+        # session) is REQUIRED: without it the once-per-session idempotency
+        # below has nothing to bind to, and the endpoint is an open XP faucet.
+        session_id = str(request.data.get('session_id') or '').strip()
+        if not session_id:
+            return Response(
+                {"error": "session_id is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Idempotency: the streak bonus is a once-per-session award. Without
+        # this a client could replay the call to stack +10 XP repeatedly.
+        # cache.add claims the id atomically — it returns False when another
+        # request (or another device, which wouldn't share the session list)
+        # already claimed it. The session list stays as a back-compat fast path.
         applied = request.session.get(self._APPLIED_KEY, [])
-        if session_id and session_id in applied:
+        claim_key = f'apply_bonus:{request.user.id}:{session_id}'
+        if session_id in applied or not cache.add(claim_key, 1, self._CLAIM_TTL):
             return Response({
                 "success": "0 bonus XP applied successfully.",
                 "already_applied": True,
             })
 
-        focus_streak_bonus = min(max_focus_streak, 10)
+        # Daily cap: even minting fresh session_ids, total bonus XP per user
+        # per (local) day is bounded. Same add-seed-then-incr pattern as the
+        # judge-call counter; the read-then-incr window is approximate under
+        # LocMemCache (per-worker), which is accepted here.
+        bonus_xp_key = f'bonus_xp:{request.user.id}:{timezone.localdate().isoformat()}'
+        cache.add(bonus_xp_key, 0, self._BONUS_XP_TTL)
+        used_today = cache.get(bonus_xp_key, 0) or 0
+        remaining = max(0, self._DAILY_BONUS_XP_CAP - used_today)
+        focus_streak_bonus = min(max_focus_streak, 10, remaining)
         if focus_streak_bonus > 0:
             with transaction.atomic():
                 user = CustomUser.objects.select_for_update().get(pk=request.user.pk)
                 PracticeService.update_xp_and_level(user, focus_streak_bonus)
+            try:
+                cache.incr(bonus_xp_key, focus_streak_bonus)
+            except ValueError:
+                cache.set(bonus_xp_key, focus_streak_bonus, self._BONUS_XP_TTL)
 
-        if session_id:
-            # Keep only the most recent ids (newest last) to bound session size.
-            request.session[self._APPLIED_KEY] = (
-                applied + [session_id]
-            )[-self._APPLIED_KEEP:]
-            request.session.modified = True
+        # Keep only the most recent ids (newest last) to bound session size.
+        request.session[self._APPLIED_KEY] = (
+            applied + [session_id]
+        )[-self._APPLIED_KEEP:]
+        request.session.modified = True
 
         return Response({
             "success": f"{focus_streak_bonus} bonus XP applied successfully.",

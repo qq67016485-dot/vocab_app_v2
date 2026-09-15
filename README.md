@@ -1,16 +1,17 @@
 # Vocab App v2
 
-A K-8 vocabulary learning platform with AI-generated instructional content, adaptive spaced repetition, and role-based access for admins, teachers, and students.
+A grade 2–8 vocabulary learning platform with AI-generated instructional content, adaptive spaced repetition, and role-based access for admins, teachers, and students.
 
 ## Features
 
 **AI Content Generation Pipeline**
 - Automated word lookup, deduplication, and translation (10+ languages)
-- Question generation (15 per word across 30 question types), including **productive, LLM-judged sentence-writing** questions (student writes an original sentence; an AI tutor verdicts it and coaches a revision) at mastery levels 4–5
+- Question generation (15 per word across 19 question types), including **productive, LLM-judged sentence-writing** questions (student writes an original sentence; an AI tutor verdicts it and coaches a revision) at mastery levels 4–5
 - Thematic pack creation with primer cards
 - Graphic novel scripts (Gemini 6-call planning pipeline) and cinematic images (GPT-Image-2) — 3 candidate novels per pack, admin picks one to publish
 - Infographic content type — single-page explanatory poster (NotebookLM-style), an alternative to graphic novels; 3 candidates per pack, admin picks one. Per-job toggle for which formats to generate
 - Per-step resume on failure, stale job detection
+- Cross-wordset reuse — words shared across sets skip re-generating word-level content (questions, sentence-writing tasks, primers, translations) when a prior run covered them at a similar Lexile; batch preflight estimator included
 
 **Instructional Flow**
 - Primer cards with images and syllable breakdowns
@@ -33,12 +34,13 @@ A K-8 vocabulary learning platform with AI-generated instructional content, adap
 - Student groups and progress tracking
 
 **Admin Tools**
-- Full generation wizard (pipeline, questions-only, instructional-only)
+- Full generation wizard with per-job content-type selection (graphic novel and/or infographic)
 - Generation status polling with per-page image progress
 - Graphic novel candidate review: 3 candidates per pack, select one to publish (gates student visibility + cloze)
 - Infographic candidate review + select-to-publish (mirrors graphic novels); per-job choice of which content formats to generate
 - Per-page graphic novel image editing with original/edited variant selection
 - Resume failed pipelines
+- Unattended batch generation queue (`enqueue_generation` + `run_generation_queue` as a systemd service) for 24/7 bulk content runs, with outage-aware retry/backoff
 
 ## Tech Stack
 
@@ -118,7 +120,8 @@ pytest
 ## Project Documentation
 
 - [Architecture & API Reference](docs/PROJECT_CONTEXT.md)
-- [Changelog](docs/CHANGELOG.md)
+- [Batch Generation Queue](docs/PLAN_batch_generation_queue.md)
+- [Changelog](docs/changelog_after_July_20.md) (archive: [CHANGELOG.md](docs/CHANGELOG.md))
 - [Beta Improvements Checklist](BETA_IMPROVEMENTS.md)
 
 ## Production Deployment
@@ -131,6 +134,7 @@ The app is deployed on a bare Ubuntu 24.04 server (nginx + gunicorn + MySQL 8).
 | Server | Tencent Cloud, 2 vCPU / 3.6 GB RAM |
 | Web server | nginx 1.24 — serves React `dist/`, proxies `/api` + `/admin`, serves `/media` + `/static` |
 | App server | gunicorn 4 gthread workers (`--worker-class gthread --threads 8`), systemd unit `vocab.service`, socket at `/run/vocab/vocab.sock` |
+| Batch generation | Optional `vocab-generation.service` — queue runner for unattended bulk content generation (see `docs/PLAN_batch_generation_queue.md`) |
 | Database | MySQL 8, database `vocab_app` |
 
 **Redeploy after code change (on server):**

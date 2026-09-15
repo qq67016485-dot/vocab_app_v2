@@ -16,7 +16,7 @@ from vocabulary.services.audiobook.encode import wav_bytes_to_mp3_bytes
 from vocabulary.services.audiobook.events import build_page_events
 from vocabulary.services.audiobook.stitch import stitch_pcm
 from vocabulary.services.audiobook.tts_client import synthesize
-from vocabulary.services.audiobook.voice_director import direct_novel
+from vocabulary.services.audiobook.voice_director import direct_novel, _strip_slow_tags
 from vocabulary.services.audiobook.voices import voice_for
 from vocabulary.services.generation.helpers import _close_old_connections_if_safe
 
@@ -88,13 +88,15 @@ def generate_page_audio(page, direction=None):
             voice = voice_for(event['speaker'], page.novel)
             # Director's Audio Profile block becomes the style prefix; fall back
             # to empty string so synthesize() speaks the text without wrapping.
-            style_prefix = profiles.get(speaker_key, '')
+            # Profiles get the same slow-tag sanitizing as directed text — a
+            # stray slow cue in a cached profile must never reach TTS either.
+            style_prefix = _strip_slow_tags(profiles.get(speaker_key, ''))
             directed_text = directed_index.get(
                 (page.page_number, idx), event['text']
             )
             pcm, rate = synthesize(directed_text, voice, style_prefix)
-            sample_rate = rate  # all clips share the model's rate
-            clips_with_pauses.append((pcm, event['pause_after_ms']))
+            sample_rate = rate  # all clips share the model's rate (stitch validates)
+            clips_with_pauses.append((pcm, event['pause_after_ms'], rate))
             manifest_events.append({
                 'speaker': event['speaker'],
                 'speaker_type': event['speaker_type'],
@@ -109,6 +111,13 @@ def generate_page_audio(page, direction=None):
 
     wav_bytes, duration_ms = stitch_pcm(clips_with_pauses, sample_rate=sample_rate)
 
+    # Replace any previous audio in place: FileField.save() would otherwise
+    # write a NEW suffixed filename and orphan the old bytes on disk
+    # (unbounded growth on repeated regenerations).
+    if audio_row.audio:
+        audio_row.audio.delete(save=False)
+    if audio_row.audio_mp3:
+        audio_row.audio_mp3.delete(save=False)
     audio_row.audio.save(_audio_filename(page), ContentFile(wav_bytes), save=False)
     # Compressed MP3 companion for the student read-along (best-effort).
     _save_mp3_companion(audio_row, page, wav_bytes)
@@ -166,7 +175,8 @@ def generate_novel_audio(novel_id, regenerate=False):
             skipped += 1
             continue
 
-        # A page with no spoken text produces no audio; mark it COMPLETED-empty.
+        # A page with no spoken text produces no audio; skip it, leaving any
+        # audio row PENDING (the status endpoint and frontend tolerate that).
         if not build_page_events(page):
             skipped += 1
             continue

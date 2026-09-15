@@ -5,8 +5,13 @@ export default function GraphicNovelReader({ story, primerCards, onDone }) {
   const pages = story?.pages || [];
   const [pageIndex, setPageIndex] = useState(0);
   const [showVocab, setShowVocab] = useState(true);
+  // Per-word L1 translation reveals in the vocab panel (off by default).
+  const [shownTranslations, setShownTranslations] = useState({});
   const [doneVisible, setDoneVisible] = useState(false);
   const touchStartX = useRef(null);
+  // Set when a horizontal swipe is consumed; the synthesized click that
+  // follows the gesture must not also toggle the vocab panel.
+  const swipeConsumed = useRef(false);
 
   const currentPage = pages[pageIndex] || null;
   const isFirst = pageIndex === 0;
@@ -47,12 +52,21 @@ export default function GraphicNovelReader({ story, primerCards, onDone }) {
     }
     setIsPlaying(false);
 
-    if (!audio || !audioUrl || !autoplayRef.current) return undefined;
-    // Defer so the swapped <audio> src is loaded before play().
-    const timer = setTimeout(() => {
-      audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
-    }, 0);
-    return () => clearTimeout(timer);
+    let timer;
+    if (audio && audioUrl && autoplayRef.current) {
+      // Defer so the swapped <audio> src is loaded before play().
+      timer = setTimeout(() => {
+        audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+      }, 0);
+    }
+    // Pause the exact element this effect saw. The <audio> is keyed on
+    // audioUrl, so a page turn swaps in a NEW element before the next run of
+    // this effect — pausing only audioRef.current there would leave the old
+    // detached element playing. The cleanup captures the old one instead.
+    return () => {
+      if (timer) clearTimeout(timer);
+      audio?.pause();
+    };
   }, [audioUrl]);
 
   const toggleAudio = () => {
@@ -122,8 +136,18 @@ export default function GraphicNovelReader({ story, primerCards, onDone }) {
     const delta = event.changedTouches[0].clientX - touchStartX.current;
     touchStartX.current = null;
     if (Math.abs(delta) < 48) return;
+    swipeConsumed.current = true;
     if (delta > 0) goPrevious();
     else goNext();
+  };
+
+  const handleFrameClick = () => {
+    // Ignore the click synthesized at the end of a page-turn swipe.
+    if (swipeConsumed.current) {
+      swipeConsumed.current = false;
+      return;
+    }
+    setShowVocab((value) => !value);
   };
 
   if (!currentPage) {
@@ -216,11 +240,11 @@ export default function GraphicNovelReader({ story, primerCards, onDone }) {
 
         <button
           className="graphic-page-frame"
-          onClick={() => setShowVocab((value) => !value)}
+          onClick={handleFrameClick}
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
           type="button"
-          aria-label="Open vocabulary"
+          aria-label={showVocab ? 'Hide vocabulary' : 'Show vocabulary'}
         >
           {currentPage.image_url ? (
             <img
@@ -268,6 +292,23 @@ export default function GraphicNovelReader({ story, primerCards, onDone }) {
                 <TextToSpeechButton textToSpeak={card.term_text} />
               </div>
               <div className="graphic-vocab-def">{card.kid_friendly_definition}</div>
+              {card.definition_translation && (
+                shownTranslations[card.word_id] ? (
+                  <div className="graphic-vocab-def primer-translation-text">
+                    {card.definition_translation}
+                  </div>
+                ) : (
+                  <button
+                    className="primer-translation-btn"
+                    onClick={() =>
+                      setShownTranslations((prev) => ({ ...prev, [card.word_id]: true }))
+                    }
+                    type="button"
+                  >
+                    Show Translation
+                  </button>
+                )
+              )}
             </div>
           ))}
         </div>

@@ -18,6 +18,7 @@ from vocabulary.models import (
     WordPack, WordPackItem, PrimerCardContent, MicroStory, ClozeItem,
     StudentPackCompletion, StudentWordSetAssignment, UserWordProgress,
     GraphicNovel, GraphicNovelPage, GraphicNovelPageAudio, Infographic,
+    MasteryLevel,
 )
 from vocabulary.utils import get_definition_translations_for_words
 
@@ -201,7 +202,33 @@ class InstructionalService:
         StudentPackCompletion.objects.get_or_create(user=user, pack=pack)
 
         # Flip instructional_status to READY for all words in this pack
-        word_ids = pack.items.values_list('word_id', flat=True)
+        word_ids = list(pack.items.values_list('word_id', flat=True))
+        existing_word_ids = set(
+            UserWordProgress.objects.filter(
+                user=user, word_id__in=word_ids,
+            ).values_list('word_id', flat=True)
+        )
+        missing_word_ids = [
+            word_id for word_id in word_ids if word_id not in existing_word_ids
+        ]
+        if missing_word_ids:
+            # A word added to the pack after the set was assigned has no
+            # progress row yet — create one (flipped to READY below) so the
+            # word still enters SRS. ignore_conflicts guards a double submit.
+            starting_level = MasteryLevel.objects.get(level_id=1)
+            UserWordProgress.objects.bulk_create(
+                [
+                    UserWordProgress(
+                        user=user,
+                        word_id=word_id,
+                        level=starting_level,
+                        next_review_at=timezone.now(),
+                        instructional_status='PENDING',
+                    )
+                    for word_id in missing_word_ids
+                ],
+                ignore_conflicts=True,
+            )
         UserWordProgress.objects.filter(
             user=user,
             word_id__in=word_ids,

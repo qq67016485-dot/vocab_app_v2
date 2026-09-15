@@ -9,8 +9,15 @@ import logging
 from django.db import transaction
 
 from vocabulary.models import ClozeItem, GraphicNovel
+from vocabulary.services.generation.graphic_novel_script import (
+    _candidate_novel_is_complete,
+)
 
 logger = logging.getLogger(__name__)
+
+
+class IncompleteCandidateError(Exception):
+    """Raised when an admin selects a candidate that is not fully generated."""
 
 
 @transaction.atomic
@@ -24,11 +31,23 @@ def select_graphic_novel_candidate(novel_id):
 
     Idempotent and reversible: re-selecting a different candidate flips the flags
     and re-promotes that candidate's cloze. Returns the selected ``GraphicNovel``.
+
+    Raises ``IncompleteCandidateError`` when the candidate is not fully
+    generated (the pipeline's ``_candidate_novel_is_complete`` notion: story
+    pages + review page + staged cloze). Publishing an incomplete candidate
+    would delete the pack's active cloze and promote nothing — silent data
+    loss behind a 200.
     """
     novel = (
         GraphicNovel.objects.select_related('pack')
         .get(id=novel_id)
     )
+    if not _candidate_novel_is_complete(novel):
+        raise IncompleteCandidateError(
+            f'Candidate {novel.candidate_index} is incomplete (missing story '
+            'pages, review page, or staged cloze) and cannot be published. '
+            'Regenerate it first.'
+        )
     pack = novel.pack
 
     # Flip selection flags for the whole pack in one pass.

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import apiClient from '../api/axiosConfig.js';
 
 export default function AssignSetForm({ wordSet, students, groups, onSuccess, onCancel }) {
@@ -9,38 +9,44 @@ export default function AssignSetForm({ wordSet, students, groups, onSuccess, on
   const [contentType, setContentType] = useState('graphic_novel');
   // Which content types have a published (is_selected) candidate in any pack
   const [availableContentTypes, setAvailableContentTypes] = useState(null); // null = still loading
+  // Fetch failure — distinct from "no published content" so a network error
+  // doesn't render the blocking unpublishable state.
+  const [loadError, setLoadError] = useState('');
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingAssignments, setIsLoadingAssignments] = useState(true);
 
-  useEffect(() => {
-    const fetchAssignments = async () => {
-      try {
-        const res = await apiClient.get(`/word-sets/${wordSet.id}/assignments/`);
-        setAlreadyAssignedStudentIds(new Set(res.data.student_ids));
-        setAlreadyAssignedGroupIds(new Set(res.data.group_ids));
+  const fetchAssignments = useCallback(async () => {
+    setIsLoadingAssignments(true);
+    setLoadError('');
+    try {
+      const res = await apiClient.get(`/word-sets/${wordSet.id}/assignments/`);
+      setAlreadyAssignedStudentIds(new Set(res.data.student_ids));
+      setAlreadyAssignedGroupIds(new Set(res.data.group_ids));
 
-        const available = res.data.available_content_types ?? [];
-        setAvailableContentTypes(available);
+      const available = res.data.available_content_types ?? [];
+      setAvailableContentTypes(available);
 
-        // Prefill with the most-common existing content type, but only if it is
-        // still available.  If the prefilled type was unpublished since the last
-        // assignment, fall back to the first available type.
-        const prefilled = res.data.content_type;
-        if (prefilled && available.includes(prefilled)) {
-          setContentType(prefilled);
-        } else if (available.length > 0) {
-          setContentType(available[0]);
-        }
-      } catch (err) {
-        console.error('Error fetching assignments:', err);
-        setAvailableContentTypes([]);
-      } finally {
-        setIsLoadingAssignments(false);
+      // Prefill with the most-common existing content type, but only if it is
+      // still available.  If the prefilled type was unpublished since the last
+      // assignment, fall back to the first available type.
+      const prefilled = res.data.content_type;
+      if (prefilled && available.includes(prefilled)) {
+        setContentType(prefilled);
+      } else if (available.length > 0) {
+        setContentType(available[0]);
       }
-    };
-    fetchAssignments();
+    } catch (err) {
+      console.error('Error fetching assignments:', err);
+      setLoadError('Could not load the current assignments. Check your connection and try again.');
+    } finally {
+      setIsLoadingAssignments(false);
+    }
   }, [wordSet.id]);
+
+  useEffect(() => {
+    fetchAssignments();
+  }, [fetchAssignments]);
 
   const handleToggle = (id, type) => {
     setMessage('');
@@ -82,7 +88,20 @@ export default function AssignSetForm({ wordSet, students, groups, onSuccess, on
       <div className="t-modal t-modal--wide">
         <div className="t-modal-title">Assign "{wordSet.title}"</div>
 
-        {noneAvailable ? (
+        {loadError ? (
+          /* ── Load failure: offer retry instead of the blocking panel ── */
+          <>
+            <p style={{ margin: '16px 0 8px', color: 'var(--t-danger)', fontWeight: 500 }}>
+              {loadError}
+            </p>
+            <div className="t-modal-actions">
+              <button type="button" className="t-btn t-btn--secondary" onClick={onCancel}>Close</button>
+              <button type="button" className="t-btn t-btn--primary" onClick={fetchAssignments} disabled={isLoadingAssignments}>
+                {isLoadingAssignments ? 'Retrying...' : 'Retry'}
+              </button>
+            </div>
+          </>
+        ) : noneAvailable ? (
           /* ── Blocking state: no published content ── */
           <>
             <p style={{ margin: '16px 0 8px', color: 'var(--t-danger)', fontWeight: 500 }}>

@@ -1,7 +1,4 @@
-"""
-RED tests for v2 API views.
-Tests written BEFORE implementation — all should fail initially.
-"""
+"""Tests for the v2 API views (auth, practice, dashboard, teacher, generation)."""
 import pytest
 from datetime import datetime, time, timedelta
 from unittest.mock import patch
@@ -93,6 +90,22 @@ class TestAuthViews:
             'password': 'wrong',
         })
         assert response.status_code == 401
+
+    def test_login_rate_limited_after_five_attempts(self):
+        # LoginRateThrottle is 5/min: the 6th POST in the window gets a 429.
+        # (conftest clears the throttle cache around every test.)
+        client = APIClient()
+        for _ in range(5):
+            response = client.post('/api/login/', {
+                'username': 'nobody',
+                'password': 'wrong',
+            })
+            assert response.status_code == 401
+        response = client.post('/api/login/', {
+            'username': 'nobody',
+            'password': 'wrong',
+        })
+        assert response.status_code == 429
 
     def test_logout_success(self):
         student = StudentUserFactory()
@@ -216,6 +229,56 @@ class TestNextPracticeWordView:
         assert response.status_code == 200
         assert response.data['term_text'] == 'settled'
         assert response.data['question_text'] == 'What does settled mean?'
+
+    def test_serves_question_with_null_lexile_for_narrow_range_student(self):
+        # Questions without a lexile score must never be filtered out — a
+        # narrow-range student still gets them.
+        self.student.lexile_min = 600
+        self.student.lexile_max = 700
+        self.student.save(update_fields=['lexile_min', 'lexile_max'])
+        self.question.lexile_score = None
+        self.question.save(update_fields=['lexile_score'])
+
+        response = self.client.get('/api/practice/next/')
+
+        assert response.status_code == 200
+        assert response.data['term_text'] == 'bright'
+
+    def test_serve_payload_strips_answer_revealing_fields(self):
+        # Pre-answer, the payload must not give the answer away; the submit
+        # response returns explanation/example_sentence post-answer.
+        self.question.explanation = 'Bright means shining.'
+        self.question.example_sentence = 'The bright lamp lit the room.'
+        self.question.save(update_fields=['explanation', 'example_sentence'])
+
+        response = self.client.get('/api/practice/next/')
+
+        assert response.status_code == 200
+        assert response.data['explanation'] == ''
+        assert response.data['example_sentence'] == ''
+        assert 'correct_answer_is_term' not in response.data
+
+    def test_no_back_to_back_sentence_write_for_same_word(self):
+        # A sentence-write (high-effort, LLM-judged) question is never served
+        # for a word whose immediately previous answer was also sentence-write.
+        self.question.question_type = Question.QuestionType.SENTENCE_WRITE_GUIDED
+        self.question.save(update_fields=['question_type'])
+
+        # Control: with no prior sentence-write answer the question IS served
+        # (the judge breaker is healthy — conftest clears its cache per test).
+        response = self.client.get('/api/practice/next/')
+        assert response.status_code == 200
+        assert response.data['question_type'] == Question.QuestionType.SENTENCE_WRITE_GUIDED
+
+        # The word's only question is sentence-write and its latest answer was
+        # sentence-write too: the serve must come back empty rather than offer
+        # the same task type twice in a row.
+        UserAnswer.objects.create(
+            user=self.student, question=self.question,
+            user_answer='The lamp was bright.', is_correct=True,
+        )
+        response = self.client.get('/api/practice/next/')
+        assert response.status_code == 404
 
 
 @pytest.mark.django_db
@@ -532,6 +595,44 @@ class TestSubmitAnswerView:
         progress = UserWordProgress.objects.get(user=self.student, word=word)
         assert progress.level.level_id == 6
 
+    def test_non_retry_replay_of_answered_question_is_masked_404(self):
+        # A scored answer pushes next_review_at past end-of-local-day, so a
+        # non-retry submit of the same question_id is a replay farming mastery
+        # — masked exactly like an unknown question.
+        first = self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'shining',
+            'duration_seconds': 5,
+        })
+        assert first.status_code == 200
+
+        replay = self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'shining',
+            'duration_seconds': 5,
+        })
+        assert replay.status_code == 404
+        # No second answer was recorded.
+        assert UserAnswer.objects.filter(
+            user=self.student, question=self.question,
+        ).count() == 1
+
+    def test_submit_response_returns_explanation(self):
+        # Stripped from the serve payload, explanation/example_sentence come
+        # back post-answer in the submit response.
+        self.question.explanation = 'Bright means shining.'
+        self.question.example_sentence = 'The bright lamp lit the room.'
+        self.question.save(update_fields=['explanation', 'example_sentence'])
+
+        response = self.client.post('/api/practice/submit/', {
+            'question_id': self.question.id,
+            'user_answer': 'wrong',
+            'duration_seconds': 5,
+        })
+        assert response.status_code == 200
+        assert response.data['explanation'] == 'Bright means shining.'
+        assert response.data['example_sentence'] == 'The bright lamp lit the room.'
+
 
 @pytest.mark.django_db
 class TestSessionSummaryView:
@@ -591,16 +692,28 @@ class TestApplySessionBonusesView:
         original_xp = student.xp_points
         response = client.post('/api/practice/apply-bonuses/', {
             'max_focus_streak': 5,
+            'session_id': 'session-bonus-1',
         })
         assert response.status_code == 200
         student.refresh_from_db()
         assert student.xp_points == original_xp + 5
+
+    def test_missing_session_id_rejected(self):
+        # session_id binds the once-per-session idempotency claim; without it
+        # the endpoint would be an open XP faucet.
+        student = StudentUserFactory()
+        client = _make_client(student)
+        response = client.post('/api/practice/apply-bonuses/', {
+            'max_focus_streak': 5,
+        })
+        assert response.status_code == 400
 
     def test_invalid_streak(self):
         student = StudentUserFactory()
         client = _make_client(student)
         response = client.post('/api/practice/apply-bonuses/', {
             'max_focus_streak': -1,
+            'session_id': 'session-invalid-streak',
         })
         assert response.status_code == 400
 
@@ -635,6 +748,20 @@ class TestApplySessionBonusesView:
         })
         student.refresh_from_db()
         assert student.xp_points == original_xp + 6
+
+    def test_daily_bonus_xp_capped_at_30(self):
+        # Even minting fresh session_ids, total bonus XP per user per day is
+        # capped: 4 sessions x 10 streak XP would be 40, only 30 lands.
+        student = StudentUserFactory()
+        client = _make_client(student)
+        original_xp = student.xp_points
+        for i in range(4):
+            response = client.post('/api/practice/apply-bonuses/', {
+                'max_focus_streak': 10, 'session_id': f'cap-session-{i}',
+            })
+            assert response.status_code == 200
+        student.refresh_from_db()
+        assert student.xp_points == original_xp + 30
 
 
 # =============================================================================
@@ -676,6 +803,26 @@ class TestStudentDashboardView:
     def test_counts_words_due_later_today(self):
         word = WordFactory(text='bright')
         question = QuestionFactory(word=word, lexile_score=650)
+        level1 = MasteryLevel.objects.get(level_id=1)
+        question.suitable_levels.add(level1)
+        UserWordProgress.objects.create(
+            user=self.student, word=word,
+            level=level1, next_review_at=_later_today(),
+        )
+
+        response = self.client.get('/api/student/dashboard/')
+
+        assert response.status_code == 200
+        assert response.data['words_due_today'] == 1
+
+    def test_counts_word_whose_question_has_null_lexile(self):
+        # Questions without a lexile score must be counted in the due total —
+        # never filtered out — even for a narrow-range student.
+        self.student.lexile_min = 600
+        self.student.lexile_max = 700
+        self.student.save(update_fields=['lexile_min', 'lexile_max'])
+        word = WordFactory(text='dim')
+        question = QuestionFactory(word=word)  # lexile_score=None
         level1 = MasteryLevel.objects.get(level_id=1)
         question.suitable_levels.add(level1)
         UserWordProgress.objects.create(
@@ -760,6 +907,10 @@ class TestStudentGoalPromptView:
         client = _make_client(teacher)
         response = client.post('/api/student/goal-prompt-shown/')
         assert response.status_code == 403
+
+
+@pytest.mark.django_db
+class TestWordsByLevelView:
     def test_returns_words_at_level(self):
         _seed_mastery_levels()
         student = StudentUserFactory()
@@ -1158,6 +1309,18 @@ class TestWordSetViewSet:
         response = client.post('/api/word-sets/', {'title': 'Test'})
         assert response.status_code == 403
 
+    def test_request_generation_forbidden_on_others_public_set(self):
+        # A public set is visible to other teachers, but requesting generation
+        # on it is an edit — owner/admin only.
+        other_teacher = TeacherUserFactory()
+        ws = WordSetFactory(
+            creator=other_teacher, is_public=True, input_words=['bright'],
+        )
+        response = self.client.post(f'/api/word-sets/{ws.id}/request-generation/')
+        assert response.status_code == 403
+        ws.refresh_from_db()
+        assert ws.generation_status != WordSet.GenerationStatus.GENERATION_REQUESTED
+
 
 @pytest.mark.django_db
 class TestWordSetAssignAction:
@@ -1180,6 +1343,47 @@ class TestWordSetAssignAction:
         }, format='json')
         assert response.status_code == 200
         assert StudentWordSetAssignment.objects.filter(
+            user=student, word_set=ws,
+        ).exists()
+
+    def test_assign_rejects_word_set_without_published_content(self):
+        # No selected GN/infographic candidate in any pack → the set has
+        # nothing a student could read → assignment is rejected.
+        teacher = TeacherUserFactory()
+        student = StudentUserFactory()
+        teacher.students.add(student)
+        ws = WordSetFactory(creator=teacher)
+        ws.words.add(WordFactory())
+        pack = WordPackFactory(word_set=ws)
+        GraphicNovelFactory(pack=pack, is_selected=False)  # staged, not published
+        client = _make_client(teacher)
+        response = client.post(f'/api/word-sets/{ws.id}/assign/', {
+            'student_ids': [student.id],
+            'group_ids': [],
+        }, format='json')
+        assert response.status_code == 400
+        assert not StudentWordSetAssignment.objects.filter(
+            user=student, word_set=ws,
+        ).exists()
+
+    def test_assign_rejects_unavailable_content_type(self):
+        # Only a graphic novel is published here; asking for an infographic
+        # assignment must 400 instead of silently assigning nothing readable.
+        teacher = TeacherUserFactory()
+        student = StudentUserFactory()
+        teacher.students.add(student)
+        ws = WordSetFactory(creator=teacher)
+        ws.words.add(WordFactory())
+        pack = WordPackFactory(word_set=ws)
+        GraphicNovelFactory(pack=pack, is_selected=True)
+        client = _make_client(teacher)
+        response = client.post(f'/api/word-sets/{ws.id}/assign/', {
+            'student_ids': [student.id],
+            'group_ids': [],
+            'content_type': 'infographic',
+        }, format='json')
+        assert response.status_code == 400
+        assert not StudentWordSetAssignment.objects.filter(
             user=student, word_set=ws,
         ).exists()
 
@@ -1299,7 +1503,7 @@ class TestTeacherStudentViewSet:
     def test_create_student(self):
         response = self.client.post('/api/teacher/students/', {
             'username': 'new_student_99',
-            'password': 'pass123',
+            'password': 'Str0ng!Passw0rd',
         })
         assert response.status_code == 201
         new_student = CustomUser.objects.get(username='new_student_99')
@@ -1326,8 +1530,8 @@ class TestBulkCreateStudentsView:
         response = client.post(
             '/api/teacher/students/bulk/',
             [
-                {'username': 'bulk_1', 'password': 'pass123'},
-                {'username': 'bulk_2', 'password': 'pass123'},
+                {'username': 'bulk_1', 'password': 'Str0ng!Passw0rd'},
+                {'username': 'bulk_2', 'password': 'Str0ng!Passw0rd'},
             ],
             format='json',
         )
@@ -1340,8 +1544,8 @@ class TestBulkCreateStudentsView:
         response = client.post(
             '/api/teacher/students/bulk/',
             [
-                {'username': 'dup', 'password': 'pass123'},
-                {'username': 'dup', 'password': 'pass123'},
+                {'username': 'dup', 'password': 'Str0ng!Passw0rd'},
+                {'username': 'dup', 'password': 'Str0ng!Passw0rd'},
             ],
             format='json',
         )
@@ -1636,6 +1840,27 @@ class TestGenerationViews:
             format='json',
         )
         assert response.status_code == 409
+
+    def test_restart_substep_conflict_for_selected_candidate(self):
+        # Restarting a substep deletes and regenerates the candidate — the view
+        # must refuse up-front (409) when the target candidate is the published
+        # one, instead of letting the job fail mid-run.
+        admin = AdminUserFactory()
+        ws = WordSetFactory(creator=admin)
+        job = GenerationJobFactory(
+            word_set=ws, created_by=admin, status=GenerationJob.Status.FAILED,
+        )
+        pack = WordPack.objects.create(word_set=ws, label='Pack 1', order=0)
+        GraphicNovelFactory(pack=pack, candidate_index=0, is_selected=True)
+        client = _make_client(admin)
+        response = client.post(
+            f'/api/generation-jobs/{job.id}/restart-substep/',
+            {'pack_id': pack.id, 'substep': 'router_premises', 'candidate_index': 0},
+            format='json',
+        )
+        assert response.status_code == 409
+        job.refresh_from_db()
+        assert job.status == GenerationJob.Status.FAILED
 
     def test_job_status_includes_graphic_novel_page_statuses(self):
         admin = AdminUserFactory()

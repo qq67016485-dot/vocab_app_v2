@@ -3,6 +3,7 @@ Generation views — Admin-only endpoints for the LLM content pipeline.
 These are NEW in v2 (no v1 equivalent).
 """
 import threading
+from datetime import timedelta
 
 from django.core.files.base import ContentFile
 from django.db import transaction
@@ -21,10 +22,16 @@ from ..models import (
     GraphicNovelPage, GraphicNovel, GraphicNovelPageAudio, Infographic,
 )
 from ..permissions import IsAdmin
+from ..services.generation.constants import (
+    GRAPHIC_NOVEL_CANDIDATE_COUNT,
+    INFOGRAPHIC_CANDIDATE_COUNT,
+)
 from ..services.graphic_novel_selection_service import (
+    IncompleteCandidateError as IncompleteGraphicNovelError,
     select_graphic_novel_candidate,
 )
 from ..services.infographic_selection_service import (
+    IncompleteCandidateError as IncompleteInfographicError,
     select_infographic_candidate,
 )
 from ..services.generation_pipeline_service import (
@@ -120,7 +127,8 @@ def _substep_statuses_for_step(job, step, substep_defs):
     single GenerationJobLog step).
     """
     substep_logs = [
-        log for log in job.logs.filter(step=step)
+        # Deterministic order: the last log for a substep wins below.
+        log for log in job.logs.filter(step=step).order_by('created_at', 'id')
         if isinstance(log.output_data, dict) and log.output_data.get('substep')
     ]
     packs = {}
@@ -422,69 +430,80 @@ class TriggerGenerationView(APIView):
 
     def post(self, request, word_set_id):
         try:
-            word_set = WordSet.objects.get(id=word_set_id)
+            # The active-job check, job create, and word-set status update must
+            # be one locked unit — otherwise two concurrent POSTs both pass the
+            # check and spawn duplicate pipelines on the same word set.
+            with transaction.atomic():
+                word_set = WordSet.objects.select_for_update().get(id=word_set_id)
+
+                active_job = word_set.generation_jobs.filter(
+                    status__in=[GenerationJob.Status.PENDING, GenerationJob.Status.RUNNING],
+                ).first()
+                if active_job:
+                    return Response(
+                        {'error': 'A generation job is already running for this word set.', 'job_id': active_job.id},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                if word_set.generation_status == WordSet.GenerationStatus.GENERATED:
+                    return _immutable_word_set_response()
+
+                if word_set.generation_status == WordSet.GenerationStatus.GENERATING:
+                    return Response(
+                        {'error': 'Generation is already in progress for this Word Set.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                words = request.data.get('words', [])
+                if not words and word_set.input_words:
+                    words = word_set.input_words
+                if not words:
+                    return Response(
+                        {'error': 'Word list is required.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                if not isinstance(words, list) or any(
+                    not isinstance(w, str) or not w.strip() for w in words
+                ):
+                    return Response(
+                        {'error': 'Words must be a list of non-empty strings.'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                words = list(dict.fromkeys(w.strip() for w in words))
+
+                # Content types to generate (defaults to graphic novel only). Validate
+                # against the allowed set and always keep at least one type.
+                from vocabulary.services.generation.constants import (
+                    ALLOWED_CONTENT_TYPES, CONTENT_TYPE_GRAPHIC_NOVEL,
+                )
+                requested_types = request.data.get('content_types')
+                if isinstance(requested_types, list):
+                    content_types = [t for t in requested_types if t in ALLOWED_CONTENT_TYPES]
+                else:
+                    content_types = []
+                if not content_types:
+                    content_types = [CONTENT_TYPE_GRAPHIC_NOVEL]
+
+                job = GenerationJob.objects.create(
+                    word_set=word_set,
+                    created_by=request.user,
+                    input_words=words,
+                    input_source_title=request.data.get('source_title', word_set.input_source_title),
+                    input_source_chapter=request.data.get('source_chapter', word_set.input_source_chapter),
+                    input_source_text=request.data.get('source_text', word_set.source_text),
+                    target_lexile=word_set.target_lexile,
+                    target_language=request.data.get('target_language', 'zh-CN'),
+                    content_types=content_types,
+                )
+
+                word_set.generation_status = WordSet.GenerationStatus.GENERATING
+                word_set.save(update_fields=['generation_status'])
         except WordSet.DoesNotExist:
             return Response(
                 {'error': 'Word set not found.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
-
-        active_job = word_set.generation_jobs.filter(
-            status__in=[GenerationJob.Status.PENDING, GenerationJob.Status.RUNNING],
-        ).first()
-        if active_job:
-            return Response(
-                {'error': 'A generation job is already running for this word set.', 'job_id': active_job.id},
-                status=status.HTTP_409_CONFLICT,
-            )
-
-        if word_set.generation_status == WordSet.GenerationStatus.GENERATED:
-            return _immutable_word_set_response()
-
-        if word_set.generation_status == WordSet.GenerationStatus.GENERATING:
-            return Response(
-                {'error': 'Generation is already in progress for this Word Set.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        words = request.data.get('words', [])
-        if not words and word_set.input_words:
-            words = word_set.input_words
-        if not words:
-            return Response(
-                {'error': 'Word list is required.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        words = list(dict.fromkeys(w.strip() for w in words if w.strip()))
-
-        # Content types to generate (defaults to graphic novel only). Validate
-        # against the allowed set and always keep at least one type.
-        from vocabulary.services.generation.constants import (
-            ALLOWED_CONTENT_TYPES, CONTENT_TYPE_GRAPHIC_NOVEL,
-        )
-        requested_types = request.data.get('content_types')
-        if isinstance(requested_types, list):
-            content_types = [t for t in requested_types if t in ALLOWED_CONTENT_TYPES]
-        else:
-            content_types = []
-        if not content_types:
-            content_types = [CONTENT_TYPE_GRAPHIC_NOVEL]
-
-        job = GenerationJob.objects.create(
-            word_set=word_set,
-            created_by=request.user,
-            input_words=words,
-            input_source_title=request.data.get('source_title', word_set.input_source_title),
-            input_source_chapter=request.data.get('source_chapter', word_set.input_source_chapter),
-            input_source_text=request.data.get('source_text', word_set.source_text),
-            target_lexile=word_set.target_lexile,
-            target_language=request.data.get('target_language', 'zh-CN'),
-            content_types=content_types,
-        )
-
-        word_set.generation_status = WordSet.GenerationStatus.GENERATING
-        word_set.save(update_fields=['generation_status'])
 
         # Run pipeline in background thread so the response returns immediately
         thread = threading.Thread(target=run_full_pipeline, args=(job.id,), daemon=True)
@@ -519,11 +538,19 @@ class GenerationJobStatusView(APIView):
                     generation_status=GraphicNovelPage.GenerationStatus.RUNNING,
                 ).update(
                     generation_status=GraphicNovelPage.GenerationStatus.FAILED,
-                    generation_error='Page image generation stalled after 15 minutes without job activity.',
+                    generation_error='Page image generation stalled after 30 minutes without job activity.',
+                    generation_completed_at=timezone.now(),
+                )
+                Infographic.objects.filter(
+                    pack__word_set=job.word_set,
+                    generation_status=Infographic.GenerationStatus.RUNNING,
+                ).update(
+                    generation_status=Infographic.GenerationStatus.FAILED,
+                    generation_error='Poster image generation stalled after 30 minutes without job activity.',
                     generation_completed_at=timezone.now(),
                 )
                 job.status = GenerationJob.Status.FAILED
-                job.error_message = 'Job stalled — no activity for 15 minutes. You can resume the pipeline.'
+                job.error_message = 'Job stalled — no activity for 30 minutes. You can resume the pipeline.'
                 job.save(update_fields=['status', 'error_message'])
                 job.word_set.generation_status = WordSet.GenerationStatus.TO_GENERATE
                 job.word_set.save(update_fields=['generation_status'])
@@ -532,7 +559,7 @@ class GenerationJobStatusView(APIView):
                     step=latest_log.step if latest_log else _next_resume_step(job.last_completed_step),
                     status=GenerationJob.Status.FAILED,
                     error_message=job.error_message,
-                    output_data={'message': 'Marked job failed because no activity was recorded for 15 minutes.'},
+                    output_data={'message': 'Marked job failed because no activity was recorded for 30 minutes.'},
                 )
 
         graphic_novel_image_pages = _graphic_novel_image_page_statuses(job.word_set)
@@ -639,6 +666,10 @@ class GenerationJobContentView(APIView):
                 'options': q.options,
                 'correct_answers': q.correct_answers,
                 'explanation': q.explanation,
+                'qa_flags': q.qa_flags,
+                'difficulty_index': q.difficulty_index,
+                'discrimination_index': q.discrimination_index,
+                'is_serve_excluded': q.is_serve_excluded,
             }
             for q in questions
         ]
@@ -812,10 +843,23 @@ class RestartGraphicNovelSubstepView(APIView):
             )
 
         try:
+            pack_id = int(pack_id)
+        except (TypeError, ValueError):
+            return Response(
+                {'error': 'pack_id must be an integer.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
             candidate_index = int(candidate_index)
         except (TypeError, ValueError):
             return Response(
                 {'error': 'candidate_index must be an integer.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not 0 <= candidate_index < GRAPHIC_NOVEL_CANDIDATE_COUNT:
+            return Response(
+                {'error': f'candidate_index must be between 0 and {GRAPHIC_NOVEL_CANDIDATE_COUNT - 1}.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -841,6 +885,17 @@ class RestartGraphicNovelSubstepView(APIView):
                         status=status.HTTP_404_NOT_FOUND,
                     )
 
+                # The engine refuses to delete a published candidate; pre-check
+                # here so the admin gets a clean 409 instead of a failed job.
+                target_novel = GraphicNovel.objects.filter(
+                    pack_id=pack_id, candidate_index=candidate_index,
+                ).first()
+                if target_novel and target_novel.is_selected:
+                    return Response(
+                        {'error': 'The selected candidate cannot be restarted; unselect it first.'},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
                 job.status = GenerationJob.Status.RUNNING
                 job.error_message = ''
                 job.save(update_fields=['status', 'error_message'])
@@ -853,7 +908,7 @@ class RestartGraphicNovelSubstepView(APIView):
 
         thread = threading.Thread(
             target=restart_graphic_novel_substep,
-            args=(job.id, int(pack_id), substep, candidate_index),
+            args=(job.id, pack_id, substep, candidate_index),
             # The RUNNING claim above happened under select_for_update.
             kwargs={'already_claimed': True},
             daemon=True,
@@ -895,10 +950,23 @@ class RestartInfographicSubstepView(APIView):
             )
 
         try:
+            pack_id = int(pack_id)
+        except (TypeError, ValueError):
+            return Response(
+                {'error': 'pack_id must be an integer.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
             candidate_index = int(candidate_index)
         except (TypeError, ValueError):
             return Response(
                 {'error': 'candidate_index must be an integer.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not 0 <= candidate_index < INFOGRAPHIC_CANDIDATE_COUNT:
+            return Response(
+                {'error': f'candidate_index must be between 0 and {INFOGRAPHIC_CANDIDATE_COUNT - 1}.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -924,6 +992,17 @@ class RestartInfographicSubstepView(APIView):
                         status=status.HTTP_404_NOT_FOUND,
                     )
 
+                # The engine refuses to delete a published candidate; pre-check
+                # here so the admin gets a clean 409 instead of a failed job.
+                target_infographic = Infographic.objects.filter(
+                    pack_id=pack_id, candidate_index=candidate_index,
+                ).first()
+                if target_infographic and target_infographic.is_selected:
+                    return Response(
+                        {'error': 'The selected candidate cannot be restarted; unselect it first.'},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
                 job.status = GenerationJob.Status.RUNNING
                 job.error_message = ''
                 job.save(update_fields=['status', 'error_message'])
@@ -936,7 +1015,7 @@ class RestartInfographicSubstepView(APIView):
 
         thread = threading.Thread(
             target=restart_infographic_substep,
-            args=(job.id, int(pack_id), substep, candidate_index),
+            args=(job.id, pack_id, substep, candidate_index),
             # The RUNNING claim above happened under select_for_update.
             kwargs={'already_claimed': True},
             daemon=True,
@@ -959,7 +1038,9 @@ def _run_page_image_edit(page_id, edit_prompt, reference_bytes):
     Runs in a daemon thread so the request worker is freed during the slow
     (~30-60s) image call. Reads/writes the page via its own DB connection and
     records terminal state on the page (COMPLETED + edited_image, or FAILED +
-    generation_error) for the frontend to poll.
+    generation_error) for the frontend to poll. The whole work section is
+    guarded: an unhandled storage/DB error would otherwise leave the page
+    RUNNING forever, and the views' 409 guards would then brick the page.
     """
     from ..services.generation.helpers import (
         _call_openai_image_releasing_db,
@@ -982,41 +1063,40 @@ def _run_page_image_edit(page_id, edit_prompt, reference_bytes):
             new_bytes = _call_openai_image_releasing_db(
                 edit_prompt, size="1792x1024", reference_image=reference_bytes,
             )
-        except Exception as exc:  # noqa: BLE001 - record provider failure for the admin to see
+
+            title_slug = ''.join(
+                c if c.isalnum() else '_' for c in page.novel.title.lower()
+            ).strip('_')[:60] or 'graphic_novel'
+            filename = f"{title_slug}_page_{page.page_number}_edited.png"
+            # Preserve the original in `image`; the edit lands in `edited_image`.
+            page.edited_image.save(filename, ContentFile(new_bytes), save=False)
+            # Lightweight JPEG companion for students; best-effort.
+            update_fields = [
+                'edited_image', 'use_edited_image', 'prompt_used',
+                'generation_status', 'generation_error', 'generation_completed_at',
+            ]
+            try:
+                jpeg_bytes = png_to_jpeg_bytes(new_bytes)
+                page.edited_image_jpeg.save(
+                    f"{title_slug}_page_{page.page_number}_edited.jpg",
+                    ContentFile(jpeg_bytes), save=False,
+                )
+                update_fields.append('edited_image_jpeg')
+            except ValueError:
+                pass
+            page.use_edited_image = True
+            page.prompt_used = f"{page.prompt_used}\n\n[ADMIN EDIT] {edit_prompt}".strip()
+            page.generation_status = GraphicNovelPage.GenerationStatus.COMPLETED
+            page.generation_error = ''
+            page.generation_completed_at = timezone.now()
+            page.save(update_fields=update_fields)
+        except Exception as exc:  # noqa: BLE001 - record failure for the admin to see
             page.generation_status = GraphicNovelPage.GenerationStatus.FAILED
             page.generation_error = f'Image edit failed: {exc}'
             page.generation_completed_at = timezone.now()
             page.save(update_fields=[
                 'generation_status', 'generation_error', 'generation_completed_at',
             ])
-            return
-
-        title_slug = ''.join(
-            c if c.isalnum() else '_' for c in page.novel.title.lower()
-        ).strip('_')[:60] or 'graphic_novel'
-        filename = f"{title_slug}_page_{page.page_number}_edited.png"
-        # Preserve the original in `image`; the edit lands in `edited_image`.
-        page.edited_image.save(filename, ContentFile(new_bytes), save=False)
-        # Lightweight JPEG companion for students; best-effort.
-        update_fields = [
-            'edited_image', 'use_edited_image', 'prompt_used',
-            'generation_status', 'generation_error', 'generation_completed_at',
-        ]
-        try:
-            jpeg_bytes = png_to_jpeg_bytes(new_bytes)
-            page.edited_image_jpeg.save(
-                f"{title_slug}_page_{page.page_number}_edited.jpg",
-                ContentFile(jpeg_bytes), save=False,
-            )
-            update_fields.append('edited_image_jpeg')
-        except ValueError:
-            pass
-        page.use_edited_image = True
-        page.prompt_used = f"{page.prompt_used}\n\n[ADMIN EDIT] {edit_prompt}".strip()
-        page.generation_status = GraphicNovelPage.GenerationStatus.COMPLETED
-        page.generation_error = ''
-        page.generation_completed_at = timezone.now()
-        page.save(update_fields=update_fields)
     finally:
         _close_old_connections_if_safe()
 
@@ -1030,7 +1110,9 @@ def _run_page_image_redraw(page_id, prompt, reference_bytes):
     in the hope a second roll of the dice produces a cleaner image. The result
     lands in `edited_image` and is auto-selected, leaving the original `image`
     intact and reversible via the variant picker. Records terminal state on the
-    page for the frontend to poll, mirroring `_run_page_image_edit`.
+    page for the frontend to poll, mirroring `_run_page_image_edit` — including
+    the whole-work-section guard, so a storage/DB error can't strand the page
+    in RUNNING.
     """
     from ..services.generation.helpers import (
         _call_openai_image_releasing_db,
@@ -1053,40 +1135,39 @@ def _run_page_image_redraw(page_id, prompt, reference_bytes):
             new_bytes = _call_openai_image_releasing_db(
                 prompt, size="1792x1024", reference_image=reference_bytes,
             )
-        except Exception as exc:  # noqa: BLE001 - record provider failure for the admin to see
+
+            title_slug = ''.join(
+                c if c.isalnum() else '_' for c in page.novel.title.lower()
+            ).strip('_')[:60] or 'graphic_novel'
+            filename = f"{title_slug}_page_{page.page_number}_edited.png"
+            # Preserve the original in `image`; the redraw lands in `edited_image`.
+            page.edited_image.save(filename, ContentFile(new_bytes), save=False)
+            update_fields = [
+                'edited_image', 'use_edited_image', 'prompt_used',
+                'generation_status', 'generation_error', 'generation_completed_at',
+            ]
+            try:
+                jpeg_bytes = png_to_jpeg_bytes(new_bytes)
+                page.edited_image_jpeg.save(
+                    f"{title_slug}_page_{page.page_number}_edited.jpg",
+                    ContentFile(jpeg_bytes), save=False,
+                )
+                update_fields.append('edited_image_jpeg')
+            except ValueError:
+                pass
+            page.use_edited_image = True
+            page.prompt_used = f"{page.prompt_used}\n\n[REDRAW] {prompt}".strip()
+            page.generation_status = GraphicNovelPage.GenerationStatus.COMPLETED
+            page.generation_error = ''
+            page.generation_completed_at = timezone.now()
+            page.save(update_fields=update_fields)
+        except Exception as exc:  # noqa: BLE001 - record failure for the admin to see
             page.generation_status = GraphicNovelPage.GenerationStatus.FAILED
             page.generation_error = f'Image redraw failed: {exc}'
             page.generation_completed_at = timezone.now()
             page.save(update_fields=[
                 'generation_status', 'generation_error', 'generation_completed_at',
             ])
-            return
-
-        title_slug = ''.join(
-            c if c.isalnum() else '_' for c in page.novel.title.lower()
-        ).strip('_')[:60] or 'graphic_novel'
-        filename = f"{title_slug}_page_{page.page_number}_edited.png"
-        # Preserve the original in `image`; the redraw lands in `edited_image`.
-        page.edited_image.save(filename, ContentFile(new_bytes), save=False)
-        update_fields = [
-            'edited_image', 'use_edited_image', 'prompt_used',
-            'generation_status', 'generation_error', 'generation_completed_at',
-        ]
-        try:
-            jpeg_bytes = png_to_jpeg_bytes(new_bytes)
-            page.edited_image_jpeg.save(
-                f"{title_slug}_page_{page.page_number}_edited.jpg",
-                ContentFile(jpeg_bytes), save=False,
-            )
-            update_fields.append('edited_image_jpeg')
-        except ValueError:
-            pass
-        page.use_edited_image = True
-        page.prompt_used = f"{page.prompt_used}\n\n[REDRAW] {prompt}".strip()
-        page.generation_status = GraphicNovelPage.GenerationStatus.COMPLETED
-        page.generation_error = ''
-        page.generation_completed_at = timezone.now()
-        page.save(update_fields=update_fields)
     finally:
         _close_old_connections_if_safe()
 
@@ -1152,15 +1233,25 @@ class EditGraphicNovelPageImageView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        page.generation_status = GraphicNovelPage.GenerationStatus.RUNNING
-        page.generation_error = ''
-        page.generation_attempts = (page.generation_attempts or 0) + 1
-        page.generation_started_at = timezone.now()
-        page.generation_completed_at = None
-        page.save(update_fields=[
-            'generation_status', 'generation_error', 'generation_attempts',
-            'generation_started_at', 'generation_completed_at',
-        ])
+        # Claim the page atomically: the RUNNING check-and-set must be one
+        # locked unit, or two rapid POSTs both pass the check and spawn
+        # duplicate workers.
+        with transaction.atomic():
+            page = GraphicNovelPage.objects.select_for_update().get(id=page_id)
+            if page.generation_status == GraphicNovelPage.GenerationStatus.RUNNING:
+                return Response(
+                    {'error': 'An image edit is already in progress for this page.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            page.generation_status = GraphicNovelPage.GenerationStatus.RUNNING
+            page.generation_error = ''
+            page.generation_attempts = (page.generation_attempts or 0) + 1
+            page.generation_started_at = timezone.now()
+            page.generation_completed_at = None
+            page.save(update_fields=[
+                'generation_status', 'generation_error', 'generation_attempts',
+                'generation_started_at', 'generation_completed_at',
+            ])
 
         thread = threading.Thread(
             target=_run_page_image_edit,
@@ -1224,15 +1315,25 @@ class RedrawGraphicNovelPageImageView(APIView):
         prompt = build_page_image_prompt(page)
         reference_bytes = previous_page_reference_bytes(page)
 
-        page.generation_status = GraphicNovelPage.GenerationStatus.RUNNING
-        page.generation_error = ''
-        page.generation_attempts = (page.generation_attempts or 0) + 1
-        page.generation_started_at = timezone.now()
-        page.generation_completed_at = None
-        page.save(update_fields=[
-            'generation_status', 'generation_error', 'generation_attempts',
-            'generation_started_at', 'generation_completed_at',
-        ])
+        # Claim the page atomically: the RUNNING check-and-set must be one
+        # locked unit, or two rapid POSTs both pass the check and spawn
+        # duplicate workers.
+        with transaction.atomic():
+            page = GraphicNovelPage.objects.select_for_update().get(id=page_id)
+            if page.generation_status == GraphicNovelPage.GenerationStatus.RUNNING:
+                return Response(
+                    {'error': 'An image operation is already in progress for this page.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            page.generation_status = GraphicNovelPage.GenerationStatus.RUNNING
+            page.generation_error = ''
+            page.generation_attempts = (page.generation_attempts or 0) + 1
+            page.generation_started_at = timezone.now()
+            page.generation_completed_at = None
+            page.save(update_fields=[
+                'generation_status', 'generation_error', 'generation_attempts',
+                'generation_started_at', 'generation_completed_at',
+            ])
 
         thread = threading.Thread(
             target=_run_page_image_redraw,
@@ -1287,6 +1388,26 @@ class GraphicNovelPageImageStatusView(APIView):
                 {'error': 'Graphic novel page not found.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
+
+        # Daemon workers die with every `systemctl restart vocab`, orphaning
+        # RUNNING rows; sweep them here or the page is bricked behind the 409
+        # guards forever. GraphicNovelPage has no updated_at — every RUNNING
+        # claim sets generation_started_at, so it is the staleness proxy.
+        if (
+            page.generation_status == GraphicNovelPage.GenerationStatus.RUNNING
+            and page.generation_started_at
+            and page.generation_started_at
+            < timezone.now() - timedelta(seconds=STALE_JOB_THRESHOLD_SECONDS)
+        ):
+            page.generation_status = GraphicNovelPage.GenerationStatus.FAILED
+            page.generation_error = (
+                'Image generation stalled — the worker died mid-run. Retry the operation.'
+            )
+            page.generation_completed_at = timezone.now()
+            page.save(update_fields=[
+                'generation_status', 'generation_error', 'generation_completed_at',
+            ])
+
         return Response(_graphic_novel_page_image_payload(page))
 
 
@@ -1319,6 +1440,14 @@ class SelectGraphicNovelPageImageView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        # Flipping the variant mid-edit is clobbered when the worker finishes
+        # (it force-selects the new edited image), so refuse while one runs.
+        if page.generation_status == GraphicNovelPage.GenerationStatus.RUNNING:
+            return Response(
+                {'error': 'An image operation is in progress for this page; wait for it to finish.'},
+                status=status.HTTP_409_CONFLICT,
+            )
+
         if variant == 'edited' and not page.edited_image:
             return Response(
                 {'error': 'This page has no edited image to select.'},
@@ -1341,7 +1470,9 @@ class SelectGraphicNovelCandidateView(APIView):
     selection on sibling candidates and promotes this candidate's staged cloze to
     the pack's active (student-facing) set. Until a candidate is selected, the
     pack's graphic novel + cloze are hidden from students. Reversible — selecting
-    a different candidate re-publishes that one.
+    a different candidate re-publishes that one. Returns 400 when the candidate
+    is incomplete (missing pages or staged cloze) — publishing one would delete
+    the pack's active cloze and promote nothing.
     """
     permission_classes = [IsAuthenticated, IsAdmin]
 
@@ -1352,6 +1483,11 @@ class SelectGraphicNovelCandidateView(APIView):
             return Response(
                 {'error': 'Graphic novel candidate not found.'},
                 status=status.HTTP_404_NOT_FOUND,
+            )
+        except IncompleteGraphicNovelError as exc:
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         return Response({
@@ -1369,7 +1505,9 @@ class SelectInfographicCandidateView(APIView):
 
     Choose this candidate as the published infographic for its pack. Clears the
     selection on siblings and promotes this candidate's staged cloze to the
-    pack's active (student-facing) set. Reversible.
+    pack's active (student-facing) set. Reversible. Returns 400 when the
+    candidate is incomplete (no rendered poster image or staged cloze) —
+    publishing one would delete the pack's active cloze and promote nothing.
     """
     permission_classes = [IsAuthenticated, IsAdmin]
 
@@ -1380,6 +1518,11 @@ class SelectInfographicCandidateView(APIView):
             return Response(
                 {'error': 'Infographic candidate not found.'},
                 status=status.HTTP_404_NOT_FOUND,
+            )
+        except IncompleteInfographicError as exc:
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         return Response({
@@ -1394,12 +1537,22 @@ class SelectInfographicCandidateView(APIView):
 def _audio_row_payload(page):
     """Serialize a page's audio state for the status poll."""
     audio = getattr(page, 'audio', None)
+    audio_status = audio.status if audio else GraphicNovelPageAudio.Status.PENDING
+    # Only a COMPLETED row may surface a URL — a FAILED (re)generation would
+    # otherwise keep serving the stale previous WAV as if it were fresh.
+    audio_url = ''
+    if (
+        audio
+        and audio.audio
+        and audio_status == GraphicNovelPageAudio.Status.COMPLETED
+    ):
+        audio_url = audio.audio.url
     return {
         'page_id': page.id,
         'page_number': page.page_number,
         'is_review_page': page.is_review_page,
-        'status': audio.status if audio else GraphicNovelPageAudio.Status.PENDING,
-        'audio_url': audio.audio.url if (audio and audio.audio) else '',
+        'status': audio_status,
+        'audio_url': audio_url,
         'duration_ms': audio.duration_ms if audio else 0,
         'error': audio.error if audio else '',
     }
@@ -1410,20 +1563,38 @@ def _run_novel_audio(novel_id, regenerate):
 
     Runs in a daemon thread so the request worker is freed during the slow TTS
     calls. Per-page terminal state is recorded on each GraphicNovelPageAudio row
-    for the frontend to poll.
+    for the frontend to poll. A novel-level failure (e.g. the voice director,
+    which runs before the per-page guards) marks every unfinished page FAILED
+    so the run surfaces as failed instead of silently PENDING/stuck RUNNING.
     """
-    from ..services.audiobook.generator import generate_novel_audio
+    from ..services.audiobook.generator import generate_novel_audio, _mark_failed
     from ..services.generation.helpers import _close_old_connections_if_safe
 
     _close_old_connections_if_safe()
     try:
-        generate_novel_audio(novel_id, regenerate=regenerate)
+        try:
+            generate_novel_audio(novel_id, regenerate=regenerate)
+        except Exception as exc:  # noqa: BLE001 - surface novel-level failure on the pages
+            for page in GraphicNovelPage.objects.filter(
+                novel_id=novel_id, is_review_page=False,
+            ):
+                audio = getattr(page, 'audio', None)
+                if audio is None or audio.status in (
+                    GraphicNovelPageAudio.Status.PENDING,
+                    GraphicNovelPageAudio.Status.RUNNING,
+                ):
+                    _mark_failed(page, exc)
     finally:
         _close_old_connections_if_safe()
 
 
 def _run_page_audio(page_id):
-    """Background worker: (re)generate read-along audio for a single page."""
+    """Background worker: (re)generate read-along audio for a single page.
+
+    The whole work section — voice-director call included — is guarded so any
+    failure lands on the page's audio row as FAILED instead of leaving it
+    RUNNING (which the views 409 against).
+    """
     from ..services.audiobook.generator import generate_page_audio, _mark_failed
     from ..services.audiobook.voice_director import direct_novel
     from ..services.generation.helpers import _close_old_connections_if_safe
@@ -1434,14 +1605,14 @@ def _run_page_audio(page_id):
             page = GraphicNovelPage.objects.select_related('novel').get(id=page_id)
         except GraphicNovelPage.DoesNotExist:
             return
-        # Load cached direction (no new LLM call if already cached on novel).
-        story_pages = list(
-            GraphicNovelPage.objects
-            .filter(novel=page.novel, is_review_page=False)
-            .order_by('page_number')
-        )
-        direction = direct_novel(page.novel, story_pages)
         try:
+            # Load cached direction (no new LLM call if already cached on novel).
+            story_pages = list(
+                GraphicNovelPage.objects
+                .filter(novel=page.novel, is_review_page=False)
+                .order_by('page_number')
+            )
+            direction = direct_novel(page.novel, story_pages)
             generate_page_audio(page, direction=direction)
         except Exception as exc:  # noqa: BLE001 - record failure for the admin to see
             _mark_failed(page, exc)
@@ -1455,7 +1626,11 @@ class GenerateGraphicNovelAudioView(APIView):
 
     Kick off read-along audio generation for every story page of a novel.
     Validates synchronously, then runs the slow TTS work in a background thread
-    (202 + poll `audio-status/`). 409 if a run is already in progress.
+    (202 + poll `audio-status/`). 400 unless the novel is the selected
+    (published) candidate — students only ever hear that one, so TTS spend on
+    losing candidates is wasted. 409 if a run is already in progress; the pages
+    due to run are marked RUNNING synchronously (under a row lock) before the
+    worker spawns, so a rapid second POST 409s instead of duplicating work.
     """
     permission_classes = [IsAuthenticated, IsAdmin]
 
@@ -1470,33 +1645,74 @@ class GenerateGraphicNovelAudioView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        pages = list(
-            GraphicNovelPage.objects
-            .filter(novel=novel, is_review_page=False)
-            .select_related('audio')
-            .order_by('page_number')
-        )
-        if not pages:
+        if not novel.is_selected:
             return Response(
-                {'error': 'This novel has no story pages to narrate.'},
+                {'error': 'Audio can only be generated for the selected (published) candidate.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if any(
-            getattr(p, 'audio', None)
-            and p.audio.status == GraphicNovelPageAudio.Status.RUNNING
-            for p in pages
-        ):
-            return Response(
-                {'error': 'Audio generation is already in progress for this novel.'},
-                status=status.HTTP_409_CONFLICT,
+        from ..services.audiobook.events import build_page_events
+
+        with transaction.atomic():
+            pages = list(
+                GraphicNovelPage.objects
+                .filter(novel=novel, is_review_page=False)
+                .select_for_update()
+                .order_by('page_number')
             )
+            if not pages:
+                return Response(
+                    {'error': 'This novel has no story pages to narrate.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            audio_by_page = {
+                row.page_id: row
+                for row in GraphicNovelPageAudio.objects.filter(page__in=pages)
+            }
+            if any(
+                row.status == GraphicNovelPageAudio.Status.RUNNING
+                for row in audio_by_page.values()
+            ):
+                return Response(
+                    {'error': 'Audio generation is already in progress for this novel.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+            # Claim the pages due to run. This mirrors the generator's skip
+            # rules (already-COMPLETED pages unless regenerate; pages with no
+            # spoken text) so only pages that will actually run are marked
+            # RUNNING — a claimed-but-skipped page would look stalled.
+            for page in pages:
+                audio = audio_by_page.get(page.id)
+                if (
+                    not regenerate and audio
+                    and audio.status == GraphicNovelPageAudio.Status.COMPLETED
+                    and audio.audio
+                ):
+                    continue
+                if not build_page_events(page):
+                    continue
+                if audio is None:
+                    audio = GraphicNovelPageAudio(page=page)
+                audio.status = GraphicNovelPageAudio.Status.RUNNING
+                audio.error = ''
+                audio.started_at = timezone.now()
+                audio.completed_at = None
+                audio.save()
 
         thread = threading.Thread(
             target=_run_novel_audio, args=(novel_id, regenerate), daemon=True,
         )
         thread.start()
 
+        # Re-read so the payload reflects the fresh RUNNING claims.
+        pages = list(
+            GraphicNovelPage.objects
+            .filter(novel=novel, is_review_page=False)
+            .select_related('audio')
+            .order_by('page_number')
+        )
         return Response(
             {
                 'novel_id': novel_id,
@@ -1513,6 +1729,9 @@ class RegenerateGraphicNovelPageAudioView(APIView):
 
     Re-run audio generation for a single page (e.g. after fixing a bad take).
     Async like the novel-level trigger; 409 if this page is already running.
+    400 for review pages — the novel-level run narrates story pages only.
+    The RUNNING claim happens synchronously under a row lock, before the
+    worker spawns, so a rapid second POST 409s instead of duplicating work.
     """
     permission_classes = [IsAuthenticated, IsAdmin]
 
@@ -1525,12 +1744,29 @@ class RegenerateGraphicNovelPageAudioView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        audio = getattr(page, 'audio', None)
-        if audio and audio.status == GraphicNovelPageAudio.Status.RUNNING:
+        if page.is_review_page:
             return Response(
-                {'error': 'Audio generation is already in progress for this page.'},
-                status=status.HTTP_409_CONFLICT,
+                {'error': 'Review pages are not narrated.'},
+                status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Claim the page atomically: the RUNNING check-and-set must be one
+        # locked unit, or two rapid POSTs both pass the check.
+        with transaction.atomic():
+            page = GraphicNovelPage.objects.select_for_update().get(id=page_id)
+            audio = getattr(page, 'audio', None)
+            if audio and audio.status == GraphicNovelPageAudio.Status.RUNNING:
+                return Response(
+                    {'error': 'Audio generation is already in progress for this page.'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if audio is None:
+                audio = GraphicNovelPageAudio(page=page)
+            audio.status = GraphicNovelPageAudio.Status.RUNNING
+            audio.error = ''
+            audio.started_at = timezone.now()
+            audio.completed_at = None
+            audio.save()
 
         thread = threading.Thread(target=_run_page_audio, args=(page_id,), daemon=True)
         thread.start()
@@ -1556,6 +1792,21 @@ class GraphicNovelAudioStatusView(APIView):
                 {'error': 'Graphic novel not found.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
+
+        # Daemon workers die with every `systemctl restart vocab`, orphaning
+        # RUNNING rows; sweep them here or the novel is bricked behind the 409
+        # guard forever. Every RUNNING claim sets started_at, so it anchors the
+        # run (updated_at could move for unrelated saves).
+        GraphicNovelPageAudio.objects.filter(
+            page__novel_id=novel_id,
+            status=GraphicNovelPageAudio.Status.RUNNING,
+            started_at__lt=timezone.now() - timedelta(seconds=STALE_JOB_THRESHOLD_SECONDS),
+        ).update(
+            status=GraphicNovelPageAudio.Status.FAILED,
+            error='Audio generation stalled — the worker died mid-run. Retry the operation.',
+            completed_at=timezone.now(),
+        )
+
         pages = (
             GraphicNovelPage.objects
             .filter(novel_id=novel_id, is_review_page=False)
@@ -1675,6 +1926,10 @@ class WordSetContentView(APIView):
                 'options': q.options,
                 'correct_answers': q.correct_answers,
                 'explanation': q.explanation,
+                'qa_flags': q.qa_flags,
+                'difficulty_index': q.difficulty_index,
+                'discrimination_index': q.discrimination_index,
+                'is_serve_excluded': q.is_serve_excluded,
             }
             for q in questions
         ]
@@ -1700,3 +1955,34 @@ class WordSetContentView(APIView):
             )
 
         return _immutable_word_set_response()
+
+
+class FlagQuestionView(APIView):
+    """POST /api/questions/{id}/flag/ — admin flag-to-hide toggle.
+
+    Flips ``is_serve_excluded`` (never serves the question in practice). This
+    is metadata, not content mutation — word-set immutability is unaffected
+    and the question row is preserved.
+    """
+    permission_classes = [IsAuthenticated, IsAdmin]
+
+    def post(self, request, question_id):
+        flagged = request.data.get('flagged')
+        if not isinstance(flagged, bool):
+            return Response(
+                {'error': 'flagged must be a boolean.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            question = Question.objects.get(id=question_id)
+        except Question.DoesNotExist:
+            return Response(
+                {'error': 'Question not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        question.is_serve_excluded = flagged
+        question.save(update_fields=['is_serve_excluded', 'updated_at'])
+        return Response({
+            'id': question.id,
+            'is_serve_excluded': question.is_serve_excluded,
+        })

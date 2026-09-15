@@ -5,6 +5,7 @@ ADMIN role now also has access in addition to TEACHER.
 from rest_framework import viewsets, permissions
 
 from users.models import StudentGroup, CustomUser
+from ..permissions import IsTeacherOrAdmin
 from ..serializers import StudentGroupSerializer, StudentGroupFormSerializer
 
 
@@ -15,7 +16,9 @@ class IsTeacherOwner(permissions.BasePermission):
 
 
 class StudentGroupViewSet(viewsets.ModelViewSet):
-    permission_classes = [permissions.IsAuthenticated, IsTeacherOwner]
+    # IsTeacherOwner is object-level only (never checked on create), so the
+    # viewset also needs a role check to keep students from creating groups.
+    permission_classes = [permissions.IsAuthenticated, IsTeacherOrAdmin, IsTeacherOwner]
 
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:

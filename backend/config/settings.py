@@ -120,6 +120,11 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    # Trust exactly one proxy: prod nginx appends the real client IP as the
+    # last X-Forwarded-For entry. Without this, DRF keys throttle caches (e.g.
+    # LoginRateThrottle) on the whole client-supplied XFF string, which is
+    # spoofable. NUM_PROXIES=1 makes DRF use the last entry instead.
+    'NUM_PROXIES': 1,
 }
 
 # =============================================================================
@@ -179,9 +184,15 @@ QWEN_EMBEDDING_DIMENSIONS = env.int('QWEN_EMBEDDING_DIMENSIONS', default=1024)
 # =============================================================================
 # GENERATION PIPELINE CONFIG
 # =============================================================================
-EMBEDDING_SIMILARITY_THRESHOLD = 0.92
+EMBEDDING_SIMILARITY_THRESHOLD = 0.9
 GENERATION_WORDS_PER_PACK = 6
 GENERATION_DEFAULT_LEXILE = 650
+# Cross-wordset content reuse: when a generation job's dedup step attaches a
+# word that a prior job already generated word-level content for (questions,
+# sentence-write tasks, primer), that content is reused instead of regenerated
+# as long as the authoring job's content Lexile (target_lexile x 0.85) is
+# within +/- this fraction of the new job's content Lexile.
+CONTENT_REUSE_LEXILE_TOLERANCE = 0.15
 GENERATION_QUESTION_TYPES = [
     'DEFINITION_MC_SINGLE',
     'DEFINITION_TRUE_FALSE',

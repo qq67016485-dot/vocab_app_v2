@@ -260,6 +260,93 @@ class TestVoiceDirectorEventsPayload:
         assert 'gender' not in toby
 
 
+class TestVoiceDirectorCache:
+    """The cached direction is only valid for the exact script it was computed
+    from — a stale hash must re-run the LLM, not misalign positional tags."""
+
+    def _novel_and_pages(self):
+        novel = _make_novel()
+        page = _make_page([{
+            'panel_number': 1,
+            'narration': 'A quiet street.',
+            'dialogue': [],
+            'vocab_words': [],
+        }])
+        page.novel = novel
+        return novel, [page]
+
+    def test_cache_hit_skips_llm(self):
+        from vocabulary.services.audiobook.voice_director import (
+            _build_events_payload, _events_hash, direct_novel,
+        )
+        novel, pages = self._novel_and_pages()
+        payload = _build_events_payload(pages, novel)
+        novel.metadata['voice_director'] = {
+            'events_hash': _events_hash(payload),
+            'result': {
+                'character_profiles': {'narrator': '# PROFILE'},
+                'directed_events': [
+                    {'page_number': 1, 'event_index': 0, 'directed_text': 'Hi.'},
+                ],
+            },
+        }
+        with patch(
+            'vocabulary.services.audiobook.voice_director._call_llm_with_config',
+        ) as mock_llm:
+            direction = direct_novel(novel, pages)
+        mock_llm.assert_not_called()
+        assert direction['character_profiles'] == {'narrator': '# PROFILE'}
+        assert direction['directed_index'] == {(1, 0): 'Hi.'}
+
+    def test_stale_hash_redirects(self):
+        from vocabulary.services.audiobook.voice_director import direct_novel
+        novel, pages = self._novel_and_pages()
+        novel.metadata['voice_director'] = {
+            'events_hash': 'stale-hash-from-an-older-script',
+            'result': {'character_profiles': {'old': '# OLD'}, 'directed_events': []},
+        }
+        new_result = {
+            'character_profiles': {'narrator': '# NEW'},
+            'directed_events': [
+                {'page_number': 1, 'event_index': 0, 'directed_text': 'New line.'},
+            ],
+        }
+        with patch(
+            'vocabulary.services.audiobook.voice_director.get_step_config',
+            return_value={'primary': {'model': 'm'}},
+        ), patch(
+            'vocabulary.services.audiobook.voice_director._call_llm_with_config',
+            return_value=new_result,
+        ) as mock_llm:
+            direction = direct_novel(novel, pages)
+        mock_llm.assert_called_once()
+        assert direction['character_profiles'] == {'narrator': '# NEW'}
+        # The fresh result replaces the stale cache (old profiles are gone).
+        assert 'old' not in novel.metadata['voice_director']['result']
+        assert novel.metadata['voice_director']['events_hash'] != (
+            'stale-hash-from-an-older-script'
+        )
+
+    def test_pre_hash_legacy_cache_redirects(self):
+        """Novels cached before the hash existed hold a bare result dict; that
+        must miss the cache (re-direct) rather than be trusted blindly."""
+        from vocabulary.services.audiobook.voice_director import direct_novel
+        novel, pages = self._novel_and_pages()
+        novel.metadata['voice_director'] = {
+            'character_profiles': {'old': '# OLD'},
+            'directed_events': [],
+        }
+        with patch(
+            'vocabulary.services.audiobook.voice_director.get_step_config',
+            return_value={'primary': {'model': 'm'}},
+        ), patch(
+            'vocabulary.services.audiobook.voice_director._call_llm_with_config',
+            return_value={'character_profiles': {}, 'directed_events': []},
+        ) as mock_llm:
+            direct_novel(novel, pages)
+        mock_llm.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # stitch.py
 # ---------------------------------------------------------------------------
@@ -279,7 +366,7 @@ class TestStitchPcm:
 
     def test_stitch_duration_matches_wav_header(self):
         clip = _short_pcm()
-        wav_bytes, dur = stitch_pcm([(clip, 0)])
+        wav_bytes, dur = stitch_pcm([(clip, 0, 24000)])
         buf = io.BytesIO(wav_bytes)
         with wave.open(buf, 'rb') as w:
             assert w.getnframes() > 0
@@ -288,13 +375,32 @@ class TestStitchPcm:
 
     def test_pause_adds_frames(self):
         clip = _short_pcm(duration_ms=10)
-        _, dur_no_pause = stitch_pcm([(clip, 0)])
-        _, dur_with_pause = stitch_pcm([(clip, 500)])
+        _, dur_no_pause = stitch_pcm([(clip, 0, 24000)])
+        _, dur_with_pause = stitch_pcm([(clip, 500, 24000)])
         assert dur_with_pause > dur_no_pause
 
     def test_none_clip_skipped(self):
-        _, dur = stitch_pcm([(None, 200)])
+        _, dur = stitch_pcm([(None, 200, 24000)])
         assert dur == 200
+
+    def test_mismatched_sample_rate_raises(self):
+        """A rate mismatch must fail loudly — splicing it would stamp the whole
+        WAV with one rate and play every clip at the wrong speed."""
+        with pytest.raises(ValueError, match='does not match'):
+            stitch_pcm([
+                (_short_pcm(sample_rate=24000), 0, 24000),
+                (_short_pcm(sample_rate=16000), 0, 16000),
+            ])
+
+    def test_misaligned_clip_bytes_raises(self):
+        """Clip bytes must be a whole number of 16-bit mono frames."""
+        with pytest.raises(ValueError, match='whole number'):
+            stitch_pcm([(b'\x00\x00\x00', 0, 24000)])
+
+    def test_non_16bit_format_raises(self):
+        """encode.py (lameenc) consumes 16-bit PCM only."""
+        with pytest.raises(ValueError, match='16-bit'):
+            stitch_pcm([(_short_pcm(sample_width=1), 0, 24000)], sample_width=1)
 
 
 # ---------------------------------------------------------------------------
@@ -305,7 +411,7 @@ class TestWavToMp3:
     def test_encodes_to_mp3_and_shrinks(self):
         from vocabulary.services.audiobook.encode import wav_bytes_to_mp3_bytes
         # ~1s of silence is enough for the MP3 frame header to appear.
-        wav_bytes, _ = stitch_pcm([(_short_pcm(duration_ms=1000), 0)])
+        wav_bytes, _ = stitch_pcm([(_short_pcm(duration_ms=1000), 0, 24000)])
         mp3_bytes = wav_bytes_to_mp3_bytes(wav_bytes)
         assert mp3_bytes
         # MP3 frame sync word (0xFFE) or an ID3 tag at the start.
@@ -342,7 +448,8 @@ def novel_with_pages(db):
         WordPackFactory, GraphicNovelFactory, GraphicNovelPageFactory,
     )
     pack = WordPackFactory()
-    novel = GraphicNovelFactory(pack=pack)
+    # Audio generation is gated on the novel being the published candidate.
+    novel = GraphicNovelFactory(pack=pack, is_selected=True)
     pages = [
         GraphicNovelPageFactory(
             novel=novel,

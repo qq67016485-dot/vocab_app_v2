@@ -37,11 +37,14 @@ export default function GraphicNovelPageEditor({ page, audioUrl, audioStatus, au
   }, [zoomed]);
 
   // Stop polling if the card unmounts mid-edit.
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+  useEffect(() => () => { if (pollRef.current) clearTimeout(pollRef.current); }, []);
 
   const applyResult = (data) => {
+    // Only send the fresh fields — the parent merges them onto its latest copy
+    // of the page, so mid-poll updates from elsewhere are never clobbered by a
+    // stale `page` captured when the poll started.
     onUpdated({
-      ...page,
+      id: page.id,
       ...data,
       image_url: bust(data.image_url),
       edited_image_url: bust(data.edited_image_url),
@@ -50,31 +53,36 @@ export default function GraphicNovelPageEditor({ page, audioUrl, audioStatus, au
 
   // Poll image-status/ until the background image op finishes, then apply the
   // result. Shared by the edit and redraw flows (both run async on the server).
+  // Recursive setTimeout chained after each response — a setInterval with an
+  // async callback can overlap requests when one response is slow.
   const pollUntilDone = () => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(async () => {
+    if (pollRef.current) clearTimeout(pollRef.current);
+    const tick = async () => {
       try {
         const poll = await apiClient.get(`/graphic-novel-pages/${page.id}/image-status/`);
         const data = poll.data;
         if (data.generation_status === 'COMPLETED') {
-          clearInterval(pollRef.current);
           pollRef.current = null;
           applyResult(data);
           setPreview('edited');
           setBusy(false);
-        } else if (data.generation_status === 'FAILED') {
-          clearInterval(pollRef.current);
+          return;
+        }
+        if (data.generation_status === 'FAILED') {
           pollRef.current = null;
           setError(data.generation_error || 'Image generation failed. Try again.');
           setBusy(false);
+          return;
         }
       } catch {
-        clearInterval(pollRef.current);
         pollRef.current = null;
         setError('Lost track of the image. Refresh to see the result.');
         setBusy(false);
+        return;
       }
-    }, EDIT_POLL_INTERVAL);
+      pollRef.current = setTimeout(tick, EDIT_POLL_INTERVAL);
+    };
+    pollRef.current = setTimeout(tick, EDIT_POLL_INTERVAL);
   };
 
   const submitEdit = async () => {

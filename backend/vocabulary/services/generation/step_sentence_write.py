@@ -23,6 +23,9 @@ from vocabulary.constants import QUESTION_TYPE_LEVEL
 from vocabulary.services.generation.constants import (
     SENTENCE_WRITE_BATCH_SIZE, SENTENCE_WRITE_GUIDED_ONLY_MAX_LEXILE,
 )
+from vocabulary.services.generation.content_reuse import (
+    find_reusable_sentence_write_words,
+)
 from vocabulary.services.generation.helpers import (
     _content_lexile, _log_step, _call_llm_with_config,
 )
@@ -38,11 +41,16 @@ _VARIANTS = [
 ]
 
 
-def _step_generate_sentence_write(job, words, words_data, site_config=None):
+def _step_generate_sentence_write(job, words, words_data, site_config=None, allow_reuse=True):
     """Generate the two sentence-writing questions per word.
 
     ``site_config`` is the ``sentence_write_gen`` primary config; the orchestrator
     supplies it and the retry/fallback plan.
+
+    Cross-wordset reuse (``allow_reuse``): a word with sentence-write tasks from
+    a prior job inside the Lexile reuse window AND in the same variant mode
+    (guided-only vs guided+open) is skipped. Restart passes ``False`` so an
+    explicit rerun always regenerates.
     """
     if site_config is None:
         from vocabulary.services.generation.llm_config_service import get_step_config
@@ -58,6 +66,10 @@ def _step_generate_sentence_write(job, words, words_data, site_config=None):
         mastery_levels = {ml.level_id: ml for ml in MasteryLevel.objects.all()}
         open_level_num = QUESTION_TYPE_LEVEL.get(
             Question.QuestionType.SENTENCE_WRITE_OPEN
+        )
+        reusable_by_type = (
+            find_reusable_sentence_write_words(words, target_lexile, guided_only)
+            if allow_reuse else {}
         )
 
         word_list = [
@@ -94,11 +106,15 @@ def _step_generate_sentence_write(job, words, words_data, site_config=None):
             ):
                 task_levels.append(mastery_levels[open_level_num])
 
-            # Words that already have this variant for this job (resume skip).
+            # Words that already have this variant: for this job (resume skip)
+            # or from a prior in-window same-mode job (cross-wordset reuse).
             completed_word_ids = set(
                 Question.objects.filter(
                     generation_job=job, question_type=q_type,
                 ).values_list('word_id', flat=True).distinct()
+            )
+            covered_word_ids = (
+                completed_word_ids | reusable_by_type.get(q_type, set())
             )
 
             batches = [
@@ -109,11 +125,15 @@ def _step_generate_sentence_write(job, words, words_data, site_config=None):
             for batch_idx, batch in enumerate(batches, 1):
                 total_batches += 1
                 batch_terms = [w['term'] for w in batch]
-                batch_word_ids = {
-                    word_map[t.lower()].id for t in batch_terms if t.lower() in word_map
-                }
 
-                if batch_word_ids and batch_word_ids.issubset(completed_word_ids):
+                # Only send words not already done (a batch may mix covered
+                # and uncovered words).
+                pending = [
+                    w for w in batch
+                    if word_map.get(w['term'].lower())
+                    and word_map[w['term'].lower()].id not in covered_word_ids
+                ]
+                if not pending:
                     skipped_batches += 1
                     logger.info(
                         "Sentence-write %s batch %d already complete; skipping: %s",
@@ -121,29 +141,27 @@ def _step_generate_sentence_write(job, words, words_data, site_config=None):
                     )
                     continue
 
-                # Clear a partial prior attempt for these words before regenerating.
-                partial_word_ids = batch_word_ids & completed_word_ids
-                if partial_word_ids:
-                    Question.objects.filter(
-                        generation_job=job, question_type=q_type,
-                        word_id__in=partial_word_ids,
-                    ).delete()
-
-                # Only send words not already done (a partial batch may mix).
-                pending = [
-                    w for w in batch
-                    if word_map.get(w['term'].lower())
-                    and word_map[w['term'].lower()].id not in (
-                        completed_word_ids - partial_word_ids
-                    )
-                ]
-                if not pending:
-                    skipped_batches += 1
-                    continue
-
+                # The open call also receives each word's guided scenario so
+                # the LLM designs a clearly different open task — the variants
+                # are separate calls and would otherwise risk near-duplicate
+                # scenarios for the same word.
+                payload = pending
+                if q_type == Question.QuestionType.SENTENCE_WRITE_OPEN:
+                    guided_scenarios = _guided_scenarios_by_word_id([
+                        word_map[w['term'].lower()].id for w in pending
+                    ])
+                    payload = [
+                        dict(
+                            w,
+                            guided_scenario=guided_scenarios.get(
+                                word_map[w['term'].lower()].id, '',
+                            ),
+                        )
+                        for w in pending
+                    ]
                 input_json = json.dumps({
                     'target_lexile_level': target_lexile,
-                    'words': pending,
+                    'words': payload,
                 }, indent=2)
 
                 logger.info(
@@ -183,6 +201,8 @@ def _step_generate_sentence_write(job, words, words_data, site_config=None):
                 'sentence_questions_created': created_count,
                 'batches': total_batches,
                 'batches_skipped': skipped_batches,
+                'words_reused': len(set().union(*reusable_by_type.values()))
+                if reusable_by_type else 0,
             },
         )
 
@@ -195,6 +215,29 @@ def _step_generate_sentence_write(job, words, words_data, site_config=None):
             error_message=str(exc),
         )
         raise
+
+
+def _guided_scenarios_by_word_id(word_ids):
+    """Return ``{word_id: guided scenario text}`` for the given words.
+
+    Feeds the OPEN variant's LLM call so its scenario can differ from the
+    guided task's. Rows newest-first per word: this run's freshly generated
+    guided rows win; a word whose guided task came from resume/reuse falls
+    back to the latest existing row (what practice pooling would serve).
+    """
+    scenarios = {}
+    latest_first = (
+        Question.objects
+        .filter(
+            word_id__in=word_ids,
+            question_type=Question.QuestionType.SENTENCE_WRITE_GUIDED,
+        )
+        .order_by('-id')
+    )
+    for q in latest_first:
+        if q.word_id not in scenarios:
+            scenarios[q.word_id] = q.question_text
+    return scenarios
 
 
 def _persist_tasks(job, q_type, tasks, word_map, mastery_levels_to_add, target_lexile):

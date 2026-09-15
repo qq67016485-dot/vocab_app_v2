@@ -107,7 +107,14 @@ def _clear_testing_outputs_for_step(job, step, words):
         ).delete()
 
     elif step == S.QUESTION_GEN:
-        Question.objects.filter(generation_job=job).delete()
+        # Sentence-write questions are owned by SENTENCE_WRITE_GEN (its branch
+        # below clears them); a solo QUESTION_GEN rerun must not wipe them.
+        Question.objects.filter(generation_job=job).exclude(
+            question_type__in=[
+                Question.QuestionType.SENTENCE_WRITE_GUIDED,
+                Question.QuestionType.SENTENCE_WRITE_OPEN,
+            ],
+        ).delete()
         job.questions_created = 0
         job.save(update_fields=['questions_created'])
 
@@ -142,10 +149,12 @@ def _clear_testing_outputs_for_step(job, step, words):
 
     elif step == S.GRAPHIC_NOVEL_SCRIPT:
         packs = WordPack.objects.filter(word_set=job.word_set)
-        GraphicNovel.objects.filter(pack__in=packs).delete()
-        ClozeItem.objects.filter(pack__in=packs).delete()
-        job.graphic_novels_created = 0
-        job.cloze_items_created = 0
+        # Never delete a published (selected) candidate, and leave the pack's
+        # promoted cloze (both FKs NULL) alone — only staged cloze cascades
+        # with its candidate. Mirrors the INFOGRAPHIC_DESIGN branch below.
+        GraphicNovel.objects.filter(pack__in=packs, is_selected=False).delete()
+        job.graphic_novels_created = GraphicNovel.objects.filter(pack__in=packs).count()
+        job.cloze_items_created = ClozeItem.objects.filter(pack__in=packs).count()
         job.save(update_fields=['graphic_novels_created', 'cloze_items_created'])
 
     elif step == S.GRAPHIC_NOVEL_IMAGES:
@@ -161,16 +170,21 @@ def _clear_testing_outputs_for_step(job, step, words):
 
     elif step == S.INFOGRAPHIC_DESIGN:
         packs = WordPack.objects.filter(word_set=job.word_set)
-        # Drop staged infographic cloze + the infographics themselves; the pack's
-        # promoted cloze (both FKs NULL) is left untouched.
-        Infographic.objects.filter(pack__in=packs).delete()
-        job.infographics_created = 0
-        job.save(update_fields=['infographics_created'])
+        # Never delete a published (selected) candidate, and leave the pack's
+        # promoted cloze (both FKs NULL) alone — only staged cloze cascades
+        # with its candidate. Mirrors the GRAPHIC_NOVEL_SCRIPT branch above.
+        Infographic.objects.filter(pack__in=packs, is_selected=False).delete()
+        job.infographics_created = Infographic.objects.filter(pack__in=packs).count()
+        job.cloze_items_created = ClozeItem.objects.filter(pack__in=packs).count()
+        job.save(update_fields=['infographics_created', 'cloze_items_created'])
 
     elif step == S.INFOGRAPHIC_IMAGE:
         packs = WordPack.objects.filter(word_set=job.word_set)
+        # Reset the JPEG companion too — student_image prefers image_jpeg, so a
+        # stale JPEG would otherwise keep being served in the clear→re-render
+        # window.
         Infographic.objects.filter(pack__in=packs).update(
-            image='', prompt_used='',
+            image='', image_jpeg='', prompt_used='',
             generation_status=Infographic.GenerationStatus.PENDING,
             generation_attempts=0,
             generation_error='',
@@ -259,8 +273,14 @@ def _step_content_type(step):
     return None
 
 
-def _run_step(job, step, words, words_data, packs):
-    """Dispatch a single pipeline step with one retry, then fallback model."""
+def _run_step(job, step, words, words_data, packs, allow_reuse=True):
+    """Dispatch a single pipeline step with one retry, then fallback model.
+
+    ``allow_reuse=False`` forces the word-level steps to regenerate even when a
+    prior in-window job's content could be reused — used by the manual
+    testing restart, whose clear only removes this job's rows, so reuse would
+    otherwise silently defeat the rerun.
+    """
     S = GenerationJobLog.Step
 
     # Skip a content-type's steps when the job didn't request that type.
@@ -308,7 +328,8 @@ def _run_step(job, step, words, words_data, packs):
         ]
         for attempt_number, site_config in enumerate(attempts, 1):
             try:
-                return _execute_step(job, step, words, words_data, packs, S, site_config=site_config)
+                return _execute_step(job, step, words, words_data, packs, S,
+                                     site_config=site_config, allow_reuse=allow_reuse)
             except Exception as exc:
                 if attempt_number == len(attempts):
                     raise
@@ -329,7 +350,8 @@ def _run_step(job, step, words, words_data, packs):
         return _execute_step(job, step, words, words_data, packs, S)
 
 
-def _execute_step(job, step, words, words_data, packs, S, site_config=None, model=None):
+def _execute_step(job, step, words, words_data, packs, S, site_config=None, model=None,
+                  allow_reuse=True):
     if step == S.WORD_LOOKUP:
         words_data = _step_word_lookup(job, site_config)
     elif step == S.DEDUP:
@@ -338,15 +360,19 @@ def _execute_step(job, step, words, words_data, packs, S, site_config=None, mode
         if snapshots:
             words_data = _snapshots_to_words_data(snapshots)
     elif step == S.TRANSLATION:
-        _step_generate_translations(job, words, words_data, site_config)
+        _step_generate_translations(job, words, words_data, site_config,
+                                    allow_reuse=allow_reuse)
     elif step == S.QUESTION_GEN:
-        _step_generate_questions(job, words, words_data, site_config)
+        _step_generate_questions(job, words, words_data, site_config,
+                                 allow_reuse=allow_reuse)
     elif step == S.SENTENCE_WRITE_GEN:
-        _step_generate_sentence_write(job, words, words_data, site_config)
+        _step_generate_sentence_write(job, words, words_data, site_config,
+                                      allow_reuse=allow_reuse)
     elif step == S.PACK_CREATION:
         packs = _step_auto_create_packs(job, words, words_data, site_config)
     elif step == S.PRIMER_GEN:
-        _step_generate_primers(job, words, words_data, site_config)
+        _step_generate_primers(job, words, words_data, site_config,
+                               allow_reuse=allow_reuse)
     elif step == S.GRAPHIC_NOVEL_SCRIPT:
         _step_graphic_novel_script(job, packs, words_data)
     elif step == S.GRAPHIC_NOVEL_IMAGES:
@@ -500,6 +526,16 @@ def restart_pipeline_from_step(job_id, start_step, include_subsequent=True):
         words, words_data, packs = _reconstruct_context(job)
         _clear_testing_outputs(job, steps, words)
 
+        # Roll last_completed_step back to the step before the restart range:
+        # if the first restarted step then fails, resume_pipeline must rerun
+        # from start_step — not compute remaining steps from the stale
+        # pre-restart value (often INFOGRAPHIC_IMAGE) and mark the gutted job
+        # COMPLETED.
+        job.last_completed_step = (
+            PIPELINE_STEP_ORDER[start_idx - 1] if start_idx > 0 else ''
+        )
+        job.save(update_fields=['last_completed_step'])
+
         if start_step == GenerationJobLog.Step.WORD_LOOKUP:
             words, words_data, packs = [], [], []
         elif start_step == GenerationJobLog.Step.DEDUP:
@@ -519,8 +555,11 @@ def restart_pipeline_from_step(job_id, start_step, include_subsequent=True):
         )
 
         for step in steps:
+            # A manual testing restart must actually regenerate: the clear only
+            # removes this job's rows, so cross-wordset reuse would skip words
+            # covered by other jobs and silently defeat the rerun.
             words, words_data, packs = _run_step(
-                job, step, words, words_data, packs,
+                job, step, words, words_data, packs, allow_reuse=False,
             )
             job.last_completed_step = step
             job.save(update_fields=['last_completed_step'])

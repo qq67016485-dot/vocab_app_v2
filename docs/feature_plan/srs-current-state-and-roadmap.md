@@ -2,7 +2,9 @@
 
 > Companion to `design-adaptive-spaced-repetition.md`. That document is the **design intent**; this one records what is **actually in the code today** (verified against the source on 2026-06-04) and lays out the realistic path forward, including the Penn GSE capstone direction.
 
-> **Capstone-scope update (2026-06-29).** Revised while preparing the mentor overview for Dr. Yang Jiang (ETS). Key changes from the 2026-06-23 plan: (1) **placement / cold-start (Track E) is CUT** from the capstone — assigned word sets + the self-correcting scheduler make it redundant, and a homogeneous Asian-L1 early audience removes the fairness hook that made it interesting (§3.5). (2) The **learner simulator is built AFTER Track C + D**, seeded from the fitted system, not first (§3.6). (3) The **interval-selection-bias** caveat is refined — the natural review backlog already gives *late* Δt variance, so the fix is a small *early-weighted* jitter, not all-artificial variance (§3.4). (4) **Data scale** is growing toward ~20 learners / ~20k responses, rolling enrollment (§3.6). (5) The **DKT rejection** now leads with data scale; "DKT can't model time" is corrected as overstated (§4).
+> **Capstone-scope update (2026-06-29).** Revised while preparing the mentor overview for Dr. Yang Jiang (ETS). Key changes from the 2026-06-23 plan: (1) **placement / cold-start (Track E) is CUT** from the capstone — assigned word sets + the self-correcting scheduler make it redundant, and a homogeneous Asian-L1 early audience removes the fairness hook that made it interesting (§3.5). (2) The **learner simulator is built AFTER Track C + D**, seeded from the fitted system, not first (§3.6). (3) The **interval-selection-bias** caveat is refined — the natural review backlog already gives *late* Δt variance, so the fix is a small bounded jitter, not all-artificial variance (§3.4; jitter spec since superseded, see below). (4) **Data scale** is growing toward ~20 learners / ~20k responses, rolling enrollment (§3.6). (5) The **DKT rejection** now leads with data scale; "DKT can't model time" is corrected as overstated (§4).
+
+> **Implementation-plan update (2026-09-10).** §1 refreshed for what shipped since the 2026-06-04 verification: the sentence-writing productive quality classes (2026-07-01) and the practice instrumentation logs (`SchedulingDecision`, `TypoAttempt` — migration `0042`, 2026-08-27); stale `practice_service.py` line refs corrected. The Track D jitter spec below is **superseded** — the pre-specified additive draw, shadow-mode build order, consent, guardrails, and stopping rules now live in `plan-shadow-mode-and-interval-jitter.md` (same directory). Retention target is decided: **r = 0.85** (matches the app's observed ~84–86% operating accuracy; see `FSRS_test/SCHEDULER-DESIGN-NOTES.md` §2.1).
 
 ## How to read this doc
 
@@ -32,13 +34,13 @@ There is **no priority weighting, no overdue-penalty, no interleaving** beyond "
 
 ### 1.2 Scheduling — `PracticeService.process_answer`
 
-`backend/vocabulary/services/practice_service.py:251`
+`backend/vocabulary/services/practice_service.py:311` *(line refs refreshed 2026-09-10)*
 
 On every **non-retry** answer, the service:
 
-1. **Classifies response quality** (`_classify_response_quality`, `practice_service.py:197`).
-2. **Updates mastery points** (+1 correct / −2 incorrect, floored at 0) and promotes/demotes against `points_to_promote`. `practice_service.py:318`
-3. **Updates `learning_speed`** via EWMA: `learning_speed = 0.3 * quality + 0.7 * old_speed` (`ALPHA = 0.3`). `practice_service.py:358`
+1. **Classifies response quality** (`_classify_response_quality`, `practice_service.py:246`). Sentence-writing answers skip timing classification and take their class from the LLM judge's terminal outcome.
+2. **Updates mastery points** (+1 correct / −2 incorrect, floored at 0; **−1 and never a demotion for a failed sentence-write**) and promotes/demotes against `points_to_promote`. `practice_service.py:453-483`
+3. **Updates `learning_speed`** via EWMA: `learning_speed = 0.3 * quality + 0.7 * old_speed` (`ALPHA = 0.3`). `practice_service.py:506`
 4. **Computes the next interval**:
    ```
    adaptive_days = level.interval_days * learning_speed * interval_factor
@@ -46,11 +48,11 @@ On every **non-retry** answer, the service:
    review_interval_days = max(1.0, adaptive_days)
    next_review_at = now + timedelta(days=review_interval_days)
    ```
-   `practice_service.py:363`
+   `practice_service.py:511-526`
 
-Constants (`practice_service.py:31`): `MIN_TIMING_BASELINE_SAMPLES=15`, `TIMING_BASELINE_LIMIT=50`, valid duration window `1 < s < 100`, `MIN_REVIEW_INTERVAL_DAYS=1.0`, `ALPHA=0.3`.
+Constants (`practice_service.py:44-51`): `MIN_TIMING_BASELINE_SAMPLES=15`, `TIMING_BASELINE_LIMIT=50`, valid duration window `1 < s < 100`, `MIN_REVIEW_INTERVAL_DAYS=1.0`, `ALPHA=0.3`.
 
-Response-quality table (`RESPONSE_QUALITY_RULES`, `practice_service.py:38`) — **matches the design doc §1 exactly**:
+Response-quality table (`RESPONSE_QUALITY_RULES`, `practice_service.py:54-117`) — the seven auto-graded classes **match the design doc §1 exactly**; the three productive classes (sentence-writing, since 2026-07-01) extend it:
 
 | Quality | quality | interval_factor | fragile |
 |---|---:|---:|:--:|
@@ -61,10 +63,13 @@ Response-quality table (`RESPONSE_QUALITY_RULES`, `practice_service.py:38`) — 
 | `typo_retry_correct` | 0.90 | 0.85 | yes |
 | `incorrect` | 0.50 | 0.50 | yes |
 | `unclassified_correct` | 1.20 | 1.00 | no |
+| `productive_correct` | 1.10 | 1.00 | no |
+| `productive_recovered` | 0.90 | 0.85 | yes |
+| `productive_missed` | 0.60 | 0.60 | yes |
 
-Timing baseline: per-learner, per-`question_type`, latest 50 valid first-attempt durations; needs ≥15 samples or the answer falls back to `unclassified_correct`. Fast/slow = 25th/80th percentile (`_get_timing_baseline`, `_percentile`, `practice_service.py:156`). Since 2026-07-03 the computed baseline is cached per (user, question_type) for 10 min (`TIMING_BASELINE_CACHE_TTL`) — a perf change only, but note for analytics that a submit may be classified against a baseline up to 10 min stale. When multiple correct signals apply, the **most conservative** (lowest quality, then lowest factor) wins. `practice_service.py:240`
+Timing baseline: per-learner, per-`question_type`, latest 50 valid first-attempt durations; needs ≥15 samples or the answer falls back to `unclassified_correct`. Fast/slow = 25th/80th percentile (`_get_timing_baseline`, `_percentile`, `practice_service.py:212`). Since 2026-07-03 the computed baseline is cached per (user, question_type) for 10 min (`TIMING_BASELINE_CACHE_TTL`) — a perf change only, but note for analytics that a submit may be classified against a baseline up to 10 min stale. When multiple correct signals apply, the **most conservative** (lowest quality, then lowest factor) wins. `practice_service.py:299-305`
 
-Retries (`is_retry=True`) only bump `retry_count` and never touch mastery, XP, `learning_speed`, or the schedule. `practice_service.py:400`
+Retries (`is_retry=True`) only bump `retry_count` and never touch mastery, XP, `learning_speed`, or the schedule. `practice_service.py:576-590`
 
 ### 1.3 Mastery schedule (`MasteryLevel`)
 
@@ -87,7 +92,9 @@ Points accumulate (not reset on promotion). Levels 6–7 roll into the student-f
 - `UserWordProgress`: `level`, `mastery_points`, `next_review_at` (DateTime), `last_reviewed_at`, `learning_speed`, `instructional_status`. Indexed `(user, next_review_at)` and `(user, instructional_status, next_review_at)` (migration `0040`, 2026-07-03; replaced the old `(user, instructional_status)`). `models.py:121`
 - `UserAnswer`: `is_correct`, `duration_seconds`, `answer_switches`, `retry_count`, `answered_at`, `judge_result` (JSON, sentence-writing judge verdicts — an item-quality signal for productive tasks). Indexed `(user, answered_at)`, `(user, is_correct)`, `(question, answered_at)`. Note: before 2026-07-03 a retry incremented `retry_count` on *every* historical answer for that user+question (Django `.update()` ignores `order_by`), so pre-fix `retry_count` values are inflated — treat them as unreliable in offline analysis.
 - `MasteryLevelLog`: full promote/demote trajectory per user-word.
-- `Question.difficulty_index` / `discrimination_index`: fields **exist** (`models.py:219`) but are **never written anywhere** in the backend — confirmed by grep (no assignment outside migrations).
+- **`SchedulingDecision`** (migration `0042`, 2026-08-27): append-only; every scored non-retry answer logs mastery level + `learning_speed` before/after, `response_quality_rule`, post-fragile-cap `intended_interval_days`, `next_review_at`, `due_backlog_size`, and reserved nullable jitter fields. This is the table Track D replays — the mutated-in-place progress row made "scheduled day 3, answered day 9" indistinguishable without it. `models.py:357`
+- **`TypoAttempt`** (migration `0042`): append-only near-miss typo attempts, kept out of `UserAnswer` so daily-limit counts, timing baselines, and dashboards are untouched (typo missingness was MNAR: longer intervals → more near-misses → observed recall biased upward with elapsed time). `models.py:330`
+- `Question.difficulty_index` / `discrimination_index`: written by `manage.py compute_item_stats` (shrunk CTT indices with min-n guards; flag-for-review only, never auto-hides). Surfaced in the admin question tab with a flag/unflag action (`is_serve_excluded`).
 
 ---
 
@@ -95,8 +102,8 @@ Points accumulate (not reset on promotion). Levels 6–7 roll into the student-f
 
 | Design doc section | Status in code | Evidence |
 |---|---|---|
-| §1 Adaptive intervals (`learning_speed`, DateTimeField, migration 0014) | **Shipped & faithful** | `practice_service.py:358`, `models.py:134`, `migrations/0014_adaptive_intervals.py` |
-| §1a Response-quality scheduling (7 qualities, timing percentiles, fragile cap) | **Shipped & faithful** | `RESPONSE_QUALITY_RULES` table matches doc 1:1 |
+| §1 Adaptive intervals (`learning_speed`, DateTimeField, migration 0014) | **Shipped & faithful** | `practice_service.py:506`, `models.py:136`, `migrations/0014_adaptive_intervals.py` |
+| §1a Response-quality scheduling (7 auto-graded qualities, timing percentiles, fragile cap) | **Shipped & faithful** (+ 3 productive classes since 2026-07-01) | `RESPONSE_QUALITY_RULES` auto-graded classes match doc 1:1 |
 | §2 `WordRelationship` model | **Not started** | No `class WordRelationship` anywhere; grep clean |
 | §2 `Word.lemma` field | **Not started** | `Word` has no `lemma` field (`models.py:19`) |
 | §3 `apply_implicit_credit` / repetition compression | **Not started** | No function, no call site |
@@ -170,7 +177,7 @@ Replace the heuristic `learning_speed` EWMA with a **trainable recall-probabilit
 Why FSRS over HLR as the *primary*: FSRS benchmarks more accurately than HLR and SM-2 on every public dataset, is actively maintained, and is open-source. HLR is the simpler, faster-to-fit baseline — fit it first, report it, then show FSRS beating it. (HLR practical note: fit the published Settles & Meeder 2016 objective, which adds a half-life term `(h_obs − h_pred)²` — probability-only MSE is unstable. Cite it as "simplified HLR" if you drop that term.)
 
 - **Inputs already persisted**: `UserAnswer` (correctness, duration, switches, retries, timestamps), `last_reviewed_at`/`next_review_at`, `MasteryLevelLog` trajectory. No new event capture needed to start. Per-word one-hot embeddings are **not** used — the catalog is too sparse (see §4); features are word *attributes* (lexile, POS, question_type) + per-learner history, exactly what HLR's `w·x` consumes.
-- **Target**: schedule `next_review_at` at a chosen target retention (e.g. 0.85–0.90) instead of `interval_days * learning_speed * factor`.
+- **Target**: schedule `next_review_at` at target retention **r = 0.85** (decided 2026-08-14 — matches the app's observed ~84–86% operating accuracy; 0.90 would roughly double review load for a small retention gain) instead of `interval_days * learning_speed * factor`.
 - **Method**: offline training pipeline → persisted model artifact (`weights.json` for HLR; D/S/R params for FSRS) → inference in `process_answer`. Evaluate with AUC/MAE on held-out recall.
 - **Rollout**: shadow mode first — compute the model's proposed `next_review_at` alongside the current one and log the delta before letting it drive scheduling.
 - **Data**: real usage from a growing cohort, augmented by a learner simulator built *after* the model is fitted (see data-scale + simulator notes below).
@@ -178,12 +185,12 @@ Why FSRS over HLR as the *primary*: FSRS benchmarks more accurately than HLR and
 > ⚠️ **Interval selection bias — the make-or-break caveat for this track.** A decay slope cannot be identified from data with no variance in Δt.
 >
 > **Refined 2026-06-29** (the original "scheduler only ever shows a card at its due time" framing was too strong): in practice learners already review off-schedule. A review **backlog** (daily cap + `next_review_at ASC` ordering) means cards are frequently reviewed *late*, so observed Δt already has *some* natural variance — for free. But that natural variance has two problems:
-> 1. **One-directional.** Backlog only produces *late* reviews (longer Δt). We rarely observe a word reviewed *early* (short Δt, where recall is still high) — exactly the region a scheduler targeting 0.85–0.90 retention cares about most.
+> 1. **One-directional.** Backlog only produces *late* reviews (longer Δt). We rarely observe a word reviewed *early* (short Δt, where recall is still high) — exactly the region a scheduler targeting 0.85 retention cares about most.
 > 2. **Confounded, not random.** Which cards fall into the backlog correlates with difficulty/engagement, so late reviews are a *biased* sample of delays. A curve fit to that variance partly reflects "what caused the backlog," not pure memory decay.
 >
-> **Fix: a small, bounded jitter weighted toward EARLY reviews** (review some cards a day or two before due), to add the short delays the backlog never produces *and* de-confound the sample. Build the jitter + logging into shadow mode from day one. Note: more learners does **not** fix this — it's a Δt-variance problem, independent of N.
+> **Fix — superseded (2026-09-10):** the pre-specified jitter is an **additive draw uniform over {−1, 0, +1, +2} days, never below 1 day**, on a pre-specified random subset of due learner–word pairs, with every draw, its probability, and the intended/realized intervals logged to `SchedulingDecision`. The early-weighted framing collided with the 1-day floor and the day-boundary due cutoff (a day early on a 1-day interval is same-day), and the adopted spec still adds bounded short-delay variance (the −1/0 draws) on top of the backlog's late variance. Build order, cohort enrollment, the 0.75 push-later guardrail, consent, and stopping rules: `plan-shadow-mode-and-interval-jitter.md` (Phases 5–7). Note: more learners does **not** fix this — it's a Δt-variance problem, independent of N.
 >
-> Pedagogically safe: SRS is robust to off-schedule review by design (FSRS itself assumes drift), and learners already review off-schedule daily via the backlog — a bounded early jitter is well inside what they already experience.
+> Pedagogically safe: SRS is robust to off-schedule review by design (FSRS itself assumes drift), and learners already review off-schedule daily via the backlog — a bounded ±1/+2-day offset is well inside what they already experience.
 
 This is the most ambitious track and the reason the schema already uses a DateTimeField for `next_review_at` (sub-day precision) — the heuristic was always meant to be a placeholder for a real memory model.
 
@@ -220,14 +227,14 @@ FSRS/HLR fitting assumes real learner volume and decay data with varied interval
 
 **Phase-0 mechanics (unchanged):**
 - Seed item difficulties from LLM-estimated priors or the earliest `difficulty_index` values, refine as answers accrue.
-- Run Track D in **shadow mode with early-weighted interval jitter** to *accumulate* the varied-Δt recall data the model needs — the heuristic EWMA keeps driving real schedules meanwhile.
+- Run Track D in **shadow mode** to *accumulate* recall data, with the **pre-specified interval jitter** (IRB-gated, additive {−1, 0, +1, +2} draw) adding the Δt variance the backlog can't — the heuristic EWMA keeps driving real schedules meanwhile. Build plan: `plan-shadow-mode-and-interval-jitter.md`.
 - Promote the trained model to drive scheduling only after shadow-mode AUC/MAE and the interval coverage are adequate.
 
 ### Suggested sequencing for the capstone *(revised 2026-06-29)*
 
 ```
 Track C (item quality / regeneration loop)  → self-contained, ships first; independently evaluable
-Track D shadow mode + early-weighted jitter → reuses UserAnswer pipeline; the headline deliverable
+Track D shadow mode + pre-specified jitter  → reuses UserAnswer/SchedulingDecision pipeline; the headline deliverable
 Learner simulator + evaluation              → built AFTER C+D so it's seeded from the fitted system
 Track B (retrieval tweaks)                  → quick wins, easy to A/B against Track D, if time
 Track A (compression)                       → only if review-load reduction becomes a stated goal

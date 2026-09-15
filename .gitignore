@@ -2,6 +2,9 @@
 temp/
 tmp/
 
+# Batch generation queue runner retry state (machine-local, runtime)
+backend/data/generation_queue_state.json
+
 # Machine-local Claude Code settings (per-developer permission state)
 .claude/settings.local.json
 

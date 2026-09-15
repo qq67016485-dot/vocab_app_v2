@@ -34,7 +34,7 @@ You will receive the task the student was given, hidden rubric anchors, and the 
 
 **error_type** (one of): `none` (for `correct`), `wrong_meaning`, `wrong_form`, `spelling`, `echo_definition`, `off_scenario`.
 
-**hints** — an array of **1 to 3** short, friendly, age-appropriate bullet strings. Each bullet is one plain sentence. The FIRST bullet is the main, word-focused feedback; for a miss it must GUIDE toward self-correction and MUST NOT contain a corrected sentence or reveal the exact wording. Tie the first bullet to `error_type`:
+**hints** — an array of **1 to 3** short, friendly, age-appropriate bullet strings. Each bullet is one plain sentence, in **simple English** a young ESL learner can read without effort — short everyday words, short sentences, and never a word harder than the target word itself. The FIRST bullet is the main, word-focused feedback; for a miss it must GUIDE toward self-correction and MUST NOT contain a corrected sentence or reveal the exact wording. Tie the first bullet to `error_type`:
 * `wrong_meaning`: re-anchor to the meaning, invite another try.
 * `wrong_form`: affirm the meaning is right, point at the word's shape/ending.
 * `spelling`: affirm the meaning is right, then point out there's a spelling slip to fix (say whether it's the target word or another word) — do NOT spell the word for them; nudge them to check it.

@@ -12,6 +12,7 @@ from vocabulary.models import (
     GraphicNovel, GraphicNovelPage, ClozeItem, StudentPackCompletion,
     Infographic,
     GenerationJob, GenerationJobLog,
+    TypoAttempt, SchedulingDecision,
 )
 
 
@@ -117,7 +118,6 @@ class DefinitionEmbeddingFactory(factory.django.DjangoModelFactory):
 
     definition = factory.SubFactory(WordDefinitionFactory)
     embedding = factory.LazyFunction(lambda: [0.1] * 768)
-    model_version = 'qwen2.5-embedding-v1'
 
 
 class MasteryLevelFactory(factory.django.DjangoModelFactory):
@@ -208,9 +208,11 @@ class GraphicNovelFactory(factory.django.DjangoModelFactory):
         model = GraphicNovel
 
     pack = factory.SubFactory(WordPackFactory)
-    channel = GraphicNovel.Channel.FIVE_PAGE
     candidate_index = 0
-    is_selected = True
+    # Candidates start unpublished: a pack becomes student-visible only when an
+    # admin explicitly selects a candidate. Tests that need published state
+    # must pass is_selected=True explicitly.
+    is_selected = False
     title = factory.Sequence(lambda n: f'Graphic Novel {n}')
     synopsis = 'A short adventure with recurring characters.'
     characters = factory.LazyFunction(lambda: [
@@ -328,3 +330,29 @@ class GenerationJobLogFactory(factory.django.DjangoModelFactory):
 
     job = factory.SubFactory(GenerationJobFactory)
     step = GenerationJobLog.Step.WORD_LOOKUP
+
+
+class TypoAttemptFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = TypoAttempt
+
+    user = factory.SubFactory(StudentUserFactory)
+    question = factory.SubFactory(QuestionFactory)
+    attempted_text = 'brigt'
+
+
+class SchedulingDecisionFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = SchedulingDecision
+
+    user = factory.SubFactory(StudentUserFactory)
+    word = factory.SubFactory(WordFactory)
+    question = factory.SubFactory(QuestionFactory)
+    mastery_level_before = 1
+    mastery_level_after = 1
+    learning_speed_before = 1.0
+    learning_speed_after = 1.0
+    response_quality_rule = 'solid_correct'
+    intended_interval_days = 1.0
+    next_review_at = factory.LazyFunction(timezone.now)
+    due_backlog_size = 0

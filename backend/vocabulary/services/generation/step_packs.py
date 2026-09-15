@@ -10,6 +10,9 @@ from vocabulary.models import (
     WordPack, WordPackItem, PrimerCardContent,
     GenerationJob, GenerationJobLog,
 )
+from vocabulary.services.generation.content_reuse import (
+    find_reusable_primer_words,
+)
 from vocabulary.services.generation.helpers import (
     _content_lexile, _log_step, _log_metadata,
     _call_llm_with_config,
@@ -253,67 +256,92 @@ def _sanitize_syllable_text(term, syllable_text):
     return term
 
 
-def _step_generate_primers(job, words, words_data, site_config=None):
+def _step_generate_primers(job, words, words_data, site_config=None, allow_reuse=True):
     """
     Step 6: Call LLM to generate primer card content for each word.
     Uses definition and example_sentence from step 1 (word lookup).
     LLM generates syllable_text and kid_friendly_definition only.
+
+    Primer rows are shared per word (OneToOne). Cross-wordset reuse
+    (``allow_reuse``): a word whose primer was authored within the Lexile reuse
+    window is skipped — otherwise the LLM is re-paid and the shared row
+    silently overwritten at every lexile. Restart passes ``False`` and clears
+    the rows first, so an explicit rerun always regenerates.
     """
     if site_config is None:
         from vocabulary.services.generation.llm_config_service import get_step_config
         site_config = get_step_config('primer_gen')['primary']
     start = time.time()
     try:
-        template = _llm_service.load_prompt_template('primer_generation')
+        word_map = {w.text.lower(): w for w in words}
+        content_lexile = _content_lexile(job)
+        reusable_word_ids = (
+            find_reusable_primer_words(words, content_lexile)
+            if allow_reuse else set()
+        )
 
-        word_info_parts = []
         words_data_map = {}
+        pending_parts = []
         for wd in words_data:
             term = wd['term']
             words_data_map[term.lower()] = wd
-            word_info_parts.append(
-                f"- {term} ({wd.get('part_of_speech', '')}): "
-                f"definition: {wd.get('definition', '')} | "
-                f"example: {wd.get('example_sentence', '')}"
-            )
+            word = word_map.get(term.lower())
+            if word is None or word.id not in reusable_word_ids:
+                pending_parts.append(
+                    f"- {term} ({wd.get('part_of_speech', '')}): "
+                    f"definition: {wd.get('definition', '')} | "
+                    f"example: {wd.get('example_sentence', '')}"
+                )
 
-        user_prompt = '\n'.join(word_info_parts)
-        prompt_text = template.replace('{target_lexile}', str(_content_lexile(job)))
-        result = _call_llm_with_config(site_config, prompt_text, user_prompt)
-        primers = result.get('primer_cards', [])
-
-        word_map = {w.text.lower(): w for w in words}
         created_count = 0
         created_terms = set()
+        template = _llm_service.load_prompt_template('primer_generation')
 
-        for pc in primers:
-            term = pc.get('term', '').lower()
-            word = word_map.get(term)
-            if not word:
-                logger.warning("Primer for unknown term '%s', skipping", term)
-                continue
+        if pending_parts:
+            user_prompt = '\n'.join(pending_parts)
+            prompt_text = template.replace('{target_lexile}', str(content_lexile))
+            result = _call_llm_with_config(site_config, prompt_text, user_prompt)
+            primers = result.get('primer_cards', [])
 
-            wd = words_data_map.get(term, {})
-            example = wd.get('example_sentence', '')
+            for pc in primers:
+                term = pc.get('term', '').lower()
+                word = word_map.get(term)
+                if not word:
+                    logger.warning("Primer for unknown term '%s', skipping", term)
+                    continue
 
-            syllable_text = _sanitize_syllable_text(
-                word.text, pc.get('syllable_text', '')
+                wd = words_data_map.get(term, {})
+                example = wd.get('example_sentence', '')
+
+                syllable_text = _sanitize_syllable_text(
+                    word.text, pc.get('syllable_text', '')
+                )
+
+                PrimerCardContent.objects.update_or_create(
+                    word=word,
+                    defaults={
+                        'syllable_text': syllable_text,
+                        'kid_friendly_definition': pc.get('kid_friendly_definition', ''),
+                        'example_sentence': example,
+                        'generated_content_lexile': content_lexile,
+                    },
+                )
+                created_count += 1
+                created_terms.add(term)
+
+            pending_terms = {
+                wd['term'].lower() for wd in words_data
+                if wd['term'].lower() in word_map
+                and word_map[wd['term'].lower()].id not in reusable_word_ids
+            }
+            missing_terms = pending_terms - created_terms
+            if missing_terms:
+                raise ValueError(f"Primer generation missing target words: {sorted(missing_terms)}")
+        else:
+            logger.info(
+                "Primer generation: all %d word(s) reused from prior in-window "
+                "jobs; no LLM call.", len(reusable_word_ids),
             )
-
-            PrimerCardContent.objects.update_or_create(
-                word=word,
-                defaults={
-                    'syllable_text': syllable_text,
-                    'kid_friendly_definition': pc.get('kid_friendly_definition', ''),
-                    'example_sentence': example,
-                },
-            )
-            created_count += 1
-            created_terms.add(term)
-
-        missing_terms = set(word_map) - created_terms
-        if missing_terms:
-            raise ValueError(f"Primer generation missing target words: {sorted(missing_terms)}")
 
         job.primer_cards_created = created_count
         job.save(update_fields=['primer_cards_created'])
@@ -328,6 +356,7 @@ def _step_generate_primers(job, words, words_data, site_config=None):
                 prompt_template='primer_generation',
                 prompt_text=template,
                 primers_created=created_count,
+                primers_reused=len(reusable_word_ids),
                 target_word_count=len(word_map),
             ),
         )
